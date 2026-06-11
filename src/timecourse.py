@@ -7,6 +7,7 @@ from src.biomodels_iterator import getBiomodelsEndtimes  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
 
 from collections import namedtuple
+import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pickle
 import os
@@ -319,3 +320,61 @@ class Timecourse(object):
             )
         plot_options.apply()
         return plot_options
+    
+    @classmethod
+    def makeTimecourses(cls, model: Model,
+        start_time: float = cn.START_TIME,
+        end_time: Optional[float] = None,
+        num_point: int = cn.NUM_POINTS,
+        perturbation_value_fraction: List[float] = [0.0],
+        perturbation_species_fraction: List[float] = [1.0],
+        is_plot: bool = True,
+        ) -> List['Timecourse']:
+        """Create one Timecourse for every combination of perturbation parameters.
+        Constructs a subplot that contains each species. Values are plotted as a scatter plot.
+
+
+        Parameters
+        ----------
+        model : Model
+        start_time : float
+        end_time : Optional[float]
+            None uses BioModels CSV lookup or leaves end_time unset.
+        num_point : int
+        perturbation_value_fraction : List[float]
+            Each value is the fractional shift applied to perturbed initial values.
+        perturbation_species_fraction : List[float]
+            Each value is the fraction of species whose initial values are perturbed.
+
+        Returns
+        -------
+        List[Timecourse]
+            One entry per (perturbation_value_fraction, perturbation_species_fraction) pair,
+            in row-major order (value_fraction varies slowest).
+        """
+        timecourses = []
+        for value_frac in perturbation_value_fraction:
+            for species_frac in perturbation_species_fraction:
+                timecourses.append(cls(
+                    model=model,
+                    start_time=start_time,
+                    end_time=end_time,
+                    num_point=num_point,
+                    perturbation_value_fraction=value_frac,
+                    perturbation_species_fraction=species_frac,
+                ))
+        if is_plot:
+            num_species = model.num_species
+            fig, axes = plt.subplots(1, num_species, figsize=(4 * num_species, 4))
+            if num_species == 1:
+                axes = [axes]
+            for i, name in enumerate(model.species_names):
+                ax = axes[i]
+                for tc in timecourses:
+                    ax.plot(tc.timecourse_df.index, tc.timecourse_df[name])
+                ax.set_title(name)
+                ax.set_xlabel("time")
+                ax.set_ylabel("concentration")
+            fig.tight_layout()
+            plt.show()
+        return timecourses

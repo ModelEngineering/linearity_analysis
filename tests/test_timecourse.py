@@ -476,5 +476,169 @@ class TestTimecourseNumPerturbed(unittest.TestCase):
         self.assertEqual(tc.num_perturbation, len(tc.perturbation_dct))
 
 
+class TestMakeTimecourses(unittest.TestCase):
+    """Tests for Timecourse.makeTimecourses."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.model = _makeModel()
+
+    def tearDown(self) -> None:
+        plt.close("all")
+
+    def test_returns_list(self) -> None:
+        if IGNORE_TESTS:
+            return
+        result = Timecourse.makeTimecourses(self.model, end_time=10.0, is_plot=False)
+        self.assertIsInstance(result, list)
+
+    def test_single_combination_length(self) -> None:
+        if IGNORE_TESTS:
+            return
+        result = Timecourse.makeTimecourses(
+                self.model, end_time=10.0,
+                perturbation_value_fraction=[0.0],
+                perturbation_species_fraction=[1.0],
+                is_plot=False)
+        self.assertEqual(len(result), 1)
+
+    def test_two_value_fractions_length(self) -> None:
+        if IGNORE_TESTS:
+            return
+        result = Timecourse.makeTimecourses(
+                self.model, end_time=10.0,
+                perturbation_value_fraction=[0.0, 0.1],
+                perturbation_species_fraction=[1.0],
+                is_plot=False)
+        self.assertEqual(len(result), 2)
+
+    def test_cartesian_product_length(self) -> None:
+        if IGNORE_TESTS:
+            return
+        result = Timecourse.makeTimecourses(
+                self.model, end_time=10.0,
+                perturbation_value_fraction=[0.0, 0.1],
+                perturbation_species_fraction=[0.5, 1.0],
+                is_plot=False)
+        self.assertEqual(len(result), 4)
+
+    def test_all_items_are_timecourse(self) -> None:
+        if IGNORE_TESTS:
+            return
+        result = Timecourse.makeTimecourses(
+                self.model, end_time=10.0,
+                perturbation_value_fraction=[0.0, 0.1],
+                perturbation_species_fraction=[0.5, 1.0],
+                is_plot=False)
+        for item in result:
+            self.assertIsInstance(item, Timecourse)
+
+    def test_value_fraction_varies_slowest(self) -> None:
+        if IGNORE_TESTS:
+            return
+        # [0.0, 0.1] x [0.5, 1.0] → indices 0,1 share value_frac=0.0; 2,3 share 0.1
+        result = Timecourse.makeTimecourses(
+                self.model, end_time=10.0,
+                perturbation_value_fraction=[0.0, 0.1],
+                perturbation_species_fraction=[0.5, 1.0],
+                is_plot=False)
+        self.assertEqual(result[0].perturbation_value_fraction,
+                result[1].perturbation_value_fraction)
+        self.assertNotEqual(result[0].perturbation_value_fraction,
+                result[2].perturbation_value_fraction)
+
+    def test_perturbation_value_fraction_propagated(self) -> None:
+        if IGNORE_TESTS:
+            return
+        result = Timecourse.makeTimecourses(
+                self.model, end_time=10.0,
+                perturbation_value_fraction=[0.0, 0.2],
+                perturbation_species_fraction=[1.0],
+                is_plot=False)
+        self.assertAlmostEqual(result[0].perturbation_value_fraction, 0.0)
+        self.assertAlmostEqual(result[1].perturbation_value_fraction, 0.2)
+
+    def test_perturbation_species_fraction_propagated(self) -> None:
+        if IGNORE_TESTS:
+            return
+        result = Timecourse.makeTimecourses(
+                self.model, end_time=10.0,
+                perturbation_value_fraction=[0.0],
+                perturbation_species_fraction=[0.5, 1.0],
+                is_plot=False)
+        self.assertAlmostEqual(result[0].perturbation_species_fraction, 0.5)
+        self.assertAlmostEqual(result[1].perturbation_species_fraction, 1.0)
+
+    def test_num_point_propagated(self) -> None:
+        if IGNORE_TESTS:
+            return
+        result = Timecourse.makeTimecourses(
+                self.model, end_time=10.0, num_point=7, is_plot=False)
+        for tc in result:
+            self.assertEqual(tc.num_point, 7)
+
+    def test_start_time_propagated(self) -> None:
+        if IGNORE_TESTS:
+            return
+        result = Timecourse.makeTimecourses(
+                self.model, start_time=2.0, end_time=10.0, is_plot=False)
+        for tc in result:
+            self.assertEqual(tc.start_time, 2.0)
+
+    def test_is_plot_false_creates_no_figure(self) -> None:
+        if IGNORE_TESTS:
+            return
+        before = set(plt.get_fignums())
+        Timecourse.makeTimecourses(self.model, end_time=10.0, is_plot=False)
+        self.assertEqual(before, set(plt.get_fignums()))
+
+    def test_is_plot_true_creates_one_subplot_per_species(self) -> None:
+        if IGNORE_TESTS:
+            return
+        with patch("matplotlib.pyplot.show"):
+            Timecourse.makeTimecourses(
+                    self.model, end_time=10.0, num_point=NUM_POINT,
+                    perturbation_value_fraction=[0.0],
+                    perturbation_species_fraction=[0.0],
+                    is_plot=True)
+        self.assertEqual(len(plt.gcf().axes), NUM_SPECIES)
+
+    def test_subplot_titles_match_species_names(self) -> None:
+        if IGNORE_TESTS:
+            return
+        with patch("matplotlib.pyplot.show"):
+            Timecourse.makeTimecourses(
+                    self.model, end_time=10.0, num_point=NUM_POINT,
+                    perturbation_value_fraction=[0.0],
+                    perturbation_species_fraction=[0.0],
+                    is_plot=True)
+        titles = [ax.get_title() for ax in plt.gcf().axes]
+        self.assertEqual(titles, self.model.species_names)
+
+    def test_subplot_xlabel_is_time(self) -> None:
+        if IGNORE_TESTS:
+            return
+        with patch("matplotlib.pyplot.show"):
+            Timecourse.makeTimecourses(
+                    self.model, end_time=10.0, num_point=NUM_POINT,
+                    perturbation_value_fraction=[0.0],
+                    perturbation_species_fraction=[0.0],
+                    is_plot=True)
+        for ax in plt.gcf().axes:
+            self.assertEqual(ax.get_xlabel(), "time")
+
+    def test_subplot_ylabel_is_concentration(self) -> None:
+        if IGNORE_TESTS:
+            return
+        with patch("matplotlib.pyplot.show"):
+            Timecourse.makeTimecourses(
+                    self.model, end_time=10.0, num_point=NUM_POINT,
+                    perturbation_value_fraction=[0.0],
+                    perturbation_species_fraction=[0.0],
+                    is_plot=True)
+        for ax in plt.gcf().axes:
+            self.assertEqual(ax.get_ylabel(), "concentration")
+
+
 if __name__ == "__main__":
     unittest.main()
