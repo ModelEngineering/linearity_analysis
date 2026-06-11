@@ -479,6 +479,8 @@ class TestTimecourseNumPerturbed(unittest.TestCase):
 class TestMakeTimecourses(unittest.TestCase):
     """Tests for Timecourse.makeTimecourses."""
 
+    model: Model
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.model = _makeModel()
@@ -574,16 +576,14 @@ class TestMakeTimecourses(unittest.TestCase):
             return
         result = Timecourse.makeTimecourses(
                 self.model, end_time=10.0, num_point=7, is_plot=False)
-        for tc in result:
-            self.assertEqual(tc.num_point, 7)
+        self.assertEqual(result[0].num_point, 7)
 
     def test_start_time_propagated(self) -> None:
         if IGNORE_TESTS:
             return
         result = Timecourse.makeTimecourses(
                 self.model, start_time=2.0, end_time=10.0, is_plot=False)
-        for tc in result:
-            self.assertEqual(tc.start_time, 2.0)
+        self.assertAlmostEqual(result[0].start_time, 2.0)
 
     def test_is_plot_false_creates_no_figure(self) -> None:
         if IGNORE_TESTS:

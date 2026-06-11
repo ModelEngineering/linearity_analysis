@@ -329,7 +329,7 @@ class Timecourse(object):
         perturbation_value_fraction: List[float] = [0.0],
         perturbation_species_fraction: List[float] = [1.0],
         is_plot: bool = True,
-        ) -> pd.DataFrame:
+        ) -> List["Timecourse"]:
         """Create one Timecourse for every combination of perturbation parameters.
         Constructs a subplot that contains each species. Values are plotted as a scatter plot.
 
@@ -348,38 +348,29 @@ class Timecourse(object):
 
         Returns
         -------
-        pd.DataFrame
-            A DataFrame containing the timecourses for all combinations of perturbation parameters.
+        List[Timecourse]
+            One Timecourse per combination of perturbation parameters.
         """
-        VALUE_FRAC = "value_frac"
-        SPECIES_FRAC = "species_frac"
-        timecourses = []
-        dfs: List[pd.DataFrame] = []
+        timecourses: List[Timecourse] = []
         perturbation_names: List[str] = []
         for value_frac in perturbation_value_fraction:
             for species_frac in perturbation_species_fraction:
-                timecourse = (cls(
+                timecourse = cls(
                     model=model,
                     start_time=start_time,
                     end_time=end_time,
                     num_point=num_point,
                     perturbation_value_fraction=value_frac,
                     perturbation_species_fraction=species_frac,
-                ))
-                timecourse_df = timecourse.timecourse_df.copy()
-                timecourse_df[VALUE_FRAC] = value_frac
-                timecourse_df[SPECIES_FRAC] = species_frac
-                dfs.append(timecourse_df)
+                )
                 timecourses.append(timecourse)
                 perturbation_names.append(f"vfrc:{value_frac}__sfrc:{species_frac}")
-        result_df = pd.concat(dfs, ignore_index=True)
         if is_plot:
             num_species = model.num_species
             num_col = 4
             num_row = (num_species + num_col - 1) // num_col
-            fig, axes = plt.subplots(num_row, num_col, figsize=(4 * num_col, 4 * num_row))
-            if num_species == 1:
-                axes = [axes]
+            fig, axes = plt.subplots(num_row, num_col, figsize=(4 * num_col, 4 * num_row),
+                squeeze=False)
             for i, name in enumerate(model.species_names):
                 irow = i // num_col
                 icol = i % num_col
@@ -396,4 +387,4 @@ class Timecourse(object):
                         fig.delaxes(axes[i, j])  # type: ignore
             fig.tight_layout()
             plt.show()
-        return result_df
+        return timecourses

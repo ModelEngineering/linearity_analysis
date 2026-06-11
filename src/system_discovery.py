@@ -37,6 +37,7 @@ To Do:
 1. Integrate normalizer
 """
 from dataclasses import dataclass
+from src.model import Model  # type: ignore
 from src.scaler import Scaler  # type: ignore
 from src.timecourse import Timecourse  # type: ignore
 from src.timecourse_iterator import TimecourseIterator  # type: ignore
@@ -51,6 +52,8 @@ from typing import Literal, cast
 import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning)
+
+NULL_DF = pd.DataFrame()
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +277,120 @@ class SystemDiscovery:
             timecourse = TimecourseIterator().getTimecourse(model_name)
         return cls(timecourse.timecourse_df, threshold=threshold, poly_degree=poly_degree)
 
+    @classmethod
+    def perturbationAnalysis(
+        cls,
+        model: Model,
+        training_df: pd.DataFrame,
+        threshold: float,
+        perturbations: list[float],
+        perturbation_species_fraction: float = 1.0,
+        figsize: tuple[float, float] | None = None,
+        poly_degree: int = 1,
+        frac_keep: float = 0.2,
+        show: bool = True,
+    ) -> plt.Figure:  # type: ignore
+        """Fit on training_df then plot observed trajectories for each perturbation.
+
+        For each value in *perturbations*, a ground-truth timecourse is simulated
+        from *model* using that ``perturbation_value_fraction``.  The discovered
+        ODE is evaluated against each timecourse and R² is reported in the legend.
+        The unperturbed trajectory (fraction=0) is drawn as a solid line; all
+        others are dashed.
+
+        Parameters
+        ----------
+        model : Model
+            Used to simulate ground-truth timecourses for each perturbation.
+        training_df : pd.DataFrame
+            Unperturbed timecourse used to fit the SystemDiscovery.  Index is
+            time; columns are species.
+        threshold : float
+            STLSQ sparsity threshold.
+        perturbations : list[float]
+            Values of ``perturbation_value_fraction`` to evaluate.
+        poly_degree : int
+            Degree of the polynomial library.
+        perturbation_species_fraction : float
+            Fraction of species whose initial values are perturbed.  Default 1.0.
+        figsize : tuple, optional
+            Figure size in inches.  Auto-sized when *None*.
+        frac_keep : float, optional
+            Fraction of data points to keep for plotting.  Default 0.2.
+
+        show : bool
+            Call ``plt.show()`` at the end.
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+        """
+        start_time = float(training_df.index[0])
+        end_time = float(training_df.index[-1])
+        num_point = len(training_df)
+
+        disc = cls(training_df, threshold=threshold, poly_degree=poly_degree)
+        disc.fit()
+
+        # Generate (perturbation_value_frac, test_df, pred_df, r2_per_species) for each value
+        records: list[tuple[float, pd.DataFrame, pd.DataFrame | None, dict[str, float]]] = []
+        for p in perturbations:
+            tc = Timecourse(
+                model=model,
+                start_time=start_time,
+                end_time=end_time,
+                num_point=num_point,
+                perturbation_value_fraction=p,
+                perturbation_species_fraction=perturbation_species_fraction,
+            )
+            test_df = tc.timecourse_df
+            try:
+                pred_df: pd.DataFrame | None = disc.predict(test_df)
+            except Exception:
+                pred_df = None
+            r2_dct = disc.calculateRsq(method="simulation", test_df=test_df)
+            records.append((p, test_df, pred_df, r2_dct))
+
+        n = len(disc.species_names)
+        ncols = min(n, 3)
+        nrows = (n + ncols - 1) // ncols
+        if figsize is None:
+            figsize = (5 * ncols, 3.5 * nrows)
+
+        fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
+        fig.suptitle("Perturbation Analysis", fontsize=14, fontweight="bold")
+
+        num_skip = int(num_point * frac_keep) 
+        for sp_idx, sp_name in enumerate(disc.species_names):
+            row, col = divmod(sp_idx, ncols)
+            ax = axes[row][col]
+            sp_col = disc.species_cols[sp_idx]
+            for p_idx, (p, test_df, pred_df, r2_dct) in enumerate(records):
+                r2 = r2_dct.get(sp_name, float("nan"))
+                r2_str = f"{r2:.3f}" if np.isfinite(r2) else "nan"
+                label = f"vfrac={p:.2f}, R²={r2_str}"
+                color = f"C{p_idx}"
+                ax.scatter(test_df.index[::num_skip], test_df[sp_col][::num_skip],
+                        s=10, color=color,
+                        alpha=0.6, label=label)
+                if pred_df is not None:
+                    ax.plot(pred_df.index, pred_df[sp_name], linestyle="--",
+                            color=color, lw=1.5)
+            ax.set_title(sp_name)
+            ax.set_xlabel("Time")
+            ax.set_ylabel("Concentration")
+            ax.legend(fontsize=8)
+            ax.grid(True, alpha=0.3)
+
+        for idx in range(n, nrows * ncols):
+            row, col = divmod(idx, ncols)
+            axes[row][col].set_visible(False)
+
+        fig.tight_layout()
+        if show:
+            plt.show()
+        return fig
+
     def plot_coefficient_heatmap(
         self,
         figsize: tuple[float, float] | None = None,
@@ -328,6 +445,7 @@ class SystemDiscovery:
 
     def plotResult(
         self,
+        test_df: pd.DataFrame = NULL_DF,
         figsize: tuple[float, float] | None = None,
         show: bool = True,
         num_true_point: int = 20,
@@ -348,6 +466,13 @@ class SystemDiscovery:
         -------
         matplotlib.figure.Figure
         """
+        if test_df is not NULL_DF:
+            X = test_df.values
+            time_arr = test_df.index.values
+        else:
+            X = self.X
+            time_arr = self.time_arr
+        #
         self._require_fitted()
 
         n = len(self.species_names)
@@ -366,29 +491,29 @@ class SystemDiscovery:
         )
 
         try:
-            pred_df = self.predict()
+            pred_df = self.predict(test_df)
             prediction_ok = True
         except Exception as exc:
             warnings.warn(f"Prediction failed for plotting: {exc}")
             pred_df = None
             prediction_ok = False
 
-        r2_vals = self.calculateRsq(method="simulation")
+        r2_vals = self.calculateRsq(method="simulation", test_df=test_df)
 
-        num_skip_point = max(1, len(self.time_arr) // num_true_point)
+        num_skip_point = max(1, len(time_arr) // num_true_point)
         for idx, name in enumerate(self.species_names):
             row, col = divmod(idx, ncols)
             ax = axes[row][col]
             color = f"C{idx}"
-            ax.scatter(self.time_arr[::num_skip_point], self.X[::num_skip_point, idx], s=20, color=color, label=f"{name} (observed)")
+            ax.scatter(time_arr[::num_skip_point], X[::num_skip_point, idx], s=20, color=color, label=f"{name} (observed)")
             if prediction_ok and pred_df is not None:
                 ax.plot(pred_df.index, pred_df[name], "-", lw=2, color=color, label=f"{name} (predicted)")
             r2 = r2_vals.get(name, float("nan"))
             title = f"{name}"
             if not np.isnan(r2):
-                title += f"   R²={r2:.4f}"
-            low_y = self.X[:, idx].min()
-            high_y = self.X[:, idx].max()
+                title += f"   R²={r2:.4f}"  # may be negative; clamping removed
+            low_y = X[:, idx].min()
+            high_y = X[:, idx].max()
             if np.isclose(low_y, high_y):
                 low_y -= 0.1*low_y
                 high_y += 0.1*high_y
@@ -409,8 +534,15 @@ class SystemDiscovery:
             plt.show()
         return fig
 
-    def predict(self) -> pd.DataFrame:
+    def predict(self, test_df: pd.DataFrame = NULL_DF) -> pd.DataFrame:
         """Integrate the discovered ODE and return predicted concentrations.
+
+        Parameters
+        ----------
+        test_df : pd.DataFrame, optional
+            If provided, integration starts from ``test_df.values[0]`` and
+            evaluates at ``test_df.index`` time points.  When omitted, the
+            training initial condition and time grid are used.
 
         Returns
         -------
@@ -420,8 +552,15 @@ class SystemDiscovery:
             columns: species names; index: time points
         """
         self._require_fitted()
-        X_sim = self._simulate()
-        return pd.DataFrame(X_sim, index=self.time_arr, columns=self.species_names)
+        if test_df is not NULL_DF:
+            x0 = test_df.to_numpy(dtype=float)[0, :]
+            time_arr = test_df.index.to_numpy(dtype=float)
+        else:
+            x0 = None
+            time_arr = None
+        X_sim = self._simulate(x0=x0, time_arr=time_arr)
+        t_idx = time_arr if time_arr is not None else self.time_arr
+        return pd.DataFrame(X_sim, index=t_idx, columns=self.species_names)
 
     def printEquations(self) -> None:
         """Pretty-print the discovered ODE equations."""
@@ -451,7 +590,8 @@ class SystemDiscovery:
             for i, sp_name in enumerate(self.species_names)
         }
 
-    def calculateRsq(self, method: str = "derivative") -> dict[str, float]:
+    def calculateRsq(self, method: str = "derivative",
+            test_df: pd.DataFrame = NULL_DF) -> dict[str, float]:
         """Compute R² for each species.
 
         Parameters
@@ -462,17 +602,29 @@ class SystemDiscovery:
             ``"simulation"`` – integrates the ODE forward and compares
             trajectories; more informative but may fail for stiff systems or
             poorly-identified models.
+        test_df : pd.DataFrame, optional
+            If provided, R² is computed against this DataFrame instead of the
+            training data.  Must have the same column structure as the training
+            DataFrame.
 
         Returns
         -------
         dict mapping species name → R²
         """
         self._require_fitted()
+        if test_df is not NULL_DF:
+            X = test_df.to_numpy(dtype=float)
+            time_arr = test_df.index.to_numpy(dtype=float)
+        else:
+            X = None
+            time_arr = None
         try:
             if method == "simulation":
-                result = self._r_squared_simulation()
+                result = self._r_squared_simulation(X=X, time_arr=time_arr)
             else:
-                result = self._r_squared_derivative()
+                X_list = [X] if X is not None else None
+                time_list = [time_arr] if time_arr is not None else None
+                result = self._r_squared_derivative(X_list=X_list, time_list=time_list)
         except Exception as exc:
             warnings.warn(f"R² computation failed: {exc}")
             result = self._r_squared_derivative()
@@ -595,13 +747,17 @@ class SystemDiscovery:
                 powers[factor] = 1
         return powers
 
-    def _r_squared_derivative(self) -> dict[str, float]:
-        """
-        R² on predicted vs actual.
-        """
+    def _r_squared_derivative(self,
+            X_list: list[np.ndarray] | None = None,
+            time_list: list[np.ndarray] | None = None) -> dict[str, float]:
+        """R² on predicted vs numerical derivatives. Returns raw (possibly negative) values."""
+        if X_list is None:
+            X_list = self._X_list
+        if time_list is None:
+            time_list = self._time_list
         zdot_pred_parts = []
         zdot_num_parts = []
-        for X, t in zip(self._X_list, self._time_list):
+        for X, t in zip(X_list, time_list):
             Z = self._normalizer.normalize(X)
             zdot_pred_parts.append(np.array(self.model.predict(Z)))
             zdot_num_parts.append(self.model.differentiation_method(Z, t))  # type: ignore
@@ -614,20 +770,23 @@ class SystemDiscovery:
             ss_res = np.sum((y_true - y_pred) ** 2)
             ss_tot = np.sum((y_true - y_true.mean()) ** 2)
             r2[name] = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
-            r2[name] = self._normalize_rsq(r2[name])
         return r2
 
-    def _r_squared_simulation(self) -> dict[str, float]:
-        """R² on simulated concentration trajectories."""
+    def _r_squared_simulation(self,
+                               X: np.ndarray | None = None,
+                               time_arr: np.ndarray | None = None) -> dict[str, float]:
+        """R² on simulated concentration trajectories. Returns raw (possibly negative) values."""
+        if X is None:
+            X = self.X
+        if time_arr is None:
+            time_arr = self.time_arr
         try:
-            X_sim = self._simulate()
+            X_sim = self._simulate(x0=X[0, :], time_arr=time_arr)
             r2 = {}
             for i, name in enumerate(self.species_names):
-                # FIXME: Can get float overruns
-                ss_res = np.sum((self.X[:, i] - X_sim[:, i]) ** 2)
-                ss_tot = np.sum((self.X[:, i] - self.X[:, i].mean()) ** 2)
+                ss_res = np.sum((X[:, i] - X_sim[:, i]) ** 2)
+                ss_tot = np.sum((X[:, i] - X[:, i].mean()) ** 2)
                 r2[name] = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
-                r2[name] = self._normalize_rsq(r2[name])
             return r2
         except Exception as exc:
             warnings.warn(f"Simulation R² failed: {exc}. Use method='derivative'.")
@@ -637,29 +796,30 @@ class SystemDiscovery:
         if not self._is_fitted:
             raise RuntimeError("Call `.fit()` before using this method.")
 
-    def _simulate(self) -> np.ndarray:
-        """Integrate the discovered ODE forward from the first observation."""
-        x0 = self.X[0, :]
+    def _simulate(self,
+                  x0: np.ndarray | None = None,
+                  time_arr: np.ndarray | None = None) -> np.ndarray:
+        """Integrate the discovered ODE forward from *x0* over *time_arr*."""
+        if x0 is None:
+            x0 = self.X[0, :]
+        if time_arr is None:
+            time_arr = self.time_arr
 
-        def rhs(t, x):
+        def rhs(_t, x):
             z = self._normalizer.normalize(x)
-            #z = x / self._species_std
             dz_dt = self.model.predict(z.reshape(1, -1))[0]
             dx_dt = self._normalizer.denormalize(dz_dt)
             return np.array(dx_dt, dtype=float)
 
-
         try:
             sol = solve_ivp(
                 rhs,
-                t_span=(self.time_arr[0], self.time_arr[-1]),
+                t_span=(time_arr[0], time_arr[-1]),
                 y0=x0,
-                t_eval=self.time_arr,
-                #method="LSODA",
+                t_eval=time_arr,
                 method="Radau",
                 rtol=1e-6,
                 atol=1e-8,
-                #max_step=0.01
             )
         except Exception as exc:
             raise RuntimeError(f"ODE integration failed: {exc}") from exc
@@ -689,6 +849,7 @@ class SystemDiscovery:
 
 def discoverNetwork(
     df: pd.DataFrame | list[pd.DataFrame],
+    test_df: pd.DataFrame = NULL_DF,
     threshold: float = 0.01,
     alpha: float = 0.05,
     differentiation: DifferentiationMethod = "smooth",
@@ -752,7 +913,7 @@ def discoverNetwork(
     print()
 
     try:
-        r2_sim = disc.calculateRsq(method="simulation")
+        r2_sim = disc.calculateRsq(method="simulation", test_df=test_df)
         print("R² on simulated trajectories per species:")
         for name, val in r2_sim.items():
             print(f"  {name}: {val:.6f}")
@@ -761,7 +922,7 @@ def discoverNetwork(
         pass
 
     if plot:
-        disc.plotResult()
+        disc.plotResult(test_df)
     if heatmap:
         disc.plot_coefficient_heatmap()
 
