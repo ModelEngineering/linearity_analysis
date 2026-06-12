@@ -76,9 +76,9 @@ class Timecourse(object):
                         else bool(np.isclose(self.end_time, other.end_time))) and
                 self.num_point == other.num_point and
                 bool(np.allclose(self.timecourse_df.values,
-                        other.timecourse_df.values)) and
+                        other.timecourse_df.values, equal_nan=True)) and
                 bool(np.allclose(self.jacobian_collection_arr,
-                        other.jacobian_collection_arr)))
+                        other.jacobian_collection_arr, equal_nan=True)))
 
     def _updateEndtime(self, end_time: Optional[float]=None):
         """Determine the end time and its source."""

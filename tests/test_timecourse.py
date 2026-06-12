@@ -18,6 +18,8 @@ from src.plot_options import PlotOptions  # type: ignore
 from timecourse import Timecourse  # type: ignore
 
 IGNORE_TESTS = False
+HAS_REAL_ZIP = os.path.isfile(cn.TIMECOURSE_ZIP_PATH)
+BIOMODEL_53 = "BIOMD0000000053"
 
 ANTIMONY_MODEL = """
 S1 -> S2; k1*S1
@@ -638,6 +640,18 @@ class TestMakeTimecourses(unittest.TestCase):
                     is_plot=True)
         for ax in plt.gcf().axes:
             self.assertEqual(ax.get_ylabel(), "concentration")
+
+
+class TestTimecourseEqRealBiomodel(unittest.TestCase):
+    """Verifies __eq__ with a real BioModel timecourse loaded from the zip archive."""
+
+    @unittest.skipUnless(HAS_REAL_ZIP, "Real timecourse zip not found")
+    def test_biomodel53_equals_itself(self) -> None:
+        if IGNORE_TESTS:
+            return
+        from timecourse_iterator import TimecourseIterator  # type: ignore
+        tc = TimecourseIterator().getTimecourse(BIOMODEL_53)
+        self.assertEqual(tc, tc)
 
 
 if __name__ == "__main__":
