@@ -389,6 +389,7 @@ class SystemDiscovery:
         fig.tight_layout()
         if show:
             plt.show()
+            plt.close(fig)
         return fig
 
     def plot_coefficient_heatmap(
@@ -441,6 +442,7 @@ class SystemDiscovery:
         fig.tight_layout()
         if show:
             plt.show()
+            plt.close(fig)
         return fig
 
     def plotResult(
@@ -532,6 +534,7 @@ class SystemDiscovery:
         fig.tight_layout()
         if show:
             plt.show()
+            plt.close(fig)
         return fig
 
     def predict(self, test_df: pd.DataFrame = NULL_DF) -> pd.DataFrame:
@@ -636,6 +639,25 @@ class SystemDiscovery:
         if np.isnan(rsq):
             return 0.0
         return max(0.0, min(1.0, rsq))
+
+    def minR2(self, test_df: pd.DataFrame = NULL_DF) -> float:
+        """Return the minimum clamped R² across all species for *test_df*.
+
+        Parameters
+        ----------
+        test_df : pd.DataFrame, optional
+            If provided, R² is evaluated against this DataFrame (simulation
+            from its initial conditions vs observed).  When omitted, the
+            training data are used.
+
+        Returns
+        -------
+        float
+            Minimum R² across species, clamped to [0, 1].
+        """
+        self._require_fitted()
+        r2_raw = self.calculateRsq(method="simulation", test_df=test_df)
+        return self._normalize_rsq(float(np.min(list(r2_raw.values()))))
 
     def score(self) -> ScoreInfo:
         """Return a ScoreInfo with the min, median, and max of r_squared values."""
