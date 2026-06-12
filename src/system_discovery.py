@@ -278,7 +278,7 @@ class SystemDiscovery:
         return cls(timecourse.timecourse_df, threshold=threshold, poly_degree=poly_degree)
 
     @classmethod
-    def perturbationAnalysis(
+    def analyzePerturbations(
         cls,
         model: Model,
         training_df: pd.DataFrame,
