@@ -775,5 +775,156 @@ class TestSystemDiscoveryScore(unittest.TestCase):
         self.assertAlmostEqual(info.min, info.max)
 
 
+class TestPerturbationCol(unittest.TestCase):
+    """Tests for SystemDiscovery._perturbation_col."""
+
+    def test_zero_returns_r2_0(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(SystemDiscovery._perturbation_col(0.0), "r2_0")
+
+    def test_positive_05_returns_r2_plus05(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(SystemDiscovery._perturbation_col(0.05), "r2_+05")
+
+    def test_negative_05_returns_r2_minus05(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(SystemDiscovery._perturbation_col(-0.05), "r2_-05")
+
+    def test_positive_50_returns_r2_plus50(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(SystemDiscovery._perturbation_col(0.50), "r2_+50")
+
+    def test_negative_50_returns_r2_minus50(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(SystemDiscovery._perturbation_col(-0.50), "r2_-50")
+
+    def test_positive_10_returns_r2_plus10(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(SystemDiscovery._perturbation_col(0.10), "r2_+10")
+
+    def test_negative_20_returns_r2_minus20(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(SystemDiscovery._perturbation_col(-0.20), "r2_-20")
+
+
+_ANALYZE_PERTURBATIONS_RESULT: pd.Series | None = None
+_ANALYZE_PERTURBATIONS_MODEL: _Model | None = None
+_ANALYZE_PERTURBATIONS_PERTURBATIONS = [-0.05, 0.0, 0.05]
+_ANALYZE_PERTURBATIONS_THRESHOLD = 0.01
+
+
+def _get_analyze_perturbations_result() -> tuple[pd.Series, _Model]:
+    global _ANALYZE_PERTURBATIONS_RESULT, _ANALYZE_PERTURBATIONS_MODEL
+    if _ANALYZE_PERTURBATIONS_RESULT is None:
+        _ANALYZE_PERTURBATIONS_MODEL = _Model(
+            _ANTIMONY_TWO_SPECIES, model_name="test_model"
+        )
+        _ANALYZE_PERTURBATIONS_RESULT = SystemDiscovery.analyzePerturbations(
+            model=_ANALYZE_PERTURBATIONS_MODEL,
+            training_df=_TWO_SPECIES_DF,
+            threshold=_ANALYZE_PERTURBATIONS_THRESHOLD,
+            perturbations=_ANALYZE_PERTURBATIONS_PERTURBATIONS,
+            perturbation_species_fraction=1.0,
+            poly_degree=1,
+            is_plot=False,
+        )
+    return _ANALYZE_PERTURBATIONS_RESULT, _ANALYZE_PERTURBATIONS_MODEL  # type: ignore
+
+
+class TestAnalyzePerturbations(unittest.TestCase):
+    """Tests for SystemDiscovery.analyzePerturbations."""
+
+    result: pd.Series
+    model: _Model
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.result, cls.model = _get_analyze_perturbations_result()
+
+    def tearDown(self) -> None:
+        plt.close("all")
+
+    def test_returns_series(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertIsInstance(self.result, pd.Series)
+
+    def test_contains_model_name_key(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertIn("model_name", self.result.index)
+
+    def test_model_name_value_matches(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(self.result["model_name"], "test_model")
+
+    def test_contains_threshold_key(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertIn("threshold", self.result.index)
+
+    def test_threshold_value_matches(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertAlmostEqual(float(self.result["threshold"]),
+                               _ANALYZE_PERTURBATIONS_THRESHOLD)
+
+    def test_r2_0_present(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertIn("r2_0", self.result.index)
+
+    def test_r2_positive_perturbation_present(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertIn("r2_+05", self.result.index)
+
+    def test_r2_negative_perturbation_present(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertIn("r2_-05", self.result.index)
+
+    def test_all_perturbation_columns_present(self) -> None:
+        if IGNORE_TESTS:
+            return
+        for p in _ANALYZE_PERTURBATIONS_PERTURBATIONS:
+            col = SystemDiscovery._perturbation_col(p)
+            self.assertIn(col, self.result.index, msg=f"Missing column {col}")
+
+    def test_r2_values_clamped_to_unit_interval(self) -> None:
+        if IGNORE_TESTS:
+            return
+        for p in _ANALYZE_PERTURBATIONS_PERTURBATIONS:
+            col = SystemDiscovery._perturbation_col(p)
+            val = float(self.result[col])
+            if not np.isnan(val):
+                self.assertGreaterEqual(val, 0.0, msg=f"{col} below 0")
+                self.assertLessEqual(val, 1.0, msg=f"{col} above 1")
+
+    def test_r2_zero_perturbation_is_high(self) -> None:
+        """R² on training data (0% perturbation) should be high."""
+        if IGNORE_TESTS:
+            return
+        self.assertGreater(float(self.result["r2_0"]), 0.9)
+
+    def test_no_extra_keys(self) -> None:
+        """Result has exactly model_name, threshold, and one key per perturbation."""
+        if IGNORE_TESTS:
+            return
+        expected_keys = {"model_name", "threshold"} | {
+            SystemDiscovery._perturbation_col(p)
+            for p in _ANALYZE_PERTURBATIONS_PERTURBATIONS
+        }
+        self.assertEqual(set(self.result.index), expected_keys)
+
+
 if __name__ == "__main__":
     unittest.main()

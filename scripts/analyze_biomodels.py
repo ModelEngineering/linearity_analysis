@@ -45,7 +45,7 @@ EXCLUDED_MODELS = [
 import src.constants as cn  # noqa: E402
 
 N_CLUSTER = 5
-OUTPUT_FILENAME = f"{N_CLUSTER}_model_linearity_analysis_data.csv"
+OUTPUT_FILENAME = f"{N_CLUSTER}_linearity_analysis_data.csv"
 OUTPUT_PTH = os.path.join(cn.DATA_DIR, OUTPUT_FILENAME)
 NO_PATH = "no_path"
 
@@ -88,9 +88,9 @@ def main() -> None:
 
     if args.output == NO_PATH:
         if args.sequential:
-            output_filename = f"{args.n_cluster}s_model_linearity_analysis_data_sequential.csv"
+            output_filename = f"{args.n_cluster}s_linearity_analysis_data_sequential.csv"
         else:
-            output_filename = f"{args.n_cluster}_model_linearity_analysis_data.csv"
+            output_filename = f"{args.n_cluster}_linearity_analysis_data.csv"
         output_path = os.path.join(cn.DATA_DIR, output_filename)
     else:
         output_path = args.output

@@ -277,6 +277,18 @@ class SystemDiscovery:
             timecourse = TimecourseIterator().getTimecourse(model_name)
         return cls(timecourse.timecourse_df, threshold=threshold, poly_degree=poly_degree)
 
+    @staticmethod
+    def _perturbation_col(p: float) -> str:
+        """Map a perturbation fraction to its CSV column name.
+
+        Examples: 0.0 → 'r2_0', 0.05 → 'r2_+05', -0.20 → 'r2_-20'.
+        """
+        pct = round(p * 100)
+        if pct == 0:
+            return "r2_0"
+        sign = "+" if pct > 0 else "-"
+        return f"r2_{sign}{abs(pct):02d}"
+
     @classmethod
     def analyzePerturbations(
         cls,
@@ -288,43 +300,49 @@ class SystemDiscovery:
         figsize: tuple[float, float] | None = None,
         poly_degree: int = 1,
         frac_keep: float = 0.2,
-        show: bool = True,
-    ) -> plt.Figure:  # type: ignore
-        """Fit on training_df then plot observed trajectories for each perturbation.
+        is_plot: bool = True,
+    ) -> "pd.Series":
+        """Fit on training_df and evaluate derivative R² at each perturbation level.
 
-        For each value in *perturbations*, a ground-truth timecourse is simulated
-        from *model* using that ``perturbation_value_fraction``.  The discovered
-        ODE is evaluated against each timecourse and R² is reported in the legend.
-        The unperturbed trajectory (fraction=0) is drawn as a solid line; all
-        others are dashed.
+        For each value in *perturbations* a fresh Timecourse is simulated from
+        *model* with that ``perturbation_value_fraction``.  The SINDy model
+        (fitted on the unperturbed *training_df*) is evaluated against each
+        perturbed timecourse using the derivative R² method.  The reported R²
+        per perturbation is the minimum clamped R² across all species.
+
+        When *is_plot* is True, a trajectory comparison figure is also shown
+        (simulation R² shown in the legend for visual context).
 
         Parameters
         ----------
         model : Model
             Used to simulate ground-truth timecourses for each perturbation.
         training_df : pd.DataFrame
-            Unperturbed timecourse used to fit the SystemDiscovery.  Index is
-            time; columns are species.
+            Unperturbed timecourse used to fit the SINDy model.
         threshold : float
             STLSQ sparsity threshold.
         perturbations : list[float]
-            Values of ``perturbation_value_fraction`` to evaluate.
+            Signed fractional perturbation values (e.g. [-0.05, 0.0, 0.05]).
+        perturbation_species_fraction : float
+            Fraction of species whose initial values are perturbed.
+        figsize : tuple, optional
+            Figure size in inches.  Auto-sized when None.
         poly_degree : int
             Degree of the polynomial library.
-        perturbation_species_fraction : float
-            Fraction of species whose initial values are perturbed.  Default 1.0.
-        figsize : tuple, optional
-            Figure size in inches.  Auto-sized when *None*.
-        frac_keep : float, optional
-            Fraction of data points to keep for plotting.  Default 0.2.
-
-        show : bool
-            Call ``plt.show()`` at the end.
+        frac_keep : float
+            Scatter-plot density: step = max(1, int(n_points * frac_keep)).
+        is_plot : bool
+            Show a trajectory comparison figure when True.
 
         Returns
         -------
-        matplotlib.figure.Figure
+        pd.Series
+            Index: ``model_name``, ``threshold``, and one ``r2_*`` key per
+            perturbation value.  R² values are the minimum clamped derivative
+            R² across species, in [0, 1].
         """
+        import src.constants as cn  # avoid circular at module level
+
         start_time = float(training_df.index[0])
         end_time = float(training_df.index[-1])
         num_point = len(training_df)
@@ -332,65 +350,79 @@ class SystemDiscovery:
         disc = cls(training_df, threshold=threshold, poly_degree=poly_degree)
         disc.fit()
 
-        # Generate (perturbation_value_frac, test_df, pred_df, r2_per_species) for each value
-        records: list[tuple[float, pd.DataFrame, pd.DataFrame | None, dict[str, float]]] = []
+        result: dict = {cn.COL_MODEL_NAME: model.model_name, "threshold": threshold}
+        plot_records: list[
+            tuple[float, pd.DataFrame, pd.DataFrame | None, dict[str, float]]
+        ] = []
+
         for p in perturbations:
-            tc = Timecourse(
-                model=model,
-                start_time=start_time,
-                end_time=end_time,
-                num_point=num_point,
-                perturbation_value_fraction=p,
-                perturbation_species_fraction=perturbation_species_fraction,
-            )
-            test_df = tc.timecourse_df
+            col_name = cls._perturbation_col(p)
             try:
-                pred_df: pd.DataFrame | None = disc.predict(test_df)
-            except Exception:
-                pred_df = None
-            r2_dct = disc.calculateRsq(method="simulation", test_df=test_df)
-            records.append((p, test_df, pred_df, r2_dct))
+                tc = Timecourse(
+                    model=model,
+                    start_time=start_time,
+                    end_time=end_time,
+                    num_point=num_point,
+                    perturbation_value_fraction=p,
+                    perturbation_species_fraction=perturbation_species_fraction,
+                )
+                test_df = tc.timecourse_df
+                r2_dict = disc.calculateRsq(method="derivative", test_df=test_df)
+                result[col_name] = cls._normalize_rsq(
+                    float(np.min(list(r2_dict.values())))
+                )
+                if is_plot:
+                    try:
+                        pred_df: pd.DataFrame | None = disc.predict(test_df)
+                    except Exception:
+                        pred_df = None
+                    r2_sim = disc.calculateRsq(method="simulation", test_df=test_df)
+                    plot_records.append((p, test_df, pred_df, r2_sim))
+            except Exception as exc:
+                print(f"  [p={p}] {model.model_name}: {exc}", file=sys.stderr)
+                result[col_name] = float("nan")
 
-        n = len(disc.species_names)
-        ncols = min(n, 3)
-        nrows = (n + ncols - 1) // ncols
-        if figsize is None:
-            figsize = (5 * ncols, 3.5 * nrows)
-
-        fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
-        fig.suptitle("Perturbation Analysis", fontsize=14, fontweight="bold")
-
-        num_skip = int(num_point * frac_keep) 
-        for sp_idx, sp_name in enumerate(disc.species_names):
-            row, col = divmod(sp_idx, ncols)
-            ax = axes[row][col]
-            sp_col = disc.species_cols[sp_idx]
-            for p_idx, (p, test_df, pred_df, r2_dct) in enumerate(records):
-                r2 = r2_dct.get(sp_name, float("nan"))
-                r2_str = f"{r2:.3f}" if np.isfinite(r2) else "nan"
-                label = f"vfrac={p:.2f}, R²={r2_str}"
-                color = f"C{p_idx}"
-                ax.scatter(test_df.index[::num_skip], test_df[sp_col][::num_skip],
-                        s=10, color=color,
-                        alpha=0.6, label=label)
-                if pred_df is not None:
-                    ax.plot(pred_df.index, pred_df[sp_name], linestyle="--",
-                            color=color, lw=1.5)
-            ax.set_title(sp_name)
-            ax.set_xlabel("Time")
-            ax.set_ylabel("Concentration")
-            ax.legend(fontsize=8)
-            ax.grid(True, alpha=0.3)
-
-        for idx in range(n, nrows * ncols):
-            row, col = divmod(idx, ncols)
-            axes[row][col].set_visible(False)
-
-        fig.tight_layout()
-        if show:
+        if is_plot and plot_records:
+            n = len(disc.species_names)
+            ncols = min(n, 3)
+            nrows = (n + ncols - 1) // ncols
+            if figsize is None:
+                figsize = (5 * ncols, 3.5 * nrows)
+            fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
+            fig.suptitle("Perturbation Analysis", fontsize=14, fontweight="bold")
+            num_skip = max(1, int(num_point * frac_keep))
+            for sp_idx, sp_name in enumerate(disc.species_names):
+                ax_row, ax_col = divmod(sp_idx, ncols)
+                ax = axes[ax_row][ax_col]
+                sp_col = disc.species_cols[sp_idx]
+                for p_idx, (p, test_df, pred_df, r2_dct) in enumerate(plot_records):
+                    r2 = r2_dct.get(sp_name, float("nan"))
+                    r2_str = f"{r2:.3f}" if np.isfinite(r2) else "nan"
+                    color = f"C{p_idx}"
+                    ax.scatter(
+                        test_df.index[::num_skip],
+                        test_df[sp_col][::num_skip],
+                        s=10, color=color, alpha=0.6,
+                        label=f"vfrac={p:.2f}, R²={r2_str}",
+                    )
+                    if pred_df is not None:
+                        ax.plot(
+                            pred_df.index, pred_df[sp_name],
+                            linestyle="--", color=color, lw=1.5,
+                        )
+                ax.set_title(sp_name)
+                ax.set_xlabel("Time")
+                ax.set_ylabel("Concentration")
+                ax.legend(fontsize=8)
+                ax.grid(True, alpha=0.3)
+            for idx in range(n, nrows * ncols):
+                ax_row, ax_col = divmod(idx, ncols)
+                axes[ax_row][ax_col].set_visible(False)
+            fig.tight_layout()
             plt.show()
             plt.close(fig)
-        return fig
+
+        return pd.Series(result)
 
     def plot_coefficient_heatmap(
         self,

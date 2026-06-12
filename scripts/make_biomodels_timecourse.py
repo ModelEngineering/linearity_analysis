@@ -71,15 +71,16 @@ def main(
             continue
         pkl_path = os.path.join(cn.TIMECOURSE_SERIALIZATION_DIR,
                 f"{model_name}_timecourse.pkl")
+        model = Model.makeBiomodel(model_name)
         if os.path.isfile(pkl_path) and (not is_initialize):
-            print(f"Skipping {model_name} (already serialized)")
-            continue
+            timecourse = Timecourse.deserialize(path=pkl_path)
+            if timecourse._jacobian_collection_arr.size > 0:
+                print(f"Skipping {model_name} (already serialized)")
+                continue
         try:
-            model = Model.makeBiomodel(model_name)
             timecourse = Timecourse(model=model, end_time=item.end_time,
-                                    num_point=1000)
-            #_ = timecourse.jacobian_collection_arr  # Force calculations
-            _ = timecourse.timecourse_df  # Force computation of timecourse_df and Jacobians.
+                    num_point=1000)
+            _ = timecourse.jacobian_collection_arr  # Force calculations
             path = timecourse.serialize()
             serialized_timecourse = Timecourse.deserialize(path=path)
             if not serialized_timecourse == timecourse:
