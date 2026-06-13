@@ -48,6 +48,7 @@ import pandas as pd # type: ignore
 import pysindy as ps # type: ignore
 from pysindy.feature_library import PolynomialLibrary # type: ignore
 from scipy.integrate import solve_ivp # type: ignore
+import sys
 from typing import Literal, cast
 import warnings
 
@@ -170,7 +171,6 @@ class SystemDiscovery:
         self.species_cols = species_cols
         self._X_list: list[np.ndarray] = [d[species_cols].to_numpy(dtype=float) for d in dfs]
         self._time_list: list[np.ndarray] = [d.index.to_numpy(dtype=float) for d in dfs]
-        # First trajectory used for simulation and plotting
         self.time_arr: np.ndarray = self._time_list[0]
         self.X: np.ndarray = self._X_list[0]
         #
@@ -301,17 +301,17 @@ class SystemDiscovery:
         poly_degree: int = 1,
         frac_keep: float = 0.2,
         is_plot: bool = True,
-    ) -> "pd.Series":
+    ) -> pd.Series:
         """Fit on training_df and evaluate derivative R² at each perturbation level.
 
         For each value in *perturbations* a fresh Timecourse is simulated from
         *model* with that ``perturbation_value_fraction``.  The SINDy model
         (fitted on the unperturbed *training_df*) is evaluated against each
         perturbed timecourse using the derivative R² method.  The reported R²
-        per perturbation is the minimum clamped R² across all species.
+        per perturbation are the min, median, and max clamped R² across all species.
 
         When *is_plot* is True, a trajectory comparison figure is also shown
-        (simulation R² shown in the legend for visual context).
+        (derivative) R² shown in the legend for visual context).
 
         Parameters
         ----------
@@ -337,9 +337,9 @@ class SystemDiscovery:
         Returns
         -------
         pd.Series
-            Index: ``model_name``, ``threshold``, and one ``r2_*`` key per
-            perturbation value.  R² values are the minimum clamped derivative
-            R² across species, in [0, 1].
+            Index: ``model_name``, ``threshold``, and three keys per
+            perturbation value (``r2_*_min``, ``r2_*_med``, ``r2_*_max``).
+            R² values are clamped derivative R² across species, in [0, 1].
         """
         import src.constants as cn  # avoid circular at module level
 
@@ -368,19 +368,22 @@ class SystemDiscovery:
                 )
                 test_df = tc.timecourse_df
                 r2_dict = disc.calculateRsq(method="derivative", test_df=test_df)
-                result[col_name] = cls._normalize_rsq(
-                    float(np.min(list(r2_dict.values())))
-                )
+                r2_clamped = {k: cls._normalize_rsq(v) for k, v in r2_dict.items()}
+                vals = list(r2_clamped.values())
+                result[f"{col_name}_min"] = float(np.min(vals))
+                result[f"{col_name}_med"] = float(np.median(vals))
+                result[f"{col_name}_max"] = float(np.max(vals))
                 if is_plot:
                     try:
                         pred_df: pd.DataFrame | None = disc.predict(test_df)
                     except Exception:
                         pred_df = None
-                    r2_sim = disc.calculateRsq(method="simulation", test_df=test_df)
-                    plot_records.append((p, test_df, pred_df, r2_sim))
+                    plot_records.append((p, test_df, pred_df, r2_clamped))
             except Exception as exc:
                 print(f"  [p={p}] {model.model_name}: {exc}", file=sys.stderr)
-                result[col_name] = float("nan")
+                result[f"{col_name}_min"] = float("nan")
+                result[f"{col_name}_med"] = float("nan")
+                result[f"{col_name}_max"] = float("nan")
 
         if is_plot and plot_records:
             n = len(disc.species_names)
@@ -532,7 +535,7 @@ class SystemDiscovery:
             pred_df = None
             prediction_ok = False
 
-        r2_vals = self.calculateRsq(method="simulation", test_df=test_df)
+        r2_vals = self.calculateRsq(method="derivative", test_df=test_df)
 
         num_skip_point = max(1, len(time_arr) // num_true_point)
         for idx, name in enumerate(self.species_names):
@@ -545,7 +548,7 @@ class SystemDiscovery:
             r2 = r2_vals.get(name, float("nan"))
             title = f"{name}"
             if not np.isnan(r2):
-                title += f"   R²={r2:.4f}"  # may be negative; clamping removed
+                title += f"   R²={r2:.4f}"
             low_y = X[:, idx].min()
             high_y = X[:, idx].max()
             if np.isclose(low_y, high_y):
@@ -678,9 +681,8 @@ class SystemDiscovery:
         Parameters
         ----------
         test_df : pd.DataFrame, optional
-            If provided, R² is evaluated against this DataFrame (simulation
-            from its initial conditions vs observed).  When omitted, the
-            training data are used.
+            If provided, R² is evaluated against this DataFrame (derivative)
+            When omitted, the training data are used.
 
         Returns
         -------
@@ -688,7 +690,7 @@ class SystemDiscovery:
             Minimum R² across species, clamped to [0, 1].
         """
         self._require_fitted()
-        r2_raw = self.calculateRsq(method="simulation", test_df=test_df)
+        r2_raw = self.calculateRsq(method="derivative", test_df=test_df)
         return self._normalize_rsq(float(np.min(list(r2_raw.values()))))
 
     def score(self) -> ScoreInfo:
@@ -967,7 +969,7 @@ def discoverNetwork(
     print()
 
     try:
-        r2_sim = disc.calculateRsq(method="simulation", test_df=test_df)
+        r2_sim = disc.calculateRsq(method="derivative", test_df=test_df)
         print("R² on simulated trajectories per species:")
         for name, val in r2_sim.items():
             print(f"  {name}: {val:.6f}")

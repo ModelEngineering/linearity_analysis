@@ -16,7 +16,7 @@ IGNORE_TESTS = False
 sys.path.insert(0, os.path.join(cn.PROJECT_DIR, "scripts"))
 
 from perturbation_study import (  # type: ignore  # noqa: E402
-    MIN_DEG1,
+    MIN_R2,
     PERTURBATIONS,
     THRESHOLD,
     main,

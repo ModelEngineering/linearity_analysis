@@ -6,14 +6,15 @@ perturbation_value_fractions of -50%, -20%, -10%, -5%, 0%, +5%, +10%, +20%, +50%
 R² is computed using the derivative method.
 
 Output CSV: data/perturbation_study.csv
-Columns: model_name, threshold, r2_-50, r2_-20, r2_-10, r2_-05, r2_0,
-         r2_+05, r2_+10, r2_+20, r2_+50
+Columns: model_name, threshold, and for each perturbation level
+         (r2_-50, r2_-20, r2_-10, r2_-05, r2_0, r2_+05, r2_+10, r2_+20, r2_+50):
+         three columns _min, _med, _max (clamped derivative R² across species).
 """
 
 import os
 import sys
 
-import pandas as pd
+import pandas as pd  # type: ignore
 
 import src.constants as cn
 from src.system_discovery import SystemDiscovery
@@ -26,15 +27,20 @@ PERTURBATIONS: list[float] = [-0.50, -0.20, -0.10, -0.05, 0.00, 0.05, 0.10, 0.20
 
 SOURCE_PATH = os.path.join(cn.DATA_DIR, "evaluate_monomial_models-0.01.csv")
 OUTPUT_PATH = os.path.join(cn.DATA_DIR, "perturbation_study.csv")
-MIN_DEG1 = 0.9
+MIN_R2 = 0.8
+COL_DEG1_MODEL_MAX = "deg1_max"
+
+EXCLUDES = [
+            "BIOMD0000000718",
+            ]
 
 
 def main(is_initialize: bool = False) -> pd.DataFrame:
     source_df = pd.read_csv(SOURCE_PATH)
     model_names: set[str] = set(
-        source_df.loc[source_df["deg1_min"] >= MIN_DEG1, cn.COL_MODEL_NAME]
+        source_df.loc[source_df[COL_DEG1_MODEL_MAX] >= MIN_R2, cn.COL_MODEL_NAME]
     )
-    print(f"Models with deg1_min >= {MIN_DEG1}: {len(model_names)}")
+    print(f"Models ({len(source_df)}) with deg1_min >= {MIN_R2}: {len(model_names)}")
 
     if not is_initialize and os.path.isfile(OUTPUT_PATH):
         print(f"Loading existing results from {OUTPUT_PATH}...")
@@ -52,6 +58,9 @@ def main(is_initialize: bool = False) -> pd.DataFrame:
             continue
         if item.model_name in already_done:
             print(f"Skipping {item.model_name} (already processed)", flush=True)
+            continue
+        if item.model_name in EXCLUDES:
+            print(f"Skipping {item.model_name} (excluded)", flush=True)
             continue
         print(f"Processing {item.model_name}...", flush=True)
         try:
