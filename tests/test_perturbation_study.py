@@ -52,17 +52,19 @@ def _makeIteratorItem(model_name: str = _MODEL_NAME) -> MagicMock:
     return item
 
 
-def _makeSourceDF(model_names: list, deg1_min: float = 0.95) -> pd.DataFrame:
+def _makeSourceDF(model_names: list, deg1_max: float = 0.95) -> pd.DataFrame:
     return pd.DataFrame({
         cn.COL_MODEL_NAME: model_names,
-        "deg1_min": [deg1_min] * len(model_names),
+        "deg1_max": [deg1_max] * len(model_names),
     })
 
 
 def _makeFakeSeries(model_name: str) -> pd.Series:
     data: dict = {cn.COL_MODEL_NAME: model_name, "threshold": THRESHOLD}
     for p in PERTURBATIONS:
-        data[SystemDiscovery._perturbation_col(p)] = 0.8
+        base = SystemDiscovery._perturbation_col(p)
+        for suffix in ("_min", "_med", "_max"):
+            data[f"{base}{suffix}"] = 0.8
     return pd.Series(data)
 
 
@@ -82,7 +84,7 @@ class TestMain(unittest.TestCase):
         qualifying_model_names: list,
         existing_df: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
-        source_df = _makeSourceDF(qualifying_model_names, deg1_min=0.95)
+        source_df = _makeSourceDF(qualifying_model_names, deg1_max=0.95)
         source_df.to_csv(self._source_path, index=False)
         if existing_df is not None:
             existing_df.to_csv(self._output_path, index=False)
@@ -140,8 +142,10 @@ class TestMain(unittest.TestCase):
             return
         df = self._runMain(["model_A"], ["model_A"])
         for p in PERTURBATIONS:
-            col = SystemDiscovery._perturbation_col(p)
-            self.assertIn(col, df.columns, msg=f"Missing column {col}")
+            base = SystemDiscovery._perturbation_col(p)
+            for suffix in ("_min", "_med", "_max"):
+                col = f"{base}{suffix}"
+                self.assertIn(col, df.columns, msg=f"Missing column {col}")
 
     def test_resumes_from_existing_csv(self) -> None:
         if IGNORE_TESTS:
@@ -167,7 +171,7 @@ class TestMain(unittest.TestCase):
             call_log.append(model.model_name)
             return _makeFakeSeries(model.model_name)
 
-        source_df = _makeSourceDF(["model_A", "model_B"], deg1_min=0.95)
+        source_df = _makeSourceDF(["model_A", "model_B"], deg1_max=0.95)
         source_df.to_csv(self._source_path, index=False)
         existing.to_csv(self._output_path, index=False)
         items = [_makeIteratorItem("model_A"), _makeIteratorItem("model_B")]

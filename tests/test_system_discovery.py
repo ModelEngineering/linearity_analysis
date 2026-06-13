@@ -880,48 +880,56 @@ class TestAnalyzePerturbations(unittest.TestCase):
     def test_r2_0_present(self) -> None:
         if IGNORE_TESTS:
             return
-        self.assertIn("r2_0", self.result.index)
+        for suffix in ("_min", "_med", "_max"):
+            self.assertIn(f"r2_0{suffix}", self.result.index)
 
     def test_r2_positive_perturbation_present(self) -> None:
         if IGNORE_TESTS:
             return
-        self.assertIn("r2_+05", self.result.index)
+        for suffix in ("_min", "_med", "_max"):
+            self.assertIn(f"r2_+05{suffix}", self.result.index)
 
     def test_r2_negative_perturbation_present(self) -> None:
         if IGNORE_TESTS:
             return
-        self.assertIn("r2_-05", self.result.index)
+        for suffix in ("_min", "_med", "_max"):
+            self.assertIn(f"r2_-05{suffix}", self.result.index)
 
     def test_all_perturbation_columns_present(self) -> None:
         if IGNORE_TESTS:
             return
         for p in _ANALYZE_PERTURBATIONS_PERTURBATIONS:
-            col = SystemDiscovery._perturbation_col(p)
-            self.assertIn(col, self.result.index, msg=f"Missing column {col}")
+            base = SystemDiscovery._perturbation_col(p)
+            for suffix in ("_min", "_med", "_max"):
+                col = f"{base}{suffix}"
+                self.assertIn(col, self.result.index, msg=f"Missing column {col}")
 
     def test_r2_values_clamped_to_unit_interval(self) -> None:
         if IGNORE_TESTS:
             return
         for p in _ANALYZE_PERTURBATIONS_PERTURBATIONS:
-            col = SystemDiscovery._perturbation_col(p)
-            val = float(self.result[col])
-            if not np.isnan(val):
-                self.assertGreaterEqual(val, 0.0, msg=f"{col} below 0")
-                self.assertLessEqual(val, 1.0, msg=f"{col} above 1")
+            base = SystemDiscovery._perturbation_col(p)
+            for suffix in ("_min", "_med", "_max"):
+                col = f"{base}{suffix}"
+                val = float(self.result[col])
+                if not np.isnan(val):
+                    self.assertGreaterEqual(val, 0.0, msg=f"{col} below 0")
+                    self.assertLessEqual(val, 1.0, msg=f"{col} above 1")
 
     def test_r2_zero_perturbation_is_high(self) -> None:
         """R² on training data (0% perturbation) should be high."""
         if IGNORE_TESTS:
             return
-        self.assertGreater(float(self.result["r2_0"]), 0.9)
+        self.assertGreater(float(self.result["r2_0_min"]), 0.9)
 
     def test_no_extra_keys(self) -> None:
-        """Result has exactly model_name, threshold, and one key per perturbation."""
+        """Result has exactly model_name, threshold, and three keys per perturbation."""
         if IGNORE_TESTS:
             return
         expected_keys = {"model_name", "threshold"} | {
-            SystemDiscovery._perturbation_col(p)
+            f"{SystemDiscovery._perturbation_col(p)}{suffix}"
             for p in _ANALYZE_PERTURBATIONS_PERTURBATIONS
+            for suffix in ("_min", "_med", "_max")
         }
         self.assertEqual(set(self.result.index), expected_keys)
 
