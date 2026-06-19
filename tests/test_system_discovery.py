@@ -934,5 +934,66 @@ class TestAnalyzePerturbations(unittest.TestCase):
         self.assertEqual(set(self.result.index), expected_keys)
 
 
+class TestPredictOneStepDerivative(unittest.TestCase):
+    """Tests for SystemDiscovery.predictOneStepDerivative."""
+
+    def test_raises_before_fit(self) -> None:
+        if IGNORE_TESTS:
+            return
+        nd = SystemDiscovery(
+            _DECAY_DF, threshold=0.01, alpha=0.01, poly_degree=1,
+            include_bias=False, differentiation="finite",
+        )
+        with self.assertRaises(RuntimeError):
+            nd.predictOneStepDerivative(np.array([5.0]))
+
+    def test_matches_decay_rate_sign(self) -> None:
+        """For dS1/dt = -0.2*S1, the derivative at a positive state is negative."""
+        if IGNORE_TESTS:
+            return
+        nd = _get_fitted_decay()
+        result = nd.predictOneStepDerivative(np.array([5.0]))
+        self.assertLess(result[0], 0.0)
+
+    def test_returns_array_of_correct_shape(self) -> None:
+        if IGNORE_TESTS:
+            return
+        nd = _get_fitted_two_species()
+        result = nd.predictOneStepDerivative(np.array([10.0, 0.0]))
+        self.assertEqual(result.shape, (2,))
+
+    def test_agrees_with_predict_first_step(self) -> None:
+        """predictOneStepDerivative at x0 should be close to the finite-difference
+        slope predict() produces over the first short interval."""
+        if IGNORE_TESTS:
+            return
+        nd = _get_fitted_decay()
+        x0 = nd.X[0, :]
+        derivative = nd.predictOneStepDerivative(x0)
+        predicted_df = nd.predict()
+        dt = predicted_df.index[1] - predicted_df.index[0]
+        finite_diff_slope = (predicted_df.iloc[1].to_numpy() - predicted_df.iloc[0].to_numpy()) / dt
+        self.assertAlmostEqual(derivative[0], finite_diff_slope[0], delta=0.5)
+
+    def test_normalize_and_no_normalize_agree(self) -> None:
+        """Physical-units derivative should match regardless of is_normalize."""
+        if IGNORE_TESTS:
+            return
+        nd_norm = SystemDiscovery(
+            _TWO_SPECIES_DF, threshold=0.01, alpha=0.01, poly_degree=1,
+            include_bias=False, differentiation="finite", is_normalize=True,
+        ).fit()
+        nd_raw = SystemDiscovery(
+            _TWO_SPECIES_DF, threshold=0.01, alpha=0.01, poly_degree=1,
+            include_bias=False, differentiation="finite", is_normalize=False,
+        ).fit()
+        x = np.array([10.0, 0.0])
+        np.testing.assert_allclose(
+            nd_norm.predictOneStepDerivative(x),
+            nd_raw.predictOneStepDerivative(x),
+            atol=0.5,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

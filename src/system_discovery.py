@@ -600,6 +600,25 @@ class SystemDiscovery:
         t_idx = time_arr if time_arr is not None else self.time_arr
         return pd.DataFrame(X_sim, index=t_idx, columns=self.species_names)
 
+    def predictOneStepDerivative(self, x: np.ndarray) -> np.ndarray:
+        """Evaluate the fitted ODE's right-hand side at a single state (no integration).
+
+        Parameters
+        ----------
+        x : np.ndarray
+            State vector in physical units, shape (n_species,), in the same
+            species order as `self.species_names`.
+
+        Returns
+        -------
+        np.ndarray
+            Derivative dx/dt at `x`, in physical units, shape (n_species,).
+        """
+        self._require_fitted()
+        z = self._normalizer.normalize(x)
+        dz_dt = self.model.predict(z.reshape(1, -1))[0]
+        return np.array(self._normalizer.denormalize(dz_dt), dtype=float)
+
     def printEquations(self) -> None:
         """Pretty-print the discovered ODE equations."""
         print(self.__str__())
