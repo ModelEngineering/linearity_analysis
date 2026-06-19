@@ -236,6 +236,21 @@ class TestDetectChangePoints(unittest.TestCase):
         result = psd._detectChangePoints(signal, num_point=10)  # pylint: disable=protected-access
         self.assertEqual(result, [3, 6])
 
+    def test_continues_past_length_rejection_to_next_candidate(self) -> None:
+        """The highest-signal candidate (split index 1) is above threshold
+        but rejected for violating min_segment_length=3 (left segment would
+        be only 1 point). The loop must continue scanning rather than stop,
+        and accept the next above-threshold candidate (split index 4,
+        signal 0.3) instead."""
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, num_change_point=1,
+                min_segment_length=3, change_point_threshold=0.05)
+        signal = np.array([1.0, 0.01, 0.01, 0.3, 0.01, 0.01, 0.01, 0.01, 0.01])
+        result = psd._detectChangePoints(signal, num_point=10)  # pylint: disable=protected-access
+        self.assertEqual(result, [4])
+
 
 if __name__ == "__main__":
     unittest.main()
