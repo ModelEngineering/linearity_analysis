@@ -166,3 +166,21 @@ class PiecewiseSystemDiscovery(object):
             raise RuntimeError(f"ODE integration failed: {sol.message}")
         species_names = self._segment_models[0].species_names
         return pd.DataFrame(sol.y.T, index=time_arr, columns=species_names)
+
+    def score(self) -> ScoreInfo:
+        """Length-weighted aggregation of per-segment ScoreInfo. See
+        docs/piecewise_system_discovery.md `score()` section."""
+        self._require_fitted()
+        weighted_values: List[float] = []
+        num_nonzero_term = 0
+        for model, length in zip(self._segment_models, self._segment_lengths):
+            info = model.score()
+            weighted_values.extend(info.values * length)
+            num_nonzero_term += info.num_nonzero_term
+        return ScoreInfo(
+                min=float(np.min(weighted_values)),
+                median=float(np.median(weighted_values)),
+                max=float(np.max(weighted_values)),
+                values=weighted_values,
+                num_nonzero_term=num_nonzero_term,
+        )

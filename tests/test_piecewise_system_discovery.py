@@ -474,5 +474,57 @@ class TestPredict(unittest.TestCase):
                 result.index.to_numpy(dtype=float), test_df.index.to_numpy(dtype=float))
 
 
+class TestScore(unittest.TestCase):
+    """Tests for PiecewiseSystemDiscovery.score."""
+
+    def test_raises_before_fit(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc)
+        with self.assertRaises(RuntimeError):
+            psd.score()
+
+    def test_num_nonzero_term_is_sum_across_segments(self) -> None:
+        if IGNORE_TESTS:
+            return
+        psd = _fitTwoRegimePsd()
+        expected = sum(m.score().num_nonzero_term for m in psd._segment_models)  # pylint: disable=protected-access
+        self.assertEqual(psd.score().num_nonzero_term, expected)
+
+    def test_values_length_is_weighted_by_segment_length(self) -> None:
+        if IGNORE_TESTS:
+            return
+        psd = _fitTwoRegimePsd()
+        expected_length = sum(
+                len(m.score().values) * length
+                for m, length in zip(psd._segment_models, psd._segment_lengths))  # pylint: disable=protected-access
+        self.assertEqual(len(psd.score().values), expected_length)
+
+    def test_min_median_max_match_manual_computation(self) -> None:
+        if IGNORE_TESTS:
+            return
+        psd = _fitTwoRegimePsd()
+        weighted_values: list = []
+        for model, length in zip(psd._segment_models, psd._segment_lengths):  # pylint: disable=protected-access
+            weighted_values.extend(model.score().values * length)
+        info = psd.score()
+        self.assertAlmostEqual(info.min, min(weighted_values))
+        self.assertAlmostEqual(info.max, max(weighted_values))
+        self.assertAlmostEqual(info.median, float(np.median(weighted_values)))
+
+    def test_single_segment_score_matches_underlying_model(self) -> None:
+        """With no change points, score() should reduce to the single
+        segment model's own score()."""
+        if IGNORE_TESTS:
+            return
+        psd = _fitTwoRegimePsd(change_point_threshold=1e6)
+        underlying = psd._segment_models[0].score()  # pylint: disable=protected-access
+        result = psd.score()
+        self.assertAlmostEqual(result.min, underlying.min)
+        self.assertAlmostEqual(result.max, underlying.max)
+        self.assertEqual(result.num_nonzero_term, underlying.num_nonzero_term)
+
+
 if __name__ == "__main__":
     unittest.main()
