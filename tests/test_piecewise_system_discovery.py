@@ -112,5 +112,71 @@ class TestPiecewiseSystemDiscoveryConstructor(unittest.TestCase):
             psd._require_fitted()  # pylint: disable=protected-access
 
 
+class TestGaussianSmooth(unittest.TestCase):
+    """Tests for PiecewiseSystemDiscovery._gaussianSmooth."""
+
+    def test_constant_values_unchanged(self) -> None:
+        if IGNORE_TESTS:
+            return
+        times = np.array([0.0, 1.0, 2.0, 3.0])
+        values = np.array([5.0, 5.0, 5.0, 5.0])
+        result = PiecewiseSystemDiscovery._gaussianSmooth(times, values, bandwidth=1.0)  # pylint: disable=protected-access
+        np.testing.assert_allclose(result, values)
+
+    def test_self_weight_dominates_for_small_bandwidth(self) -> None:
+        if IGNORE_TESTS:
+            return
+        times = np.array([0.0, 1.0, 2.0])
+        values = np.array([0.0, 10.0, 0.0])
+        result = PiecewiseSystemDiscovery._gaussianSmooth(times, values, bandwidth=0.01)  # pylint: disable=protected-access
+        np.testing.assert_allclose(result, values, atol=1e-6)
+
+    def test_smoothing_blends_neighbors_for_large_bandwidth(self) -> None:
+        if IGNORE_TESTS:
+            return
+        times = np.array([0.0, 1.0, 2.0])
+        values = np.array([0.0, 10.0, 0.0])
+        result = PiecewiseSystemDiscovery._gaussianSmooth(times, values, bandwidth=100.0)  # pylint: disable=protected-access
+        self.assertAlmostEqual(result[0], result[1], delta=0.5)
+        self.assertAlmostEqual(result[1], result[2], delta=0.5)
+
+
+class TestComputeChangePointSignal(unittest.TestCase):
+    """Tests for PiecewiseSystemDiscovery._computeChangePointSignal."""
+
+    def test_signal_length(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, fit_kernel_bandwidth=0.05)
+        signal = psd._computeChangePointSignal(  # pylint: disable=protected-access
+                tc.timecourse_df, tc.jacobian_collection_arr)
+        self.assertEqual(len(signal), len(tc.timecourse_df) - 1)
+
+    def test_signal_peaks_near_regime_split(self) -> None:
+        """With a small smoothing bandwidth, the largest signal should occur
+        near t=5, where the Jacobian changes sharply."""
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, fit_kernel_bandwidth=0.05)
+        signal = psd._computeChangePointSignal(  # pylint: disable=protected-access
+                tc.timecourse_df, tc.jacobian_collection_arr)
+        split_time_arr = tc.timecourse_df.index.to_numpy(dtype=float)[1:]
+        peak_time = split_time_arr[int(np.argmax(signal))]
+        self.assertAlmostEqual(peak_time, _SPLIT_TIME, delta=0.5)
+
+    def test_signal_near_zero_within_constant_regime(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, fit_kernel_bandwidth=0.05)
+        signal = psd._computeChangePointSignal(  # pylint: disable=protected-access
+                tc.timecourse_df, tc.jacobian_collection_arr)
+        split_time_arr = tc.timecourse_df.index.to_numpy(dtype=float)[1:]
+        mid_regime_a = np.argmin(np.abs(split_time_arr - 2.0))
+        self.assertLess(signal[mid_regime_a], 0.01)
+
+
 if __name__ == "__main__":
     unittest.main()

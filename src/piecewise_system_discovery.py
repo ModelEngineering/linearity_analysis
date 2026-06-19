@@ -50,3 +50,30 @@ class PiecewiseSystemDiscovery(object):
         if not self._is_fitted:
             raise RuntimeError(
                     "PiecewiseSystemDiscovery must be fit() before this operation.")
+
+    @staticmethod
+    def _gaussianSmooth(times: np.ndarray, values: np.ndarray, bandwidth: float) -> np.ndarray:
+        """Nadaraya-Watson Gaussian kernel smoothing of `values` over `times`."""
+        delta_arr = times[:, np.newaxis] - times[np.newaxis, :]
+        weight_arr = np.exp(-0.5 * (delta_arr / bandwidth) ** 2)
+        return (weight_arr @ values) / weight_arr.sum(axis=1)
+
+    def _computeChangePointSignal(self, timecourse_df: pd.DataFrame,
+            jacobian_collection_arr: np.ndarray) -> np.ndarray:
+        """fit() steps 2-3: normalized-Jacobian Frobenius distance, smoothed.
+
+        Returns one value per interior candidate split index 1..num_point-1
+        (signal[k] corresponds to split index k+1: the point where a new
+        segment would start if a change point were placed there).
+        """
+        num_species = timecourse_df.shape[1]
+        std_arr = timecourse_df.to_numpy(dtype=float).std(axis=0, ddof=1)
+        safe_std_arr = np.where(np.isclose(std_arr, 0.0), 1.0, std_arr)
+        norm_jacobian_arr = jacobian_collection_arr * (
+                safe_std_arr[np.newaxis, np.newaxis, :]
+                / safe_std_arr[np.newaxis, :, np.newaxis])
+        diff_arr = norm_jacobian_arr[1:] - norm_jacobian_arr[:-1]
+        raw_signal_arr = np.linalg.norm(
+                diff_arr.reshape(diff_arr.shape[0], -1), axis=1) / (num_species ** 2)
+        split_time_arr = timecourse_df.index.to_numpy(dtype=float)[1:]
+        return self._gaussianSmooth(split_time_arr, raw_signal_arr, self.fit_kernel_bandwidth)
