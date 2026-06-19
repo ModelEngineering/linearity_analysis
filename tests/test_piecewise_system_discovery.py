@@ -294,16 +294,43 @@ class TestFit(unittest.TestCase):
         boundary_time = psd._segment_boundaries[0][1]  # pylint: disable=protected-access
         self.assertAlmostEqual(boundary_time, _SPLIT_TIME, delta=0.5)
 
-    def test_segments_are_fit_with_is_normalize_false(self) -> None:
+    def test_segments_default_to_is_normalize_true(self) -> None:
+        """SystemDiscovery's own default applies when kwargs doesn't override it."""
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, num_change_point=1,
+                min_segment_length=10, change_point_threshold=0.05,
+                fit_kernel_bandwidth=0.05, poly_degree=1, differentiation="finite").fit()
+        for model in psd._segment_models:  # pylint: disable=protected-access
+            self.assertTrue(model._is_normalize)  # pylint: disable=protected-access
+
+    def test_segments_honor_explicit_is_normalize_override(self) -> None:
+        """An explicit is_normalize in kwargs passes through unmodified."""
         if IGNORE_TESTS:
             return
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc, num_change_point=1,
                 min_segment_length=10, change_point_threshold=0.05,
                 fit_kernel_bandwidth=0.05, poly_degree=1, differentiation="finite",
-                is_normalize=True).fit()
+                is_normalize=False).fit()
         for model in psd._segment_models:  # pylint: disable=protected-access
             self.assertFalse(model._is_normalize)  # pylint: disable=protected-access
+
+    def test_segment_coefficients_are_physical_units(self) -> None:
+        """Regression guard for the units-mismatch bug: with the default
+        is_normalize=True and raw per-segment data, the fitted cross-term
+        coefficient (S1 in dS2/dt) must match the true physical-units rate
+        constant, not be inflated by a global std(S1)/std(S2) ratio."""
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, num_change_point=1,
+                min_segment_length=10, change_point_threshold=0.05,
+                fit_kernel_bandwidth=0.05, poly_degree=1, differentiation="finite").fit()
+        summary_a = psd._segment_models[0].summary()  # pylint: disable=protected-access
+        s1_in_ds2dt = float(summary_a.loc["S1", "dS2/dt"])
+        self.assertAlmostEqual(s1_in_ds2dt, _RATE_A[0], delta=0.05)
 
     def test_segment_models_are_fitted(self) -> None:
         if IGNORE_TESTS:

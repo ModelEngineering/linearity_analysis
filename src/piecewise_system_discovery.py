@@ -12,7 +12,6 @@ import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 from scipy.integrate import solve_ivp  # type: ignore
 
-from src.scaler import Scaler  # type: ignore
 from src.system_discovery import ScoreInfo, SystemDiscovery  # type: ignore
 from src.timecourse import Timecourse  # type: ignore
 
@@ -43,7 +42,6 @@ class PiecewiseSystemDiscovery(object):
         self._segment_models: List[SystemDiscovery] = []
         self._segment_boundaries: List[Tuple[float, float]] = []
         self._segment_lengths: List[int] = []
-        self._scaler: Scaler
         self._is_fitted: bool = False
 
     def _require_fitted(self) -> None:
@@ -105,32 +103,25 @@ class PiecewiseSystemDiscovery(object):
         return accepted
 
     def fit(self) -> "PiecewiseSystemDiscovery":
-        """fit() steps 1-5: scale, detect change points, fit per-segment models."""
+        """fit() steps 1-4: detect change points, fit per-segment models."""
         raw_df = self.timecourse.timecourse_df
         jacobian_collection_arr = self.timecourse.jacobian_collection_arr
         num_point = raw_df.shape[0]
         time_arr = raw_df.index.to_numpy(dtype=float)
 
-        self._scaler = Scaler(raw_df)
-        scaled_arr = self._scaler.normalize(raw_df.to_numpy(dtype=float))
-        scaled_df = pd.DataFrame(scaled_arr, index=raw_df.index, columns=raw_df.columns)
-
         signal_arr = self._computeChangePointSignal(raw_df, jacobian_collection_arr)
         split_index_list = self._detectChangePoints(signal_arr, num_point)
         boundary_index_arr = [0] + split_index_list + [num_point]
-
-        segment_kwargs = dict(self._kwargs)
-        segment_kwargs.pop("is_normalize", None)
 
         self._segment_models = []
         self._segment_boundaries = []
         self._segment_lengths = []
         for lo, hi in zip(boundary_index_arr[:-1], boundary_index_arr[1:]):
-            segment_df = scaled_df.iloc[lo:hi]
+            segment_df = raw_df.iloc[lo:hi]
             end_time = time_arr[hi] if hi < num_point else time_arr[-1]
             self._segment_boundaries.append((float(time_arr[lo]), float(end_time)))
             self._segment_lengths.append(hi - lo)
-            model = SystemDiscovery(segment_df, is_normalize=False, **segment_kwargs).fit()
+            model = SystemDiscovery(segment_df, **self._kwargs).fit()
             self._segment_models.append(model)
 
         self._is_fitted = True
