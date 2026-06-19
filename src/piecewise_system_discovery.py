@@ -147,3 +147,31 @@ class PiecewiseSystemDiscovery(object):
         derivative_arr = np.array([
                 model.predictOneStepDerivative(x) for model in self._segment_models])
         return (weight_arr[:, np.newaxis] * derivative_arr).sum(axis=0) / weight_arr.sum()
+
+    def predict(self, test_df: pd.DataFrame = NULL_DF) -> pd.DataFrame:
+        """Integrate the blended ODE forward and return predicted concentrations."""
+        self._require_fitted()
+        if test_df is not NULL_DF:
+            x0 = test_df.to_numpy(dtype=float)[0, :]
+            time_arr = test_df.index.to_numpy(dtype=float)
+        else:
+            raw_df = self.timecourse.timecourse_df
+            x0 = raw_df.to_numpy(dtype=float)[0, :]
+            time_arr = raw_df.index.to_numpy(dtype=float)
+
+        def rhs(t: float, x: np.ndarray) -> np.ndarray:
+            return self.predict_derivative(t, x)
+
+        sol = solve_ivp(
+                rhs,
+                t_span=(time_arr[0], time_arr[-1]),
+                y0=x0,
+                t_eval=time_arr,
+                method="Radau",
+                rtol=1e-6,
+                atol=1e-8,
+        )
+        if not sol.success:
+            raise RuntimeError(f"ODE integration failed: {sol.message}")
+        species_names = self._segment_models[0].species_names
+        return pd.DataFrame(sol.y.T, index=time_arr, columns=species_names)

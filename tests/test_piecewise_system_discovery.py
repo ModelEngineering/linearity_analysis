@@ -388,5 +388,64 @@ class TestPredictDerivative(unittest.TestCase):
         np.testing.assert_allclose(blended, segment_b_only, atol=0.3)
 
 
+class TestPredict(unittest.TestCase):
+    """Tests for PiecewiseSystemDiscovery.predict."""
+
+    def test_raises_before_fit(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc)
+        with self.assertRaises(RuntimeError):
+            psd.predict()
+
+    def test_default_predict_returns_dataframe_matching_training_grid(self) -> None:
+        if IGNORE_TESTS:
+            return
+        psd = _fitTwoRegimePsd()
+        result = psd.predict()
+        self.assertIsInstance(result, pd.DataFrame)
+        np.testing.assert_allclose(
+                result.index.to_numpy(dtype=float),
+                psd.timecourse.timecourse_df.index.to_numpy(dtype=float))
+
+    def test_predict_columns_are_species_names(self) -> None:
+        if IGNORE_TESTS:
+            return
+        psd = _fitTwoRegimePsd()
+        result = psd.predict()
+        self.assertEqual(list(result.columns), ["S1", "S2"])
+
+    def test_predict_starts_at_initial_condition(self) -> None:
+        if IGNORE_TESTS:
+            return
+        psd = _fitTwoRegimePsd()
+        result = psd.predict()
+        x0 = psd.timecourse.timecourse_df.to_numpy(dtype=float)[0, :]
+        np.testing.assert_allclose(result.iloc[0].to_numpy(), x0, atol=1e-6)
+
+    def test_predict_tracks_true_trajectory_reasonably(self) -> None:
+        """The blended piecewise prediction should stay within a modest
+        absolute tolerance of the true synthetic trajectory."""
+        if IGNORE_TESTS:
+            return
+        psd = _fitTwoRegimePsd()
+        result = psd.predict()
+        true_df = psd.timecourse.timecourse_df
+        max_abs_error = (result.to_numpy() - true_df.to_numpy()).__abs__().max()
+        self.assertLess(max_abs_error, 2.0)
+
+    def test_predict_with_test_df_uses_its_initial_condition(self) -> None:
+        if IGNORE_TESTS:
+            return
+        psd = _fitTwoRegimePsd()
+        test_df = pd.DataFrame(
+                {"S1": [3.0, 2.0], "S2": [1.0, 1.5]}, index=[0.0, 1.0])
+        result = psd.predict(test_df)
+        np.testing.assert_allclose(result.iloc[0].to_numpy(), [3.0, 1.0], atol=1e-6)
+        np.testing.assert_allclose(
+                result.index.to_numpy(dtype=float), test_df.index.to_numpy(dtype=float))
+
+
 if __name__ == "__main__":
     unittest.main()
