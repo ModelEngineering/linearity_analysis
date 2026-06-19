@@ -252,5 +252,92 @@ class TestDetectChangePoints(unittest.TestCase):
         self.assertEqual(result, [4])
 
 
+class TestFit(unittest.TestCase):
+    """Tests for PiecewiseSystemDiscovery.fit()."""
+
+    def test_returns_self(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, num_change_point=1,
+                min_segment_length=10, change_point_threshold=0.05,
+                fit_kernel_bandwidth=0.05, poly_degree=1, differentiation="finite")
+        result = psd.fit()
+        self.assertIs(result, psd)
+
+    def test_sets_fitted_flag(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, num_change_point=1,
+                min_segment_length=10, change_point_threshold=0.05,
+                fit_kernel_bandwidth=0.05, poly_degree=1, differentiation="finite").fit()
+        self.assertTrue(psd._is_fitted)  # pylint: disable=protected-access
+
+    def test_detects_two_segments_for_clear_regime_change(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, num_change_point=1,
+                min_segment_length=10, change_point_threshold=0.05,
+                fit_kernel_bandwidth=0.05, poly_degree=1, differentiation="finite").fit()
+        self.assertEqual(len(psd._segment_models), 2)  # pylint: disable=protected-access
+        self.assertEqual(len(psd._segment_boundaries), 2)  # pylint: disable=protected-access
+
+    def test_segment_boundary_near_split_time(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, num_change_point=1,
+                min_segment_length=10, change_point_threshold=0.05,
+                fit_kernel_bandwidth=0.05, poly_degree=1, differentiation="finite").fit()
+        boundary_time = psd._segment_boundaries[0][1]  # pylint: disable=protected-access
+        self.assertAlmostEqual(boundary_time, _SPLIT_TIME, delta=0.5)
+
+    def test_segments_are_fit_with_is_normalize_false(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, num_change_point=1,
+                min_segment_length=10, change_point_threshold=0.05,
+                fit_kernel_bandwidth=0.05, poly_degree=1, differentiation="finite",
+                is_normalize=True).fit()
+        for model in psd._segment_models:  # pylint: disable=protected-access
+            self.assertFalse(model._is_normalize)  # pylint: disable=protected-access
+
+    def test_segment_models_are_fitted(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, num_change_point=1,
+                min_segment_length=10, change_point_threshold=0.05,
+                fit_kernel_bandwidth=0.05, poly_degree=1, differentiation="finite").fit()
+        for model in psd._segment_models:  # pylint: disable=protected-access
+            self.assertTrue(model._is_fitted)  # pylint: disable=protected-access
+
+    def test_no_change_point_yields_single_segment(self) -> None:
+        """A very high threshold rejects all candidates; entire timecourse is one segment."""
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, num_change_point=1,
+                change_point_threshold=1e6, poly_degree=1, differentiation="finite").fit()
+        self.assertEqual(len(psd._segment_models), 1)  # pylint: disable=protected-access
+        start, end = psd._segment_boundaries[0]  # pylint: disable=protected-access
+        self.assertAlmostEqual(start, tc.timecourse_df.index[0])
+        self.assertAlmostEqual(end, tc.timecourse_df.index[-1])
+
+    def test_all_segments_too_short_yields_single_segment(self) -> None:
+        """min_segment_length larger than any achievable segment also collapses
+        to a single segment (every candidate gets rejected)."""
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, num_change_point=1,
+                min_segment_length=1000, change_point_threshold=0.05,
+                fit_kernel_bandwidth=0.05, poly_degree=1, differentiation="finite").fit()
+        self.assertEqual(len(psd._segment_models), 1)  # pylint: disable=protected-access
+
+
 if __name__ == "__main__":
     unittest.main()
