@@ -20,7 +20,7 @@ import src.constants as cn
 from src.system_discovery import SystemDiscovery
 from src.timecourse_iterator import TimecourseIterator
 
-THRESHOLD = 0.01
+THRESHOLD = 0.001
 POLY_DEGREE = 1
 SPECIES_FRACTION = 1.0
 PERTURBATIONS: list[float] = [-0.50, -0.20, -0.10, -0.05, 0.00, 0.05, 0.10, 0.20, 0.50]

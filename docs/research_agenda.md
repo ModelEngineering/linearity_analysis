@@ -7,14 +7,13 @@
   - Minimum $R^2$ is model $R^2$
   - Individual $R^2$ are for species.
 
-- [ ] Evaluate the density of coefficients in the Jacobian.
-  - [ ] Distributions don't look correct.
+- [x] Evaluate the density of coefficients in the Jacobian and forcing inputs.
 - [ ] For the linear models, assess their dimensionality to see if dimension reduction is possible
-- [ ] Characterize the linear models based on the what is being model and possibly other characteristics.
+- [ ] Characterize the linear models based on the what is being modelled and possibly other characteristics.
   
   ## How robust is linearity to perturbations of initial values?
 
-- [ ] repeat the linear studies with perturbations of $\pm 5\%$, $\pm 19\%$, $\pm 20\%$, and $\pm 50\%$.
+- [x] repeat the linear studies with perturbations of $\pm 5\%$, $\pm 19\%$, $\pm 20\%$, and $\pm 50\%$.
 - [ ] Can robustness be improved by training the regression on perturbation data?
 
 ## What are the main reasons for nonlinear behavior?

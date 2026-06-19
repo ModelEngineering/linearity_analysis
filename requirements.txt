@@ -12,6 +12,7 @@ pylint
 python-libsbml
 pysindy
 regex
+ruptures
 scikit-learn
 scipy
 seaborn
