@@ -135,3 +135,15 @@ class PiecewiseSystemDiscovery(object):
 
         self._is_fitted = True
         return self
+
+    def predict_derivative(self, t: float, x: np.ndarray) -> np.ndarray:
+        """Blend per-segment derivative predictions at (t, x) with a Gaussian
+        kernel over each segment's midpoint. See docs/piecewise_system_discovery.md.
+        """
+        self._require_fitted()
+        midpoint_arr = np.array(
+                [0.5 * (start + end) for start, end in self._segment_boundaries])
+        weight_arr = np.exp(-0.5 * ((t - midpoint_arr) / self.predict_kernel_bandwidth) ** 2)
+        derivative_arr = np.array([
+                model.predictOneStepDerivative(x) for model in self._segment_models])
+        return (weight_arr[:, np.newaxis] * derivative_arr).sum(axis=0) / weight_arr.sum()

@@ -339,5 +339,54 @@ class TestFit(unittest.TestCase):
         self.assertEqual(len(psd._segment_models), 1)  # pylint: disable=protected-access
 
 
+def _fitTwoRegimePsd(**overrides) -> "PiecewiseSystemDiscovery":
+    tc = _makeTwoRegimeTimecourse()
+    params = dict(num_change_point=1, min_segment_length=10,
+            change_point_threshold=0.05, fit_kernel_bandwidth=0.05,
+            predict_kernel_bandwidth=0.2, poly_degree=1, differentiation="finite")
+    params.update(overrides)
+    return PiecewiseSystemDiscovery(tc, **params).fit()
+
+
+class TestPredictDerivative(unittest.TestCase):
+    """Tests for PiecewiseSystemDiscovery.predict_derivative."""
+
+    def test_raises_before_fit(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc)
+        with self.assertRaises(RuntimeError):
+            psd.predict_derivative(0.0, np.array([10.0, 0.0]))
+
+    def test_returns_correct_shape(self) -> None:
+        if IGNORE_TESTS:
+            return
+        psd = _fitTwoRegimePsd()
+        result = psd.predict_derivative(2.0, np.array([8.0, 1.0]))
+        self.assertEqual(result.shape, (2,))
+
+    def test_deep_in_segment_a_matches_segment_a_model(self) -> None:
+        """Far from the boundary, Gaussian weighting should make the blended
+        derivative closely match the nearest (dominant) segment's own
+        derivative evaluator."""
+        if IGNORE_TESTS:
+            return
+        psd = _fitTwoRegimePsd()
+        x = np.array([8.0, 1.0])
+        blended = psd.predict_derivative(0.5, x)
+        segment_a_only = psd._segment_models[0].predictOneStepDerivative(x)  # pylint: disable=protected-access
+        np.testing.assert_allclose(blended, segment_a_only, atol=0.3)
+
+    def test_deep_in_segment_b_matches_segment_b_model(self) -> None:
+        if IGNORE_TESTS:
+            return
+        psd = _fitTwoRegimePsd()
+        x = np.array([2.0, 3.0])
+        blended = psd.predict_derivative(9.5, x)
+        segment_b_only = psd._segment_models[1].predictOneStepDerivative(x)  # pylint: disable=protected-access
+        np.testing.assert_allclose(blended, segment_b_only, atol=0.3)
+
+
 if __name__ == "__main__":
     unittest.main()
