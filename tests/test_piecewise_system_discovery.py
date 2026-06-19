@@ -178,5 +178,64 @@ class TestComputeChangePointSignal(unittest.TestCase):
         self.assertLess(signal[mid_regime_a], 0.01)
 
 
+class TestDetectChangePoints(unittest.TestCase):
+    """Tests for PiecewiseSystemDiscovery._detectChangePoints."""
+
+    def test_no_change_point_below_threshold(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, change_point_threshold=1e6)
+        signal = np.array([0.1, 0.5, 0.2, 0.9, 0.3])
+        result = psd._detectChangePoints(signal, num_point=10)  # pylint: disable=protected-access
+        self.assertEqual(result, [])
+
+    def test_single_clear_change_point_detected(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, num_change_point=1,
+                min_segment_length=2, change_point_threshold=0.05)
+        # num_point=10, candidates are split indices 1..9 (signal indices 0..8).
+        # A clear spike at split index 5 (signal index 4).
+        signal = np.array([0.01, 0.01, 0.01, 0.01, 1.0, 0.01, 0.01, 0.01, 0.01])
+        result = psd._detectChangePoints(signal, num_point=10)  # pylint: disable=protected-access
+        self.assertEqual(result, [5])
+
+    def test_rejects_candidate_violating_min_segment_length(self) -> None:
+        """A spike at split index 1 would create a 1-point left segment,
+        violating min_segment_length=3; it must be skipped."""
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, num_change_point=1,
+                min_segment_length=3, change_point_threshold=0.05)
+        signal = np.array([1.0, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01])
+        result = psd._detectChangePoints(signal, num_point=10)  # pylint: disable=protected-access
+        self.assertEqual(result, [])
+
+    def test_stops_at_num_change_point(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, num_change_point=1,
+                min_segment_length=2, change_point_threshold=0.05)
+        # Two clear spikes; only the larger (split index 5) should be kept
+        # since num_change_point=1.
+        signal = np.array([0.01, 0.01, 0.01, 0.8, 1.0, 0.01, 0.01, 0.01, 0.01])
+        result = psd._detectChangePoints(signal, num_point=10)  # pylint: disable=protected-access
+        self.assertEqual(result, [5])
+
+    def test_two_change_points_sorted_by_time(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc, num_change_point=2,
+                min_segment_length=2, change_point_threshold=0.05)
+        signal = np.array([0.01, 0.01, 0.8, 0.01, 0.01, 1.0, 0.01, 0.01, 0.01])
+        result = psd._detectChangePoints(signal, num_point=10)  # pylint: disable=protected-access
+        self.assertEqual(result, [3, 6])
+
+
 if __name__ == "__main__":
     unittest.main()

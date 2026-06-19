@@ -77,3 +77,29 @@ class PiecewiseSystemDiscovery(object):
                 diff_arr.reshape(diff_arr.shape[0], -1), axis=1) / (num_species ** 2)
         split_time_arr = timecourse_df.index.to_numpy(dtype=float)[1:]
         return self._gaussianSmooth(split_time_arr, raw_signal_arr, self.fit_kernel_bandwidth)
+
+    def _detectChangePoints(self, signal_arr: np.ndarray, num_point: int) -> List[int]:
+        """fit() step 4. signal_arr[k] is the signal for split index k+1
+        (the time-grid index at which a new segment would begin).
+
+        Returns a sorted (by time) list of accepted interior split indices.
+        """
+        candidate_index_arr = np.arange(1, num_point)
+        order_arr = np.argsort(-signal_arr, kind="stable")
+        accepted: List[int] = []
+        for rank in order_arr:
+            signal_value = signal_arr[rank]
+            if signal_value < self.change_point_threshold:
+                break
+            split_idx = int(candidate_index_arr[rank])
+            pos = bisect.bisect_left(accepted, split_idx)
+            left_bound = accepted[pos - 1] if pos > 0 else 0
+            right_bound = accepted[pos] if pos < len(accepted) else num_point
+            if (split_idx - left_bound) < self.min_segment_length:
+                continue
+            if (right_bound - split_idx) < self.min_segment_length:
+                continue
+            accepted.insert(pos, split_idx)
+            if len(accepted) == self.num_change_point:
+                break
+        return accepted
