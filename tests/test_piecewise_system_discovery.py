@@ -526,5 +526,47 @@ class TestScore(unittest.TestCase):
         self.assertEqual(result.num_nonzero_term, underlying.num_nonzero_term)
 
 
+class TestPrintEquations(unittest.TestCase):
+    """Tests for PiecewiseSystemDiscovery.printEquations / __str__."""
+
+    def test_print_equations_raises_before_fit(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc)
+        with self.assertRaises(RuntimeError):
+            psd.printEquations()
+
+    def test_str_contains_one_header_per_segment(self) -> None:
+        if IGNORE_TESTS:
+            return
+        psd = _fitTwoRegimePsd()
+        text = str(psd)
+        self.assertEqual(text.count("Segment"), len(psd._segment_models))  # pylint: disable=protected-access
+
+    def test_str_contains_segment_time_ranges(self) -> None:
+        if IGNORE_TESTS:
+            return
+        psd = _fitTwoRegimePsd()
+        text = str(psd)
+        for start, end in psd._segment_boundaries:  # pylint: disable=protected-access
+            self.assertIn(f"{start:.1f}", text)
+            self.assertIn(f"{end:.1f}", text)
+
+    def test_str_contains_species_derivative_lines(self) -> None:
+        if IGNORE_TESTS:
+            return
+        psd = _fitTwoRegimePsd()
+        text = str(psd)
+        self.assertIn("dS1/dt", text)
+        self.assertIn("dS2/dt", text)
+
+    def test_print_equations_runs_without_error(self) -> None:
+        if IGNORE_TESTS:
+            return
+        psd = _fitTwoRegimePsd()
+        psd.printEquations()  # smoke test: just confirm no exception
+
+
 if __name__ == "__main__":
     unittest.main()

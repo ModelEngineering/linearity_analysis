@@ -184,3 +184,17 @@ class PiecewiseSystemDiscovery(object):
                 values=weighted_values,
                 num_nonzero_term=num_nonzero_term,
         )
+
+    def __str__(self) -> str:
+        block_list: List[str] = []
+        for idx, (model, (start, end)) in enumerate(
+                zip(self._segment_models, self._segment_boundaries), start=1):
+            header = f"[Segment {idx}: t in [{start:.1f}, {end:.1f})]"
+            equation_line_list = [f"  {line}" for line in str(model).strip().split("\n")]
+            block_list.append("\n".join([header] + equation_line_list))
+        return "\n\n".join(block_list)
+
+    def printEquations(self) -> None:
+        """Pretty-print the discovered ODE for each segment."""
+        self._require_fitted()
+        print(str(self))
