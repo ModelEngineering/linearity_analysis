@@ -32,15 +32,16 @@ class PiecewiseSystemDiscovery(object):
 | `change_point_threshold` | `float` | `0.1` | Threshold for detecting a changepoint between adjacent entries.
 | `fit_kernel_bandwidth` | `float` | `1.0` | Normalizing term for the Gaussian kernel used to smooth the change-point signal (see `fit()` step 3). |
 | `predict_kernel_bandwidth` | `float` | `1.0` | Normalizing term for the Gaussian kernel used to blend segment models in `predict_derivative()`. |
-| `**kwargs` | | | Forwarded to each per-segment `SystemDiscovery(...)` constructor (e.g. `threshold`, `poly_degree`, `bias_species`). `is_normalize` is always forced to `False` regardless of `kwargs` — see `fit()` step 5. |
+| `**kwargs` | | | Forwarded to each per-segment `SystemDiscovery(...)` constructor (e.g. `threshold`, `poly_degree`, `bias_species`, `is_normalize`) unmodified — see `fit()` step 5. |
 
 ### Internal state
 
 After `fit()` is called, the following attributes are available:
 
-- `self._segment_models: list[SystemDiscovery]` — One fitted `SystemDiscovery` per segment. There are n+1 segments if there are n change points. Each is fit with `is_normalize=False` because the data was already normalized in step 1.
+- `self._segment_models: list[SystemDiscovery]` — One fitted `SystemDiscovery` per segment. There are n+1 segments if there are n change points. Each is fit on its own raw (unscaled) data slice; `SystemDiscovery`'s own per-segment `Scaler` (default `is_normalize=True`) normalizes for fitting and denormalizes its output back to physical units, so each segment's coefficients and derivatives are self-consistently in physical units.
 - `self._segment_boundaries: list[tuple[float, float]]` — `(start_time, end_time)` for each segment.
-- `self._scaler`: A `Scaler` (see `src/scaler.py`) fit on the entire (unsegmented) timecourse. Used in `fit()` step 1 to produce the scaled timecourse that segment models are fit on. Unrelated to the per-entry Jacobian normalization in step 2, which exists only to compute the change-point signal and is discarded afterward.
+
+**Note on a prior design (corrected):** an earlier version of this design scaled the entire timecourse once with a single global `Scaler`, sliced the *scaled* DataFrame per segment, and forced `is_normalize=False` on every segment model (reasoning: the data was "already normalized," so segments shouldn't re-normalize). That is a real bug, not a stylistic choice: `is_normalize=False` makes `SystemDiscovery` treat its input as final physical units and never denormalize its output. Since the input was actually pre-scaled by `x / s_i` per species, every cross-species coefficient came out inflated by the ratio `s_i/s_j` of the two species' global standard deviations (self-coefficients were unaffected, since the scaling cancels on the diagonal — confirmed numerically: a 2-species fixture with global `std(S1)/std(S2) = 2.823` produced cross-term coefficients inflated by `2.824`, while self-decay terms fit exactly). `predict_derivative()`/`predict()` then integrated these still-scaled derivatives directly against true physical-unit states, corrupting every prediction. There is no global `self._scaler` in the corrected design — nothing else in this design needs one.
 
 ## `fit()` method
 
@@ -52,13 +53,11 @@ Returns `self`, matching `SystemDiscovery.fit()`'s chaining convention.
 
 ### Algorithm
 
-1. **Scale the timecourse**. Use `self._scaler` to scale `timecourse.timecourse_df`. This scaled DataFrame — not the original — is what gets sliced per segment in step 5.
+1. **Create normalized Jacobians**: Using the raw Jacobians from the timecourse, let ${\bf A} = {a_{ij}}$. The entry is normalized to account for the magnitudes of the column state variable, $x_j$, and the row state variable, $x_i$. Let $s_i, s_j$ be the standard deviations of these state variables over their full timecourse. Then, $a_{ij} \rightarrow a_{ij} \frac{s_j}{s_i}$. This normalization exists solely to make Jacobian entries comparable for change-point detection — it is local to this step and has no bearing on how segment models are later fit.
 
-2. **Create normalized Jacobians**: Using the raw Jacobians from the timecourse (before scaling in step 1), let ${\bf A} = {a_{ij}}$. The entry is normalized to account for the magnitudes of the column state variable, $x_j$, and the row state variable, $x_i$. Let $s_i, s_j$ be the standard deviations of these state variables over their full timecourse. Then, $a_{ij} \rightarrow a_{ij} \frac{s_j}{s_i}$. This normalization is independent of `self._scaler` / step 1 — it exists solely to make Jacobian entries comparable for change-point detection, not to scale data used for fitting.
+2. **Compute change-point signal**: Calculate the Frobenius distance between time-adjacent normalized Jacobians and divide this by $n^2$, where $n$ is the number of state variables (chemical species). Then smooth these differences over time using a Gaussian kernel with bandwidth `fit_kernel_bandwidth`. (`predict_kernel_bandwidth` is not used here — it applies only to `predict_derivative()`.) The result is one signal value per time point (the first time point has no signal, since it has no predecessor).
 
-3. **Compute change-point signal**: Calculate the Frobenius distance between time-adjacent normalized Jacobians and divide this by $n^2$, where $n$ is the number of state variables (chemical species). Then smooth these differences over time using a Gaussian kernel with bandwidth `fit_kernel_bandwidth`. (`predict_kernel_bandwidth` is not used here — it applies only to `predict_derivative()`.) The result is one signal value per time point (the first time point has no signal, since it has no predecessor).
-
-4. **Detect change points**: Sort all candidate time points by signal value, descending. Maintain an initially-empty list of accepted change-point times, kept sorted by time. Walk the sorted candidates in descending-signal order:
+3. **Detect change points**: Sort all candidate time points by signal value, descending. Maintain an initially-empty list of accepted change-point times, kept sorted by time. Walk the sorted candidates in descending-signal order:
    1. If the candidate's signal < `change_point_threshold`, stop (all remaining candidates have smaller or equal signal).
    2. Determine where the candidate's time would be inserted into the accepted list (by time, not by signal rank). Check the lengths (in time points) of the two segments this would create — bounded by the candidate's time-adjacent neighbors among the already-accepted points, or by the timecourse start/end if there are no neighbors on that side. If either resulting segment would be shorter than `min_segment_length`, reject the candidate and continue to the next.
    3. Otherwise, insert the candidate into the accepted list (in time order).
@@ -67,9 +66,9 @@ Returns `self`, matching `SystemDiscovery.fit()`'s chaining convention.
 
    The final change points are the accepted list, in time order. No merging is performed — a candidate that doesn't fit is simply skipped, never combined with a neighbor.
 
-5. **Fit per-segment models**: For each segment defined by the accepted change points:
-   1. Slice the **scaled** timecourse DataFrame from step 1 to the segment's `[start_time, end_time)` (a plain `DataFrame.loc[...]` slice — `Timecourse` has no `makeSubmodel()` equivalent to `Trajectory.makeSubmodel()`).
-   2. Construct `SystemDiscovery(segment_df, is_normalize=False, **kwargs)`. `is_normalize=False` is always passed, overriding any `is_normalize` key present in `kwargs`, since the data is already scaled at the `PiecewiseSystemDiscovery` level — re-normalizing per segment would scale against each segment's own (shorter, less representative) statistics instead of the full timecourse's.
+4. **Fit per-segment models**: For each segment defined by the accepted change points:
+   1. Slice the **raw** (unscaled) timecourse DataFrame to the segment's `[start_time, end_time)` (a plain `DataFrame.loc[...]` slice — `Timecourse` has no `makeSubmodel()` equivalent to `Trajectory.makeSubmodel()`).
+   2. Construct `SystemDiscovery(segment_df, **kwargs)`, passing `kwargs` through unmodified. `SystemDiscovery`'s own default (`is_normalize=True`) applies unless the caller explicitly overrides it via `kwargs`; each segment normalizes using its own local statistics and denormalizes its own output, so coefficients and derivatives come out in physical units without any cross-segment scale dependency.
 
 ### Edge cases handled
 
@@ -117,7 +116,7 @@ def predictOneStepDerivative(self, x: np.ndarray) -> np.ndarray:
 
 This factors out the `rhs` closure already used internally by `SystemDiscovery._simulate()` (`src/system_discovery.py:864-868`), without changing `_simulate`'s behavior. This is a prerequisite change outside the scope of `PiecewiseSystemDiscovery` itself, called out here so it isn't missed during implementation.
 
-(Note: since segment models are always fit with `is_normalize=False`, `normalize`/`denormalize` are identity operations in practice for `PiecewiseSystemDiscovery`'s use — but `predictOneStepDerivative` is written generically, matching `_simulate`'s existing pattern, rather than assuming the caller never normalizes.)
+(Note: segment models default to `is_normalize=True` — each segment's own `normalize`/`denormalize` round-trip is what keeps its coefficients and derivatives in physical units. `predictOneStepDerivative` is written generically, matching `_simulate`'s existing pattern, so it works correctly whether or not a given segment model normalizes.)
 
 ## `predict()` method
 
