@@ -1,6 +1,6 @@
 """Perturbation study: how do perturbed initial conditions affect SystemDiscovery R²?
 
-Runs only on models whose deg1_min >= 0.9 in evaluate_monomial_models-0.01.csv.
+Runs only on models whose deg1_min >= MIN_R2 in evaluate_monomial_models-0.01.csv.
 For each qualifying model, SystemDiscovery.analyzePerturbations is called with
 perturbation_value_fractions of -50%, -20%, -10%, -5%, 0%, +5%, +10%, +20%, +50%.
 R² is computed using the derivative method.
