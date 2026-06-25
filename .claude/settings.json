@@ -6,13 +6,5 @@
       "Write(*)",
       "Read(*)"
     ]
-  },
-  "models": [
-    {
-      "title": "Gemini Pro",
-      "provider": "gemini",
-      "model": "gemini-1.5-pro", 
-      "apiKey": "AQ.Ab8RN6K6wXRF3qvWevKBghpcmeyv-1rzcOflsSGJcABAVraHew"
-    }
-  ]
+  }
 }
