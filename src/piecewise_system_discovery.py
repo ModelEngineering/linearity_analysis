@@ -8,12 +8,15 @@ See docs/piecewise_system_discovery.md for the full design.
 import bisect
 from typing import Any, List, Tuple
 
+import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 from scipy.integrate import solve_ivp  # type: ignore
 
+from src.plot_options import PlotOptions  # type: ignore
 from src.system_discovery import ScoreInfo, SystemDiscovery  # type: ignore
 from src.timecourse import Timecourse  # type: ignore
+from src.timecourse_iterator import TimecourseIterator  # type: ignore
 
 NULL_DF = pd.DataFrame()
 
@@ -55,8 +58,16 @@ class PiecewiseSystemDiscovery(object):
         delta_arr = times[:, np.newaxis] - times[np.newaxis, :]
         weight_arr = np.exp(-0.5 * (delta_arr / bandwidth) ** 2)
         return (weight_arr @ values) / weight_arr.sum(axis=1)
+    
+    def _normalizeJacobian(self, jacobian_arr: np.ndarray,
+            timecourse_df: pd.DataFrame) -> np.ndarray:
+        """Normalize a single Jacobian by the species std deviations."""
+        std_arr = timecourse_df.to_numpy(dtype=float).std(axis=0, ddof=1)
+        safe_std_arr = np.where(np.isclose(std_arr, 0.0), 1.0, std_arr)
+        return jacobian_arr * (safe_std_arr[np.newaxis, np.newaxis, :]
+                / safe_std_arr[np.newaxis, :, np.newaxis])
 
-    def _computeChangePointSignal(self, timecourse_df: pd.DataFrame,
+    def _computeChangePointSignalDifference(self, timecourse_df: pd.DataFrame,
             jacobian_collection_arr: np.ndarray) -> np.ndarray:
         """fit() steps 2-3: normalized-Jacobian Frobenius distance, smoothed.
 
@@ -64,17 +75,33 @@ class PiecewiseSystemDiscovery(object):
         (signal[k] corresponds to split index k+1: the point where a new
         segment would start if a change point were placed there).
         """
-        num_species = timecourse_df.shape[1]
-        std_arr = timecourse_df.to_numpy(dtype=float).std(axis=0, ddof=1)
-        safe_std_arr = np.where(np.isclose(std_arr, 0.0), 1.0, std_arr)
-        norm_jacobian_arr = jacobian_collection_arr * (
-                safe_std_arr[np.newaxis, np.newaxis, :]
-                / safe_std_arr[np.newaxis, :, np.newaxis])
+        num_species = self.timecourse.model.num_species
+        norm_jacobian_arr = self._normalizeJacobian(jacobian_collection_arr,
+                timecourse_df)
         diff_arr = norm_jacobian_arr[1:] - norm_jacobian_arr[:-1]
         raw_signal_arr = np.linalg.norm(
                 diff_arr.reshape(diff_arr.shape[0], -1), axis=1) / (num_species ** 2)
         split_time_arr = timecourse_df.index.to_numpy(dtype=float)[1:]
         return self._gaussianSmooth(split_time_arr, raw_signal_arr, self.fit_kernel_bandwidth)
+
+    # TODO: Plot and evaluate, comparing with the difference approach 
+    def _computeChangePointSignalMedian(self, timecourse_df: pd.DataFrame,
+            jacobian_collection_arr: np.ndarray) -> np.ndarray:
+        """
+        Calculate the distance from the median Jacobian at each time point for the
+        normalized Jacobian matrices, and smooth the resulting signal.
+        The Frobenius norm of the difference between each normalized Jacobian
+        and the median Jacobian is computed, and then smoothed using a Gaussian kernel.
+        """
+        num_species = self.timecourse.model.num_species
+        norm_jacobian_arr = self._normalizeJacobian(jacobian_collection_arr,
+                timecourse_df)
+        median_jacobian_arr = np.median(norm_jacobian_arr, axis=0)
+        raw_signal_arr = np.array([ np.sum((j - median_jacobian_arr) ** 2)
+                for j in norm_jacobian_arr])/(num_species ** 2)
+        split_time_arr = timecourse_df.index.to_numpy(dtype=float)
+        return self._gaussianSmooth(split_time_arr, raw_signal_arr, self.fit_kernel_bandwidth)
+
 
     def _detectChangePoints(self, signal_arr: np.ndarray, num_point: int) -> List[int]:
         """fit() step 4. signal_arr[k] is the signal for split index k+1
@@ -109,7 +136,7 @@ class PiecewiseSystemDiscovery(object):
         num_point = raw_df.shape[0]
         time_arr = raw_df.index.to_numpy(dtype=float)
 
-        signal_arr = self._computeChangePointSignal(raw_df, jacobian_collection_arr)
+        signal_arr = self._computeChangePointSignalDifference(raw_df, jacobian_collection_arr)
         split_index_list = self._detectChangePoints(signal_arr, num_point)
         boundary_index_arr = [0] + split_index_list + [num_point]
 
@@ -193,6 +220,156 @@ class PiecewiseSystemDiscovery(object):
             equation_line_list = [f"  {line}" for line in str(model).strip().split("\n")]
             block_list.append("\n".join([header] + equation_line_list))
         return "\n\n".join(block_list)
+
+    def plot(self, num_true_point: int = 20, **kwargs: Any) -> PlotOptions:
+        """Two-panel comparison: 0 change points (top) vs num_change_point (bottom).
+
+        Both panels show actual (scatter) vs predicted (line) species concentrations.
+        The bottom panel marks each detected change point with a vertical dashed line.
+
+        Parameters
+        ----------
+        num_true_point : int
+            Number of actual-data scatter points to show per panel.
+        **kwargs
+            Forwarded to PlotOptions. Supported keys: fig, ax, title, xlabel,
+            ylabel, legend, xlim, ylim, model_name.  ``figsize`` is also
+            accepted and consumed here (not passed to PlotOptions).
+
+        Returns
+        -------
+        PlotOptions
+            Wraps the figure and the bottom axes.  Call ``plt.show()`` or
+            ``po.fig.savefig(...)`` on the returned object as needed.
+        """
+        self._require_fitted()
+        figsize: tuple[float, float] = kwargs.pop("figsize", (10, 8))
+
+        timecourse_df = self.timecourse.timecourse_df
+        time_arr = timecourse_df.index.to_numpy(dtype=float)
+        actual_arr = timecourse_df.to_numpy(dtype=float)
+        species_names = self._segment_models[0].species_names
+        num_skip = max(1, len(time_arr) // num_true_point)
+
+        baseline = SystemDiscovery(timecourse_df, **self._kwargs).fit()
+        try:
+            baseline_pred_df = baseline.predict()
+        except Exception:
+            baseline_pred_df = None
+
+        try:
+            psd_pred_df = self.predict()
+        except Exception:
+            psd_pred_df = None
+
+        fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=figsize, sharex=True)
+        change_point_times = [start for start, _ in self._segment_boundaries[1:]]
+
+        plot_options = PlotOptions(fig=fig, ax=ax_bot, **kwargs)
+
+        def _draw(po: PlotOptions, pred_df: pd.DataFrame | None, title: str,
+                vlines: List[float] | None = None) -> None:
+            ax = po.ax
+            for idx, name in enumerate(species_names):
+                color = f"C{idx}"
+                ax.scatter(  # type: ignore
+                    time_arr[::num_skip], actual_arr[::num_skip, idx],
+                    s=15, color=color, label=f"{name} actual", zorder=3,
+                )
+                if pred_df is not None and name in pred_df.columns:
+                    ax.plot(  # type: ignore
+                        pred_df.index, pred_df[name],
+                        "-", lw=1.5, color=color, label=f"{name} predicted",
+                    )
+            if vlines:
+                for t in vlines:
+                    ax.axvline(t, color="black", linestyle="--", lw=1.0, alpha=0.6)  # type: ignore
+            ax.set_title(title, fontsize=11)  # type: ignore
+            ax.grid(True, alpha=0.3)  # type: ignore
+            po.apply()
+
+        _draw(PlotOptions(fig=fig, ax=ax_top, **kwargs), baseline_pred_df, "0 change points")
+        _draw(plot_options, psd_pred_df, f"{self.num_change_point} change point(s)",
+                vlines=change_point_times)
+        fig.suptitle("Actual vs Predicted", fontsize=13, fontweight="bold")
+        fig.tight_layout()
+        return plot_options
+
+    @classmethod
+    def plotBiomodelsSignal(
+        cls,
+        model_number: int = -1,
+        timecourse: Timecourse | None = None,
+        signal_kind: str = "median",
+        **kwargs: Any,
+    ) -> PlotOptions:
+        """Plot the change point signal and timecourses for a BioModel.
+
+        Parameters
+        ----------
+        model_number : int
+            BioModel number (e.g. 331 for BIOMD0000000331).
+        signal_kind : str
+            ``"difference"`` — frame-to-frame normalized Jacobian distance.
+            ``"median"``     — distance of each Jacobian from the median Jacobian.
+        **kwargs
+            Forwarded to PlotOptions (bottom/signal axes).  ``figsize`` is
+            consumed here and not passed to PlotOptions.
+
+        Returns
+        -------
+        PlotOptions
+            Wraps the figure and the bottom (signal) axes.
+        """
+        if signal_kind not in ("difference", "median"):
+            raise ValueError(
+                f"signal_kind must be 'difference' or 'median', got {signal_kind!r}"
+            )
+
+        model_name = f"BIOMD{model_number:010d}"
+        if timecourse is None:
+            timecourse = TimecourseIterator().getTimecourse(model_name)
+        timecourse_df = timecourse.timecourse_df
+        jacobian_collection_arr = timecourse.jacobian_collection_arr
+        time_arr = timecourse_df.index.to_numpy(dtype=float)
+        num_point = timecourse_df.shape[0]
+
+        psd = cls(timecourse)
+
+        if signal_kind == "difference":
+            signal_arr = psd._computeChangePointSignalDifference(  # pylint: disable=protected-access
+                timecourse_df, jacobian_collection_arr)
+            signal_times = time_arr[1:]
+            detection_signal = signal_arr
+        else:
+            signal_arr = psd._computeChangePointSignalMedian(  # pylint: disable=protected-access
+                timecourse_df, jacobian_collection_arr)
+            signal_times = time_arr
+            detection_signal = signal_arr[:-1]
+
+        change_point_indices = psd._detectChangePoints(detection_signal, num_point)  # pylint: disable=protected-access
+        change_point_times = [time_arr[idx] for idx in change_point_indices]
+
+        figsize: tuple[float, float] = kwargs.pop("figsize", (10, 8))
+        fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=figsize, sharex=True)
+
+        plot_options = PlotOptions(fig=fig, ax=ax_bot, **kwargs)
+
+        top_po = PlotOptions(fig=fig, ax=ax_top, title=model_name)
+        for i, name in enumerate(timecourse_df.columns):
+            ax_top.plot(timecourse_df.index, timecourse_df[name],  # type: ignore
+                        color=f"C{i}", label=name)
+        top_po.apply()
+
+        ax_bot.plot(signal_times, signal_arr, color="black", lw=1.5)  # type: ignore
+        for t in change_point_times:
+            ax_bot.axvline(t, color="red", linestyle="--", lw=1.0, alpha=0.8)  # type: ignore
+        ax_bot.set_title(f"Change point signal ({signal_kind})", fontsize=11)  # type: ignore
+        plot_options.apply()
+
+        fig.suptitle(f"{model_name}", fontsize=13, fontweight="bold")
+        fig.tight_layout()
+        return plot_options
 
     def printEquations(self) -> None:
         """Pretty-print the discovered ODE for each segment."""

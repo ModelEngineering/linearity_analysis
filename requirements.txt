@@ -2,6 +2,7 @@ numpy
 brotli
 build
 coverage
+ipynbname
 jupyterlab
 lmfit
 matplotlib

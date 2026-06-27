@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
+import pandas as pd  # type: ignore
 
 import src.constants as cn
 

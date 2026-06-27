@@ -1,16 +1,21 @@
 """Tests for PiecewiseSystemDiscovery in piecewise_system_discovery.py."""
 
+import os
 import unittest
 
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 from scipy.integrate import solve_ivp  # type: ignore
 
-from model import Model  # type: ignore
-from timecourse import Timecourse  # type: ignore
-from piecewise_system_discovery import PiecewiseSystemDiscovery  # type: ignore
+import src.constants as cn  # type: ignore
+from src.model import Model  # type: ignore
+from src.plot_options import PlotOptions  # type: ignore
+from src.timecourse import Timecourse  # type: ignore
+from src.timecourse_iterator import TimecourseIterator  # type: ignore
+from src.piecewise_system_discovery import PiecewiseSystemDiscovery  # type: ignore
 
 IGNORE_TESTS = False
+HAS_REAL_ZIP = os.path.isfile(cn.TIMECOURSE_ZIP_PATH)
 
 _TWO_SPECIES_ANTIMONY = """
 S1 -> S2; k1*S1
@@ -140,16 +145,15 @@ class TestGaussianSmooth(unittest.TestCase):
         self.assertAlmostEqual(result[0], result[1], delta=0.5)
         self.assertAlmostEqual(result[1], result[2], delta=0.5)
 
-
-class TestComputeChangePointSignal(unittest.TestCase):
-    """Tests for PiecewiseSystemDiscovery._computeChangePointSignal."""
+class TestComputeChangePointSignalJacobian(unittest.TestCase):
+    """Tests for PiecewiseSystemDiscovery._computeChangePointSignalJacobian."""
 
     def test_signal_length(self) -> None:
         if IGNORE_TESTS:
             return
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc, fit_kernel_bandwidth=0.05)
-        signal = psd._computeChangePointSignal(  # pylint: disable=protected-access
+        signal = psd._computeChangePointSignalDifference(  # pylint: disable=protected-access
                 tc.timecourse_df, tc.jacobian_collection_arr)
         self.assertEqual(len(signal), len(tc.timecourse_df) - 1)
 
@@ -160,7 +164,7 @@ class TestComputeChangePointSignal(unittest.TestCase):
             return
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc, fit_kernel_bandwidth=0.05)
-        signal = psd._computeChangePointSignal(  # pylint: disable=protected-access
+        signal = psd._computeChangePointSignalDifference(  # pylint: disable=protected-access
                 tc.timecourse_df, tc.jacobian_collection_arr)
         split_time_arr = tc.timecourse_df.index.to_numpy(dtype=float)[1:]
         peak_time = split_time_arr[int(np.argmax(signal))]
@@ -171,7 +175,7 @@ class TestComputeChangePointSignal(unittest.TestCase):
             return
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc, fit_kernel_bandwidth=0.05)
-        signal = psd._computeChangePointSignal(  # pylint: disable=protected-access
+        signal = psd._computeChangePointSignalDifference(  # pylint: disable=protected-access
                 tc.timecourse_df, tc.jacobian_collection_arr)
         split_time_arr = tc.timecourse_df.index.to_numpy(dtype=float)[1:]
         mid_regime_a = np.argmin(np.abs(split_time_arr - 2.0))
@@ -566,6 +570,109 @@ class TestPrintEquations(unittest.TestCase):
             return
         psd = _fitTwoRegimePsd()
         psd.printEquations()  # smoke test: just confirm no exception
+
+
+class TestPlot(unittest.TestCase):
+    """Tests for PiecewiseSystemDiscovery.plot."""
+
+    def test_raises_before_fit(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTwoRegimeTimecourse()
+        psd = PiecewiseSystemDiscovery(tc)
+        with self.assertRaises(RuntimeError):
+            psd.plot()
+
+    def test_returns_plot_options(self) -> None:
+        if IGNORE_TESTS:
+            return
+        import matplotlib.pyplot as plt  # type: ignore
+        psd = _fitTwoRegimePsd()
+        po = psd.plot()
+        self.assertIsInstance(po, PlotOptions)
+        plt.close(po.fig)
+
+    def test_figure_has_two_axes(self) -> None:
+        if IGNORE_TESTS:
+            return
+        import matplotlib.pyplot as plt  # type: ignore
+        psd = _fitTwoRegimePsd()
+        po = psd.plot()
+        self.assertEqual(len(po.fig.axes), 2)
+        plt.close(po.fig)
+
+    def test_ax_is_bottom_axes(self) -> None:
+        if IGNORE_TESTS:
+            return
+        import matplotlib.pyplot as plt  # type: ignore
+        psd = _fitTwoRegimePsd()
+        po = psd.plot()
+        self.assertIs(po.ax, po.fig.axes[1])
+        plt.close(po.fig)
+
+    def test_top_axes_title_indicates_zero_change_points(self) -> None:
+        if IGNORE_TESTS:
+            return
+        import matplotlib.pyplot as plt  # type: ignore
+        psd = _fitTwoRegimePsd()
+        po = psd.plot()
+        top_title = po.fig.axes[0].get_title()
+        self.assertIn("0", top_title)
+        plt.close(po.fig)
+
+    def test_bottom_axes_title_indicates_num_change_points(self) -> None:
+        if IGNORE_TESTS:
+            return
+        import matplotlib.pyplot as plt  # type: ignore
+        psd = _fitTwoRegimePsd(num_change_point=1)
+        po = psd.plot()
+        bot_title = po.fig.axes[1].get_title()
+        self.assertIn("1", bot_title)
+        plt.close(po.fig)
+
+    def test_bottom_axes_has_vertical_lines_at_change_points(self) -> None:
+        if IGNORE_TESTS:
+            return
+        import matplotlib.pyplot as plt  # type: ignore
+        psd = _fitTwoRegimePsd(num_change_point=1)
+        change_point_times = [start for start, _ in psd._segment_boundaries[1:]]  # pylint: disable=protected-access
+        po = psd.plot()
+        ax_bot = po.fig.axes[1]
+        vline_xs = [line.get_xdata()[0] for line in ax_bot.lines
+                    if line.get_linestyle() in ("--", "dashed")]
+        for t in change_point_times:
+            self.assertTrue(
+                any(abs(x - t) < 1e-6 for x in vline_xs),
+                msg=f"No dashed vline found at change point t={t}",
+            )
+        plt.close(po.fig)
+
+    def test_top_axes_has_no_vertical_lines(self) -> None:
+        if IGNORE_TESTS:
+            return
+        import matplotlib.pyplot as plt  # type: ignore
+        psd = _fitTwoRegimePsd(num_change_point=1)
+        po = psd.plot()
+        ax_top = po.fig.axes[0]
+        vlines = [line for line in ax_top.lines
+                if line.get_linestyle() in ("--", "dashed")]
+        self.assertEqual(len(vlines), 0)
+        plt.close(po.fig)
+
+    @unittest.skipUnless(HAS_REAL_ZIP, "Real timecourse zip not found")
+    def test_plot_biomodel_331(self) -> None:
+        if IGNORE_TESTS:
+            return
+        import matplotlib.pyplot as plt  # type: ignore
+        tc = TimecourseIterator().getTimecourse("BIOMD0000000331")
+        psd = PiecewiseSystemDiscovery(
+            tc, num_change_point=2, min_segment_length=10,
+            poly_degree=1, differentiation="finite",
+        ).fit()
+        po = psd.plot()
+        self.assertIsInstance(po, PlotOptions)
+        self.assertEqual(len(po.fig.axes), 2)
+        plt.close(po.fig)
 
 
 if __name__ == "__main__":
