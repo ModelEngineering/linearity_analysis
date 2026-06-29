@@ -87,7 +87,7 @@ class PiecewiseSystemDiscovery(object):
         diff_arr = norm_jacobian_arr[1:] - norm_jacobian_arr[:-1]
         raw_signal_arr = np.linalg.norm(
                 diff_arr.reshape(diff_arr.shape[0], -1), axis=1) / (num_species ** 2)
-        return raw_signal_arr
+        return np.sqrt(raw_signal_arr)
         #split_time_arr = timecourse_df.index.to_numpy(dtype=float)[1:]
         #return self._gaussianSmooth(split_time_arr, raw_signal_arr, self.fit_kernel_bandwidth)
 
@@ -108,7 +108,7 @@ class PiecewiseSystemDiscovery(object):
                 for j in norm_jacobian_arr])/(num_species ** 2)
         #split_time_arr = timecourse_df.index.to_numpy(dtype=float)
         #return self._gaussianSmooth(split_time_arr, raw_signal_arr, self.fit_kernel_bandwidth)
-        return raw_signal_arr
+        return np.sqrt(raw_signal_arr[1:])
 
 
     def _detectChangePoints(self, signal_arr: np.ndarray, num_point: int) -> List[int]:

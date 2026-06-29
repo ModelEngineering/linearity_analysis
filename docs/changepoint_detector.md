@@ -63,8 +63,8 @@ The inputs to the algorithm are:
 
 The algorithm proceeds as follows.
 
-1. Calculate the evaluation sum for minimal partitions for each $n \in S$, where $n$ is the first index in the second partition.
-   1. $y^{\prime}_n = y_n - y_{f_S}$
+1. For $n \in [f_S, l_S]$, calculate the signal for the partition, $A_{S_{n,1}} + A_{S_{n,2}}$.
+   1. $y^{\prime}_n = y_n - y_{f_S-1}$
    2. $z^{\prime}_n = z_n - y_N + y_{l_S}$
-   3. $v_n = \frac{y_{n-1}^{\prime}y^{\prime}_{n-1}}{n} + \frac{z_n^{\prime}z_n^{\prime} }{(|S|-n)}$
-2. $n^{\star} = argmax_n v_n$
+   3. $s_n = \frac{y_{n-1}^{\prime}y^{\prime}_{n-1}}{n} + \frac{z_n^{\prime}z_n^{\prime} }{(N-n)}$
+2. Find the change point: $n^{\star} = argmax_n s_n$
