@@ -581,14 +581,14 @@ class TestPlot(unittest.TestCase):
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc)
         with self.assertRaises(RuntimeError):
-            psd.plot()
+            psd.plotPiecewise()
 
     def test_returns_plot_options(self) -> None:
         if IGNORE_TESTS:
             return
         import matplotlib.pyplot as plt  # type: ignore
         psd = _fitTwoRegimePsd()
-        po = psd.plot()
+        po = psd.plotPiecewise()
         self.assertIsInstance(po, PlotOptions)
         plt.close(po.fig)
 
@@ -597,7 +597,7 @@ class TestPlot(unittest.TestCase):
             return
         import matplotlib.pyplot as plt  # type: ignore
         psd = _fitTwoRegimePsd()
-        po = psd.plot()
+        po = psd.plotPiecewise()
         self.assertEqual(len(po.fig.axes), 2)
         plt.close(po.fig)
 
@@ -606,7 +606,7 @@ class TestPlot(unittest.TestCase):
             return
         import matplotlib.pyplot as plt  # type: ignore
         psd = _fitTwoRegimePsd()
-        po = psd.plot()
+        po = psd.plotPiecewise()
         self.assertIs(po.ax, po.fig.axes[1])
         plt.close(po.fig)
 
@@ -615,7 +615,7 @@ class TestPlot(unittest.TestCase):
             return
         import matplotlib.pyplot as plt  # type: ignore
         psd = _fitTwoRegimePsd()
-        po = psd.plot()
+        po = psd.plotPiecewise()
         top_title = po.fig.axes[0].get_title()
         self.assertIn("0", top_title)
         plt.close(po.fig)
@@ -625,7 +625,7 @@ class TestPlot(unittest.TestCase):
             return
         import matplotlib.pyplot as plt  # type: ignore
         psd = _fitTwoRegimePsd(num_change_point=1)
-        po = psd.plot()
+        po = psd.plotPiecewise()
         bot_title = po.fig.axes[1].get_title()
         self.assertIn("1", bot_title)
         plt.close(po.fig)
@@ -636,7 +636,7 @@ class TestPlot(unittest.TestCase):
         import matplotlib.pyplot as plt  # type: ignore
         psd = _fitTwoRegimePsd(num_change_point=1)
         change_point_times = [start for start, _ in psd._segment_boundaries[1:]]  # pylint: disable=protected-access
-        po = psd.plot()
+        po = psd.plotPiecewise()
         ax_bot = po.fig.axes[1]
         vline_xs = [line.get_xdata()[0] for line in ax_bot.lines
                     if line.get_linestyle() in ("--", "dashed")]
@@ -652,7 +652,7 @@ class TestPlot(unittest.TestCase):
             return
         import matplotlib.pyplot as plt  # type: ignore
         psd = _fitTwoRegimePsd(num_change_point=1)
-        po = psd.plot()
+        po = psd.plotPiecewise()
         ax_top = po.fig.axes[0]
         vlines = [line for line in ax_top.lines
                 if line.get_linestyle() in ("--", "dashed")]
@@ -669,7 +669,7 @@ class TestPlot(unittest.TestCase):
             tc, num_change_point=2, min_segment_length=10,
             poly_degree=1, differentiation="finite",
         ).fit()
-        po = psd.plot()
+        po = psd.plotPiecewise()
         self.assertIsInstance(po, PlotOptions)
         self.assertEqual(len(po.fig.axes), 2)
         plt.close(po.fig)

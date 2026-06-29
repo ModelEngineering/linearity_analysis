@@ -59,10 +59,16 @@ class PiecewiseSystemDiscovery(object):
         weight_arr = np.exp(-0.5 * (delta_arr / bandwidth) ** 2)
         return (weight_arr @ values) / weight_arr.sum(axis=1)
     
+    def _denan(self, jacobian_arr: np.ndarray) -> np.ndarray:
+        """Replace NaN entries in a Jacobian with zeros."""
+        return np.where(np.isnan(jacobian_arr), 0.0, jacobian_arr)
+    
     def _normalizeJacobian(self, jacobian_arr: np.ndarray,
             timecourse_df: pd.DataFrame) -> np.ndarray:
         """Normalize a single Jacobian by the species std deviations."""
+        jacobian_arr = self._denan(jacobian_arr)
         std_arr = timecourse_df.to_numpy(dtype=float).std(axis=0, ddof=1)
+        std_arr = self._denan(std_arr)
         safe_std_arr = np.where(np.isclose(std_arr, 0.0), 1.0, std_arr)
         return jacobian_arr * (safe_std_arr[np.newaxis, np.newaxis, :]
                 / safe_std_arr[np.newaxis, :, np.newaxis])
@@ -81,8 +87,9 @@ class PiecewiseSystemDiscovery(object):
         diff_arr = norm_jacobian_arr[1:] - norm_jacobian_arr[:-1]
         raw_signal_arr = np.linalg.norm(
                 diff_arr.reshape(diff_arr.shape[0], -1), axis=1) / (num_species ** 2)
-        split_time_arr = timecourse_df.index.to_numpy(dtype=float)[1:]
-        return self._gaussianSmooth(split_time_arr, raw_signal_arr, self.fit_kernel_bandwidth)
+        return raw_signal_arr
+        #split_time_arr = timecourse_df.index.to_numpy(dtype=float)[1:]
+        #return self._gaussianSmooth(split_time_arr, raw_signal_arr, self.fit_kernel_bandwidth)
 
     # TODO: Plot and evaluate, comparing with the difference approach 
     def _computeChangePointSignalMedian(self, timecourse_df: pd.DataFrame,
@@ -99,8 +106,9 @@ class PiecewiseSystemDiscovery(object):
         median_jacobian_arr = np.median(norm_jacobian_arr, axis=0)
         raw_signal_arr = np.array([ np.sum((j - median_jacobian_arr) ** 2)
                 for j in norm_jacobian_arr])/(num_species ** 2)
-        split_time_arr = timecourse_df.index.to_numpy(dtype=float)
-        return self._gaussianSmooth(split_time_arr, raw_signal_arr, self.fit_kernel_bandwidth)
+        #split_time_arr = timecourse_df.index.to_numpy(dtype=float)
+        #return self._gaussianSmooth(split_time_arr, raw_signal_arr, self.fit_kernel_bandwidth)
+        return raw_signal_arr
 
 
     def _detectChangePoints(self, signal_arr: np.ndarray, num_point: int) -> List[int]:
@@ -136,10 +144,100 @@ class PiecewiseSystemDiscovery(object):
         num_point = raw_df.shape[0]
         time_arr = raw_df.index.to_numpy(dtype=float)
 
-        signal_arr = self._computeChangePointSignalDifference(raw_df, jacobian_collection_arr)
+        signal_arr = self._computeChangePointSignalMedian(raw_df, jacobian_collection_arr)
         split_index_list = self._detectChangePoints(signal_arr, num_point)
         boundary_index_arr = [0] + split_index_list + [num_point]
 
+        self._segment_models = []
+        self._segment_boundaries = []
+        self._segment_lengths = []
+        for lo, hi in zip(boundary_index_arr[:-1], boundary_index_arr[1:]):
+            segment_df = raw_df.iloc[lo:hi]
+            end_time = time_arr[hi] if hi < num_point else time_arr[-1]
+            self._segment_boundaries.append((float(time_arr[lo]), float(end_time)))
+            self._segment_lengths.append(hi - lo)
+            model = SystemDiscovery(segment_df, **self._kwargs).fit()
+            self._segment_models.append(model)
+
+        self._is_fitted = True
+        return self
+
+    def dynamicFit(self) -> "PiecewiseSystemDiscovery":
+        """Find optimal change points via dynamic programming on the median signal.
+
+        Partitions the signal from ``_computeChangePointSignalMedian`` into
+        ``num_change_point + 1`` segments minimising the total within-segment
+        sum of squared deviations from each segment mean.  Respects
+        ``min_segment_length``.
+
+        After finding the optimal split indices, fits a ``SystemDiscovery``
+        model on each segment — identical post-processing to ``fit()``.
+
+        Raises
+        ------
+        RuntimeError
+            If the series is too short to accommodate the requested number of
+            segments at the current ``min_segment_length``.
+        """
+        raw_df = self.timecourse.timecourse_df
+        jacobian_collection_arr = self.timecourse.jacobian_collection_arr
+        num_point = raw_df.shape[0]
+        time_arr = raw_df.index.to_numpy(dtype=float)
+        num_seg = self.num_change_point + 1
+        mseg = self.min_segment_length
+
+        signal_arr = np.nan_to_num(
+            self._computeChangePointSignalMedian(raw_df, jacobian_collection_arr),
+            nan=0.0,
+        )
+
+        # Prefix sums for O(1) within-segment SSE: cost(lo, hi) = Σ(x-μ)²
+        prefix_sum = np.concatenate([[0.0], np.cumsum(signal_arr)])
+        prefix_sum_sq = np.concatenate([[0.0], np.cumsum(signal_arr ** 2)])
+
+        INF = float("inf")
+        # dp[i][s] = min total SSE to partition signal[0:i] into s segments
+        dp = np.full((num_point + 1, num_seg + 1), INF)
+        backtrack = np.full((num_point + 1, num_seg + 1), -1, dtype=int)
+
+        for i in range(mseg, num_point + 1):
+            s = prefix_sum[i]
+            dp[i][1] = float(prefix_sum_sq[i] - s * s / i)
+
+        for s in range(2, num_seg + 1):
+            for i in range(s * mseg, num_point + 1):
+                j_lo = (s - 1) * mseg
+                j_hi = i - mseg
+                if j_lo > j_hi:
+                    continue
+                j_arr = np.arange(j_lo, j_hi + 1)
+                prev = dp[j_arr, s - 1]
+                lengths = i - j_arr
+                seg_sum = prefix_sum[i] - prefix_sum[j_arr]
+                seg_sq = prefix_sum_sq[i] - prefix_sum_sq[j_arr]
+                seg_cost = seg_sq - seg_sum ** 2 / lengths
+                total = prev + seg_cost
+                total[prev >= INF] = INF
+                best = int(np.argmin(total))
+                if total[best] < INF:
+                    dp[i][s] = total[best]
+                    backtrack[i][s] = int(j_arr[best])
+
+        if dp[num_point][num_seg] >= INF:
+            raise RuntimeError(
+                f"Cannot partition {num_point} points into {num_seg} segments "
+                f"each with at least {mseg} points."
+            )
+
+        split_index_list: List[int] = []
+        i, s = num_point, num_seg
+        while s > 1:
+            j = int(backtrack[i][s])
+            split_index_list.append(j)
+            i, s = j, s - 1
+        split_index_list.reverse()
+
+        boundary_index_arr = [0] + split_index_list + [num_point]
         self._segment_models = []
         self._segment_boundaries = []
         self._segment_lengths = []
@@ -221,7 +319,7 @@ class PiecewiseSystemDiscovery(object):
             block_list.append("\n".join([header] + equation_line_list))
         return "\n\n".join(block_list)
 
-    def plot(self, num_true_point: int = 20, **kwargs: Any) -> PlotOptions:
+    def plotPiecewise(self, num_true_point: int = 20, **kwargs: Any) -> PlotOptions:
         """Two-panel comparison: 0 change points (top) vs num_change_point (bottom).
 
         Both panels show actual (scatter) vs predicted (line) species concentrations.
@@ -301,6 +399,7 @@ class PiecewiseSystemDiscovery(object):
         model_number: int = -1,
         timecourse: Timecourse | None = None,
         signal_kind: str = "median",
+        is_standarized: bool = True,
         **kwargs: Any,
     ) -> PlotOptions:
         """Plot the change point signal and timecourses for a BioModel.
@@ -312,6 +411,8 @@ class PiecewiseSystemDiscovery(object):
         signal_kind : str
             ``"difference"`` — frame-to-frame normalized Jacobian distance.
             ``"median"``     — distance of each Jacobian from the median Jacobian.
+        is_standarized : bool
+            Whether to standardize the signal.
         **kwargs
             Forwarded to PlotOptions (bottom/signal axes).  ``figsize`` is
             consumed here and not passed to PlotOptions.
@@ -329,7 +430,12 @@ class PiecewiseSystemDiscovery(object):
         model_name = f"BIOMD{model_number:010d}"
         if timecourse is None:
             timecourse = TimecourseIterator().getTimecourse(model_name)
+        else:
+            # Get the correct model name
+            model_name = timecourse.model.model_name
         timecourse_df = timecourse.timecourse_df
+        if is_standarized:
+            timecourse_df = (timecourse_df - timecourse_df.mean()) / timecourse_df.std()
         jacobian_collection_arr = timecourse.jacobian_collection_arr
         time_arr = timecourse_df.index.to_numpy(dtype=float)
         num_point = timecourse_df.shape[0]
@@ -360,12 +466,14 @@ class PiecewiseSystemDiscovery(object):
             ax_top.plot(timecourse_df.index, timecourse_df[name],  # type: ignore
                         color=f"C{i}", label=name)
         top_po.apply()
+        ax_top.set_ylabel("normalized concentration", fontsize=10)  # type: ignore
 
         ax_bot.plot(signal_times, signal_arr, color="black", lw=1.5)  # type: ignore
         for t in change_point_times:
             ax_bot.axvline(t, color="red", linestyle="--", lw=1.0, alpha=0.8)  # type: ignore
         ax_bot.set_title(f"Change point signal ({signal_kind})", fontsize=11)  # type: ignore
         plot_options.apply()
+        ax_bot.set_ylabel("Signal", fontsize=10)  # type: ignore
 
         fig.suptitle(f"{model_name}", fontsize=13, fontweight="bold")
         fig.tight_layout()
