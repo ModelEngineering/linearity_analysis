@@ -13,6 +13,7 @@ import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 from scipy.integrate import solve_ivp  # type: ignore
 
+from src.change_point_detector import ChangePointDetector  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
 from src.system_discovery import ScoreInfo, SystemDiscovery  # type: ignore
 from src.timecourse import Timecourse  # type: ignore
@@ -28,17 +29,26 @@ class PiecewiseSystemDiscovery(object):
         self,
         timecourse: Timecourse,
         num_change_point: int = 2,
+        min_normalized_reduction: float = 0.1,  
         min_segment_length: int = 100,
         change_point_threshold: float = 0.1,
-        fit_kernel_bandwidth: float = 1.0,
-        predict_kernel_bandwidth: float = 1.0,
+        predict_kernel_bandwidth: float = 0.5,
         **kwargs: Any,
     ) -> None:
+        """_summary_
+
+        Args:
+            timecourse (Timecourse): _description_
+            num_change_point (int, optional): _description_. Defaults to 2.
+            min_normalized_reduction (float, optional): _description_. Defaults to 0.1.
+            min_segment_length (int, optional): _description_. Defaults to 100.
+            change_point_threshold (float, optional): _description_. Defaults to 0.1.
+        """
         self.timecourse = timecourse
         self.num_change_point = num_change_point
+        self.min_normalized_reduction = min_normalized_reduction
         self.min_segment_length = min_segment_length
         self.change_point_threshold = change_point_threshold
-        self.fit_kernel_bandwidth = fit_kernel_bandwidth
         self.predict_kernel_bandwidth = predict_kernel_bandwidth
         self._kwargs = kwargs
 
@@ -89,7 +99,6 @@ class PiecewiseSystemDiscovery(object):
                 diff_arr.reshape(diff_arr.shape[0], -1), axis=1) / (num_species ** 2)
         return np.sqrt(raw_signal_arr)
         #split_time_arr = timecourse_df.index.to_numpy(dtype=float)[1:]
-        #return self._gaussianSmooth(split_time_arr, raw_signal_arr, self.fit_kernel_bandwidth)
 
     # TODO: Plot and evaluate, comparing with the difference approach 
     def _computeChangePointSignalMedian(self, timecourse_df: pd.DataFrame,
@@ -107,7 +116,6 @@ class PiecewiseSystemDiscovery(object):
         raw_signal_arr = np.array([ np.sum((j - median_jacobian_arr) ** 2)
                 for j in norm_jacobian_arr])/(num_species ** 2)
         #split_time_arr = timecourse_df.index.to_numpy(dtype=float)
-        #return self._gaussianSmooth(split_time_arr, raw_signal_arr, self.fit_kernel_bandwidth)
         return np.sqrt(raw_signal_arr[1:])
 
 
@@ -117,25 +125,35 @@ class PiecewiseSystemDiscovery(object):
 
         Returns a sorted (by time) list of accepted interior split indices.
         """
-        candidate_index_arr = np.arange(1, num_point)
-        order_arr = np.argsort(-signal_arr, kind="stable")
-        accepted: List[int] = []
-        for rank in order_arr:
-            signal_value = signal_arr[rank]
-            if signal_value < self.change_point_threshold:
-                break
-            split_idx = int(candidate_index_arr[rank])
-            pos = bisect.bisect_left(accepted, split_idx)
-            left_bound = accepted[pos - 1] if pos > 0 else 0
-            right_bound = accepted[pos] if pos < len(accepted) else num_point
-            if (split_idx - left_bound) < self.min_segment_length:
-                continue
-            if (right_bound - split_idx) < self.min_segment_length:
-                continue
-            accepted.insert(pos, split_idx)
-            if len(accepted) == self.num_change_point:
-                break
-        return accepted
+        detector = ChangePointDetector(signal_arr)
+        detector.fit(max_change_point=self.num_change_point,
+                min_fractional_reduction=0.0,
+                min_segment_length=2)
+        if len(detector.subsequences) == 0:
+            split_indices = []
+        else:
+            split_indices = [info.splice_start for info in detector.subsequences]
+        split_indices.remove(0)  # Remove the first index if it's 0, as we don't want to split at the very beginning
+        return sorted(split_indices)
+#        candidate_index_arr = np.arange(1, num_point)
+#        order_arr = np.argsort(-signal_arr, kind="stable")
+#        accepted: List[int] = []
+#        for rank in order_arr:
+#            signal_value = signal_arr[rank]
+#            if signal_value < self.change_point_threshold:
+#                break
+#            split_idx = int(candidate_index_arr[rank])
+#            pos = bisect.bisect_left(accepted, split_idx)
+#            left_bound = accepted[pos - 1] if pos > 0 else 0
+#            right_bound = accepted[pos] if pos < len(accepted) else num_point
+#            if (split_idx - left_bound) < self.min_segment_length:
+#                continue
+#            if (right_bound - split_idx) < self.min_segment_length:
+#                continue
+#            accepted.insert(pos, split_idx)
+#            if len(accepted) == self.num_change_point:
+#                break
+#        return accepted
 
     def fit(self) -> "PiecewiseSystemDiscovery":
         """fit() steps 1-4: detect change points, fit per-segment models."""
@@ -399,6 +417,7 @@ class PiecewiseSystemDiscovery(object):
         model_number: int = -1,
         timecourse: Timecourse | None = None,
         signal_kind: str = "median",
+        num_change_point: int = 2,
         is_standarized: bool = True,
         **kwargs: Any,
     ) -> PlotOptions:
@@ -440,7 +459,7 @@ class PiecewiseSystemDiscovery(object):
         time_arr = timecourse_df.index.to_numpy(dtype=float)
         num_point = timecourse_df.shape[0]
 
-        psd = cls(timecourse)
+        psd = cls(timecourse, num_change_point=num_change_point)
 
         if signal_kind == "difference":
             signal_arr = psd._computeChangePointSignalDifference(  # pylint: disable=protected-access
@@ -450,7 +469,7 @@ class PiecewiseSystemDiscovery(object):
         else:
             signal_arr = psd._computeChangePointSignalMedian(  # pylint: disable=protected-access
                 timecourse_df, jacobian_collection_arr)
-            signal_times = time_arr
+            signal_times = time_arr[1:]
             detection_signal = signal_arr[:-1]
 
         change_point_indices = psd._detectChangePoints(detection_signal, num_point)  # pylint: disable=protected-access

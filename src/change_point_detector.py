@@ -103,7 +103,8 @@ class ChangePointDetector:
         
         return best_k, reduction
 
-    def fit(self, max_points: int, min_fractional_reduction: float):
+    def fit(self, max_change_point: int, min_fractional_reduction: float,
+            min_segment_length: int = 1) -> None:
         """
         Find change points based on the provided stopping criteria.
 
@@ -111,6 +112,7 @@ class ChangePointDetector:
             max_points (int): Maximum number of change points to find.
             min_fractional_reduction (float): 
                     Minimum relative reduction in ASS required (epsilon).
+            min_segment_length (int): Minimum length of segments to consider for splitting.
         """
         if self.length == 0:
             self.subsequences = []
@@ -131,8 +133,10 @@ class ChangePointDetector:
         change_points: List[int] = []
         total_abs_reduction = 0.0
 
-        while heap and len(change_points) < max_points:
+        while heap and len(change_points) < max_change_point:
             neg_red, start, end, k = heapq.heappop(heap)
+            if end - start <= min_segment_length:
+                continue  # Skip segments that are too short to split
             reduction = -neg_red
 
             if reduction <= min_fractional_reduction * a_total:
