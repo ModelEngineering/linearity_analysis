@@ -254,8 +254,8 @@ class TestMain(unittest.TestCase):
         received: list[int] = []
         items = [_makeIteratorItem("model_A")]
 
-        def fake_psd_init(timecourse, num_change_point=2, **kwargs):
-            received.append(num_change_point)
+        def fake_psd_init(timecourse, max_change_point=2, **kwargs):
+            received.append(max_change_point)
             mock = MagicMock()
             mock.fit.return_value = mock
             mock.score.return_value = _makeScoreInfo()

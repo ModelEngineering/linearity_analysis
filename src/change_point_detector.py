@@ -61,7 +61,7 @@ class ChangePointDetector:
         
         return cumulative_ssq - (cumulative_sum**2 / length)
 
-    def _find_best_split(self, start: int, end: int) -> Tuple[int, float]:
+    def _find_best_split(self, start: int, end: int, min_segment_length: int = 1) -> Tuple[int, float]:
         """
         Find the optimal single split point for the range [start, end).
         
@@ -69,7 +69,7 @@ class ChangePointDetector:
             Tuple[int, float]: (best_split_idx, reduction_in_ASS)
         """
         length = end - start
-        if length <= 1:
+        if length < 2 * min_segment_length:
             return -1, 0.0
 
         # The sum of the total range for the reduction calculation
@@ -80,8 +80,8 @@ class ChangePointDetector:
         best_k = -1
 
         # Split index k: data[start:k] and data[k:end]
-        # k ranges from start + 1 to end - 1
-        for k in range(start + 1, end):
+        # k must be such that k - start >= min_segment_length and end - k >= min_segment_length
+        for k in range(start + min_segment_length, end - min_segment_length + 1):
             # First partition: [start, k), length k - start
             sum_1 = self._get_sum(start, k)
             # Second partition: [k, end), length end - k
@@ -126,7 +126,7 @@ class ChangePointDetector:
         # largest reduction first so the fixed-K budget is spent optimally.
         # Each entry: (-reduction, start, end, k) — negated for min-heap ordering.
         heap: List[Tuple[float, int, int, int]] = []
-        k_init, red_init = self._find_best_split(0, self.length)
+        k_init, red_init = self._find_best_split(0, self.length, min_segment_length)
         if red_init > 0:
             heapq.heappush(heap, (-red_init, 0, self.length, k_init))
 
@@ -135,8 +135,8 @@ class ChangePointDetector:
 
         while heap and len(change_points) < max_change_point:
             neg_red, start, end, k = heapq.heappop(heap)
-            if end - start <= min_segment_length:
-                continue  # Skip segments that are too short to split
+            if end - start < 2 * min_segment_length:
+                continue  # Skip segments that are too short to split into two min_segment_length pieces
             reduction = -neg_red
 
             if reduction <= min_fractional_reduction * a_total:
@@ -146,8 +146,8 @@ class ChangePointDetector:
             total_abs_reduction += reduction
 
             for seg_start, seg_end in ((start, k), (k, end)):
-                if seg_end - seg_start > 1:
-                    k_sub, red_sub = self._find_best_split(seg_start, seg_end)
+                if seg_end - seg_start >= 2 * min_segment_length:
+                    k_sub, red_sub = self._find_best_split(seg_start, seg_end, min_segment_length)
                     if red_sub > 0:
                         heapq.heappush(heap, (-red_sub, seg_start, seg_end, k_sub))
 

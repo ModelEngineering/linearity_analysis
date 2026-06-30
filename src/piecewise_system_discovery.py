@@ -28,29 +28,31 @@ class PiecewiseSystemDiscovery(object):
     def __init__(
         self,
         timecourse: Timecourse,
-        num_change_point: int = 2,
-        min_normalized_reduction: float = 0.1,  
+        max_change_point: int = 2,
+        min_fractional_reduction: float = 0.1,  
         min_segment_length: int = 100,
         change_point_threshold: float = 0.1,
         predict_kernel_bandwidth: float = 0.5,
-        **kwargs: Any,
+        **sd_kwargs: Any,
     ) -> None:
         """_summary_
 
         Args:
             timecourse (Timecourse): _description_
-            num_change_point (int, optional): _description_. Defaults to 2.
-            min_normalized_reduction (float, optional): _description_. Defaults to 0.1.
+            max_change_point (int, optional): _description_. Defaults to 2.
+            min_fractional_reduction (float, optional): _description_. Defaults to 0.1.
             min_segment_length (int, optional): _description_. Defaults to 100.
             change_point_threshold (float, optional): _description_. Defaults to 0.1.
+            predict_kernel_bandwidth (float, optional): _description_. Defaults to 0.5.
+            **kwargs: Arguments for SystemDiscovery constructor (e.g. fit_kernel_bandwidth, model_name).
         """
         self.timecourse = timecourse
-        self.num_change_point = num_change_point
-        self.min_normalized_reduction = min_normalized_reduction
+        self.max_change_point = max_change_point
+        self.min_fractional_reduction = min_fractional_reduction
         self.min_segment_length = min_segment_length
         self.change_point_threshold = change_point_threshold
         self.predict_kernel_bandwidth = predict_kernel_bandwidth
-        self._kwargs = kwargs
+        self._sd_kwargs = sd_kwargs
 
         self._segment_models: List[SystemDiscovery] = []
         self._segment_boundaries: List[Tuple[float, float]] = []
@@ -126,34 +128,21 @@ class PiecewiseSystemDiscovery(object):
         Returns a sorted (by time) list of accepted interior split indices.
         """
         detector = ChangePointDetector(signal_arr)
-        detector.fit(max_change_point=self.num_change_point,
-                min_fractional_reduction=0.0,
-                min_segment_length=2)
-        if len(detector.subsequences) == 0:
-            split_indices = []
-        else:
-            split_indices = [info.splice_start for info in detector.subsequences]
-        split_indices.remove(0)  # Remove the first index if it's 0, as we don't want to split at the very beginning
+        # self.min_fraction_reduction gates the SSE reduction a split must achieve
+        # (as a fraction of the total adjusted sum of squares), not the raw
+        # signal value at the split point: the split index itself often falls
+        # on a low-signal point right after a spike, since the detector
+        # chooses the boundary that best separates two segments, not the
+        # point with the largest signal value.
+        detector.fit(max_change_point=self.max_change_point,
+                min_fractional_reduction=self.min_fractional_reduction,
+                min_segment_length=self.min_segment_length)
+
+        # Map signal index k to timecourse split index k + 1
+        split_indices = [info.splice_start + 1 for info in detector.subsequences
+                if info.splice_start > 0]
+
         return sorted(split_indices)
-#        candidate_index_arr = np.arange(1, num_point)
-#        order_arr = np.argsort(-signal_arr, kind="stable")
-#        accepted: List[int] = []
-#        for rank in order_arr:
-#            signal_value = signal_arr[rank]
-#            if signal_value < self.change_point_threshold:
-#                break
-#            split_idx = int(candidate_index_arr[rank])
-#            pos = bisect.bisect_left(accepted, split_idx)
-#            left_bound = accepted[pos - 1] if pos > 0 else 0
-#            right_bound = accepted[pos] if pos < len(accepted) else num_point
-#            if (split_idx - left_bound) < self.min_segment_length:
-#                continue
-#            if (right_bound - split_idx) < self.min_segment_length:
-#                continue
-#            accepted.insert(pos, split_idx)
-#            if len(accepted) == self.num_change_point:
-#                break
-#        return accepted
 
     def fit(self) -> "PiecewiseSystemDiscovery":
         """fit() steps 1-4: detect change points, fit per-segment models."""
@@ -174,7 +163,7 @@ class PiecewiseSystemDiscovery(object):
             end_time = time_arr[hi] if hi < num_point else time_arr[-1]
             self._segment_boundaries.append((float(time_arr[lo]), float(end_time)))
             self._segment_lengths.append(hi - lo)
-            model = SystemDiscovery(segment_df, **self._kwargs).fit()
+            model = SystemDiscovery(segment_df, **self._sd_kwargs).fit()
             self._segment_models.append(model)
 
         self._is_fitted = True
@@ -201,7 +190,7 @@ class PiecewiseSystemDiscovery(object):
         jacobian_collection_arr = self.timecourse.jacobian_collection_arr
         num_point = raw_df.shape[0]
         time_arr = raw_df.index.to_numpy(dtype=float)
-        num_seg = self.num_change_point + 1
+        num_seg = self.max_change_point + 1
         mseg = self.min_segment_length
 
         signal_arr = np.nan_to_num(
@@ -264,7 +253,7 @@ class PiecewiseSystemDiscovery(object):
             end_time = time_arr[hi] if hi < num_point else time_arr[-1]
             self._segment_boundaries.append((float(time_arr[lo]), float(end_time)))
             self._segment_lengths.append(hi - lo)
-            model = SystemDiscovery(segment_df, **self._kwargs).fit()
+            model = SystemDiscovery(segment_df, **self._sd_kwargs).fit()
             self._segment_models.append(model)
 
         self._is_fitted = True
@@ -367,7 +356,7 @@ class PiecewiseSystemDiscovery(object):
         species_names = self._segment_models[0].species_names
         num_skip = max(1, len(time_arr) // num_true_point)
 
-        baseline = SystemDiscovery(timecourse_df, **self._kwargs).fit()
+        baseline = SystemDiscovery(timecourse_df, **self._sd_kwargs).fit()
         try:
             baseline_pred_df = baseline.predict()
         except Exception:
@@ -405,7 +394,7 @@ class PiecewiseSystemDiscovery(object):
             po.apply()
 
         _draw(PlotOptions(fig=fig, ax=ax_top, **kwargs), baseline_pred_df, "0 change points")
-        _draw(plot_options, psd_pred_df, f"{self.num_change_point} change point(s)",
+        _draw(plot_options, psd_pred_df, f"{self.max_change_point} change point(s)",
                 vlines=change_point_times)
         fig.suptitle("Actual vs Predicted", fontsize=13, fontweight="bold")
         fig.tight_layout()

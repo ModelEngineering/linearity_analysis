@@ -56,7 +56,7 @@ def main(num_change_point: int = 2, is_initialize: bool = False) -> pd.DataFrame
         try:
             psd = PiecewiseSystemDiscovery(
                 item.timecourse,
-                num_change_point=num_change_point,
+                max_change_point=num_change_point,
             ).fit()
             info = psd.score()
         except Exception as exc:
