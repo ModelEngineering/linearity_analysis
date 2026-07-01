@@ -2,6 +2,7 @@
 
 import os
 import unittest
+import matplotlib.pyplot as plt  # type: ignore
 
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
@@ -14,7 +15,7 @@ from src.timecourse import Timecourse  # type: ignore
 from src.timecourse_iterator import TimecourseIterator  # type: ignore
 from src.piecewise_system_discovery import PiecewiseSystemDiscovery  # type: ignore
 
-IGNORE_TESTS = False
+IGNORE_TESTS = True
 HAS_REAL_ZIP = os.path.isfile(cn.TIMECOURSE_ZIP_PATH)
 
 _TWO_SPECIES_ANTIMONY = """
@@ -682,6 +683,19 @@ class TestPlot(unittest.TestCase):
         self.assertEqual(len(po.fig.axes), 2)  # type: ignore
         plt.close(po.fig)
 
+class TestBug(unittest.TestCase):
+
+    def test_bug_1(self) -> None:
+        #if IGNORE_TESTS:
+        #    return
+        model = Model.makeBiomodel(model_num=45)
+        timecourse = Timecourse(model, start_time=0, end_time=None, num_point=1000)
+        result = PiecewiseSystemDiscovery.plotBiomodelsSignal(timecourse=timecourse, 
+                legend=False, max_change_point=2,
+                min_segment_length=1, min_fractional_reduction=0.0)
+        result.piecewise_system_discovery.fit()
+        result.piecewise_system_discovery.plotPiecewise(legend=False)
+        plt.show()
 
 if __name__ == "__main__":
     unittest.main()

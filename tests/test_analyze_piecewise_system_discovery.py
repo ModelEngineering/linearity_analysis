@@ -263,10 +263,10 @@ class TestMain(unittest.TestCase):
 
         output_path = os.path.join(self._tmpdir.name, "scores-5.csv")
         with patch("analyze_piecewise_system_discovery.TimecourseIterator") as mock_iter_cls, \
-             patch("analyze_piecewise_system_discovery.PiecewiseSystemDiscovery",
-                   side_effect=fake_psd_init), \
-             patch("analyze_piecewise_system_discovery._output_path",
-                   return_value=output_path):
+            patch("analyze_piecewise_system_discovery.PiecewiseSystemDiscovery",
+            side_effect=fake_psd_init), \
+            patch("analyze_piecewise_system_discovery._output_path",
+            return_value=output_path):
             mock_iter_cls.return_value.__iter__ = MagicMock(return_value=iter(items))
             main(num_change_point=5)
 

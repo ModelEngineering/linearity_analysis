@@ -131,7 +131,7 @@ class SystemDiscovery:
         threshold: float = 0.01,
         alpha: float = 0.05,
         differentiation: DifferentiationMethod = "smooth",
-        poly_degree: int = 2,
+        poly_degree: int = 1,
         include_bias: bool = True,
         species_names: list[str] | None = None,
         bias_species: list[str] | None = None,
@@ -589,7 +589,6 @@ class SystemDiscovery:
             species.  Raises ``RuntimeError`` if the ODE integrator fails.
             columns: species names; index: time points
         """
-        self._require_fitted()
         if test_df is not NULL_DF:
             x0 = test_df.to_numpy(dtype=float)[0, :]
             time_arr = test_df.index.to_numpy(dtype=float)

@@ -8,6 +8,7 @@ See docs/piecewise_system_discovery.md for the full design.
 import bisect
 from typing import Any, List, Tuple
 
+import collections
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
@@ -21,6 +22,9 @@ from src.timecourse_iterator import TimecourseIterator  # type: ignore
 
 NULL_DF = pd.DataFrame()
 
+PlotBiomodelsSignalResult = collections.namedtuple('PlotBiomodelsSignalResult',
+        ['plot_options', 'piecewise_system_discovery', 'change_point_times'])
+
 
 class PiecewiseSystemDiscovery(object):
     """Piecewise-linear ODE discovery across detected change-point segments."""
@@ -31,7 +35,6 @@ class PiecewiseSystemDiscovery(object):
         max_change_point: int = 2,
         min_fractional_reduction: float = 0.1,  
         min_segment_length: int = 100,
-        change_point_threshold: float = 0.1,
         predict_kernel_bandwidth: float = 0.5,
         **sd_kwargs: Any,
     ) -> None:
@@ -42,7 +45,6 @@ class PiecewiseSystemDiscovery(object):
             max_change_point (int, optional): _description_. Defaults to 2.
             min_fractional_reduction (float, optional): _description_. Defaults to 0.1.
             min_segment_length (int, optional): _description_. Defaults to 100.
-            change_point_threshold (float, optional): _description_. Defaults to 0.1.
             predict_kernel_bandwidth (float, optional): _description_. Defaults to 0.5.
             **kwargs: Arguments for SystemDiscovery constructor (e.g. fit_kernel_bandwidth, model_name).
         """
@@ -50,8 +52,8 @@ class PiecewiseSystemDiscovery(object):
         self.max_change_point = max_change_point
         self.min_fractional_reduction = min_fractional_reduction
         self.min_segment_length = min_segment_length
-        self.change_point_threshold = change_point_threshold
         self.predict_kernel_bandwidth = predict_kernel_bandwidth
+        sd_kwargs["poly_degree"] = sd_kwargs.get("poly_degree", 1)
         self._sd_kwargs = sd_kwargs
 
         self._segment_models: List[SystemDiscovery] = []
@@ -173,7 +175,7 @@ class PiecewiseSystemDiscovery(object):
         """Find optimal change points via dynamic programming on the median signal.
 
         Partitions the signal from ``_computeChangePointSignalMedian`` into
-        ``num_change_point + 1`` segments minimising the total within-segment
+        ``max_change_point + 1`` segments minimising the total within-segment
         sum of squared deviations from each segment mean.  Respects
         ``min_segment_length``.
 
@@ -263,13 +265,19 @@ class PiecewiseSystemDiscovery(object):
         """Blend per-segment derivative predictions at (t, x) with a Gaussian
         kernel over each segment's midpoint. See docs/piecewise_system_discovery.md.
         """
+        # Eliminated smoothing across model segments
         self._require_fitted()
-        midpoint_arr = np.array(
-                [0.5 * (start + end) for start, end in self._segment_boundaries])
-        weight_arr = np.exp(-0.5 * ((t - midpoint_arr) / self.predict_kernel_bandwidth) ** 2)
-        derivative_arr = np.array([
-                model.predictOneStepDerivative(x) for model in self._segment_models])
-        return (weight_arr[:, np.newaxis] * derivative_arr).sum(axis=0) / weight_arr.sum()
+        # Find the model for this segment
+        segment_idx = int(np.sum([1 for _, end in self._segment_boundaries if t > end]))
+        model = self._segment_models[segment_idx]
+        return model.predictOneStepDerivative(x)
+#        midpoint_arr = np.array(
+#                [0.5 * (start + end) for start, end in self._segment_boundaries])
+#        weight_arr = np.exp(-0.5 * ((t - midpoint_arr) / self.predict_kernel_bandwidth) ** 2)
+#        derivative_arr = np.array([
+#                model.predictOneStepDerivative(x) for model in self._segment_models])
+#        result = (weight_arr[:, np.newaxis] * derivative_arr).sum(axis=0) / weight_arr.sum()
+#        return result
 
     def predict(self, test_df: pd.DataFrame = NULL_DF) -> pd.DataFrame:
         """Integrate the blended ODE forward and return predicted concentrations."""
@@ -326,8 +334,8 @@ class PiecewiseSystemDiscovery(object):
             block_list.append("\n".join([header] + equation_line_list))
         return "\n\n".join(block_list)
 
-    def plotPiecewise(self, num_true_point: int = 20, **kwargs: Any) -> PlotOptions:
-        """Two-panel comparison: 0 change points (top) vs num_change_point (bottom).
+    def plotPiecewise(self, num_true_point: int = 20, **plt_kwargs: Any) -> PlotOptions:
+        """Two-panel comparison: 0 change points (top) vs max_change_point (bottom).
 
         Both panels show actual (scatter) vs predicted (line) species concentrations.
         The bottom panel marks each detected change point with a vertical dashed line.
@@ -336,7 +344,7 @@ class PiecewiseSystemDiscovery(object):
         ----------
         num_true_point : int
             Number of actual-data scatter points to show per panel.
-        **kwargs
+        **plt_kwargs
             Forwarded to PlotOptions. Supported keys: fig, ax, title, xlabel,
             ylabel, legend, xlim, ylim, model_name.  ``figsize`` is also
             accepted and consumed here (not passed to PlotOptions).
@@ -348,7 +356,7 @@ class PiecewiseSystemDiscovery(object):
             ``po.fig.savefig(...)`` on the returned object as needed.
         """
         self._require_fitted()
-        figsize: tuple[float, float] = kwargs.pop("figsize", (10, 8))
+        figsize: tuple[float, float] = plt_kwargs.pop("figsize", (10, 8))
 
         timecourse_df = self.timecourse.timecourse_df
         time_arr = timecourse_df.index.to_numpy(dtype=float)
@@ -370,7 +378,7 @@ class PiecewiseSystemDiscovery(object):
         fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=figsize, sharex=True)
         change_point_times = [start for start, _ in self._segment_boundaries[1:]]
 
-        plot_options = PlotOptions(fig=fig, ax=ax_bot, **kwargs)
+        plot_options = PlotOptions(fig=fig, ax=ax_bot, **plt_kwargs)
 
         def _draw(po: PlotOptions, pred_df: pd.DataFrame | None, title: str,
                 vlines: List[float] | None = None) -> None:
@@ -393,7 +401,7 @@ class PiecewiseSystemDiscovery(object):
             ax.grid(True, alpha=0.3)  # type: ignore
             po.apply()
 
-        _draw(PlotOptions(fig=fig, ax=ax_top, **kwargs), baseline_pred_df, "0 change points")
+        _draw(PlotOptions(fig=fig, ax=ax_top, **plt_kwargs), baseline_pred_df, "0 change points")
         _draw(plot_options, psd_pred_df, f"{self.max_change_point} change point(s)",
                 vlines=change_point_times)
         fig.suptitle("Actual vs Predicted", fontsize=13, fontweight="bold")
@@ -406,10 +414,12 @@ class PiecewiseSystemDiscovery(object):
         model_number: int = -1,
         timecourse: Timecourse | None = None,
         signal_kind: str = "median",
-        num_change_point: int = 2,
+        max_change_point: int = 2,
+        min_fractional_reduction: float = 0.1,
+        min_segment_length: int = 100,
         is_standarized: bool = True,
         **kwargs: Any,
-    ) -> PlotOptions:
+    ) -> PlotBiomodelsSignalResult:
         """Plot the change point signal and timecourses for a BioModel.
 
         Parameters
@@ -448,7 +458,9 @@ class PiecewiseSystemDiscovery(object):
         time_arr = timecourse_df.index.to_numpy(dtype=float)
         num_point = timecourse_df.shape[0]
 
-        psd = cls(timecourse, num_change_point=num_change_point)
+        psd = cls(timecourse, max_change_point=max_change_point,
+                min_fractional_reduction=min_fractional_reduction,
+                min_segment_length=min_segment_length)
 
         if signal_kind == "difference":
             signal_arr = psd._computeChangePointSignalDifference(  # pylint: disable=protected-access
@@ -485,7 +497,13 @@ class PiecewiseSystemDiscovery(object):
 
         fig.suptitle(f"{model_name}", fontsize=13, fontweight="bold")
         fig.tight_layout()
-        return plot_options
+        #
+        result = PlotBiomodelsSignalResult(
+            plot_options=plot_options,
+            piecewise_system_discovery=psd,
+            change_point_times=change_point_times,
+        )
+        return result
 
     def printEquations(self) -> None:
         """Pretty-print the discovered ODE for each segment."""
