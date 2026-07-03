@@ -5,6 +5,7 @@ import src.constants as cn  # type: ignore
 from src.model import Model  # type: ignore
 from src.biomodels_iterator import getBiomodelsEndtimes  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
+from src.change_point_detector import ChangePointDetector  # type: ignore
 
 from collections import namedtuple
 import matplotlib.pyplot as plt  # type: ignore

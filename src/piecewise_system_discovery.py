@@ -104,7 +104,6 @@ class PiecewiseSystemDiscovery(object):
         return np.sqrt(raw_signal_arr)
         #split_time_arr = timecourse_df.index.to_numpy(dtype=float)[1:]
 
-    # TODO: Plot and evaluate, comparing with the difference approach 
     def _computeChangePointSignalMedian(self, timecourse_df: pd.DataFrame,
             jacobian_collection_arr: np.ndarray) -> np.ndarray:
         """
@@ -121,7 +120,6 @@ class PiecewiseSystemDiscovery(object):
                 for j in norm_jacobian_arr])/(num_species ** 2)
         #split_time_arr = timecourse_df.index.to_numpy(dtype=float)
         return np.sqrt(raw_signal_arr[1:])
-
 
     def _detectChangePoints(self, signal_arr: np.ndarray, num_point: int) -> List[int]:
         """fit() step 4. signal_arr[k] is the signal for split index k+1
@@ -313,17 +311,13 @@ class PiecewiseSystemDiscovery(object):
         self._require_fitted()
         weighted_values: List[float] = []
         num_nonzero_term = 0
+        score_infos: List[ScoreInfo] = []
         for model, length in zip(self._segment_models, self._segment_lengths):
             info = model.score()
             weighted_values.extend(info.values * length)
             num_nonzero_term += info.num_nonzero_term
-        return ScoreInfo(
-                min=float(np.min(weighted_values)),
-                median=float(np.median(weighted_values)),
-                max=float(np.max(weighted_values)),
-                values=weighted_values,
-                num_nonzero_term=num_nonzero_term,
-        )
+            score_infos.append(info)
+        return ScoreInfo.sum(score_infos)
 
     def __str__(self) -> str:
         block_list: List[str] = []
@@ -334,7 +328,7 @@ class PiecewiseSystemDiscovery(object):
             block_list.append("\n".join([header] + equation_line_list))
         return "\n\n".join(block_list)
 
-    def plotPiecewise(self, num_true_point: int = 20, **plt_kwargs: Any) -> PlotOptions:
+    def plotPiecewise(self, num_true_point: int = -1, **plt_kwargs: Any) -> PlotOptions:
         """Two-panel comparison: 0 change points (top) vs max_change_point (bottom).
 
         Both panels show actual (scatter) vs predicted (line) species concentrations.
@@ -344,6 +338,7 @@ class PiecewiseSystemDiscovery(object):
         ----------
         num_true_point : int
             Number of actual-data scatter points to show per panel.
+            -1 means show all points.  If the timecourse has more than this many points,
         **plt_kwargs
             Forwarded to PlotOptions. Supported keys: fig, ax, title, xlabel,
             ylabel, legend, xlim, ylim, model_name.  ``figsize`` is also
@@ -362,6 +357,8 @@ class PiecewiseSystemDiscovery(object):
         time_arr = timecourse_df.index.to_numpy(dtype=float)
         actual_arr = timecourse_df.to_numpy(dtype=float)
         species_names = self._segment_models[0].species_names
+        if num_true_point < 0 or num_true_point >= len(time_arr):
+            num_true_point = len(time_arr)
         num_skip = max(1, len(time_arr) // num_true_point)
 
         baseline = SystemDiscovery(timecourse_df, **self._sd_kwargs).fit()
@@ -374,6 +371,8 @@ class PiecewiseSystemDiscovery(object):
             psd_pred_df = self.predict()
         except Exception:
             psd_pred_df = None
+        baseline_score = baseline.score()
+        psd_score = self.score()
 
         fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=figsize, sharex=True)
         change_point_times = [start for start, _ in self._segment_boundaries[1:]]
@@ -385,14 +384,14 @@ class PiecewiseSystemDiscovery(object):
             ax = po.ax
             for idx, name in enumerate(species_names):
                 color = f"C{idx}"
-                ax.scatter(  # type: ignore
+                ax.plot(  # type: ignore
                     time_arr[::num_skip], actual_arr[::num_skip, idx],
-                    s=15, color=color, label=f"{name} actual", zorder=3,
+                    linestyle="-", color=color, label=f"{name} actual", zorder=3,
                 )
                 if pred_df is not None and name in pred_df.columns:
                     ax.plot(  # type: ignore
                         pred_df.index, pred_df[name],
-                        "-", lw=1.5, color=color, label=f"{name} predicted",
+                        "--", lw=1.5, color=color, label=f"{name} predicted",
                     )
             if vlines:
                 for t in vlines:
@@ -401,8 +400,10 @@ class PiecewiseSystemDiscovery(object):
             ax.grid(True, alpha=0.3)  # type: ignore
             po.apply()
 
-        _draw(PlotOptions(fig=fig, ax=ax_top, **plt_kwargs), baseline_pred_df, "0 change points")
-        _draw(plot_options, psd_pred_df, f"{self.max_change_point} change point(s)",
+        _draw(PlotOptions(fig=fig, ax=ax_top, **plt_kwargs), baseline_pred_df,
+                f"0 change points, r2: {baseline_score.median:.3f}")
+        _draw(plot_options, psd_pred_df,
+                f"{self.max_change_point} change point(s), r2: {psd_score.median:.3f}",
                 vlines=change_point_times)
         fig.suptitle("Actual vs Predicted", fontsize=13, fontweight="bold")
         fig.tight_layout()

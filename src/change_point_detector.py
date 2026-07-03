@@ -17,19 +17,19 @@ class ChangePointDetector:
     adjusted sum of squares.
     """
 
-    def __init__(self, data: np.ndarray):
+    def __init__(self, data_arr: np.ndarray):
         """
         Initialize the ChangePointDetector with data.
 
         Args:
             data (np.ndarray): A numpy array of floats.
         """
-        self.data = np.asarray(data, dtype=float)
-        self.length = len(self.data)
+        self.data_arr = np.asarray(data_arr, dtype=float)
+        self.length = len(self.data_arr)
         
         # Precalculate prefix sums and prefix sums of squares for efficient computation
-        self.cumulative_sum_arr = np.cumsum(self.data)
-        self.cumulative_sumsq_arr = np.cumsum(self.data**2)
+        self.cumulative_sum_arr = np.cumsum(self.data_arr)
+        self.cumulative_sumsq_arr = np.cumsum(self.data_arr**2)
         
         # Instance variables to be set during fit()
         self.subsequences: List[ChangePointInfo] = []
@@ -189,7 +189,7 @@ class ChangePointDetector:
         kwargs.setdefault("legend", False)
         po = PlotOptions(**kwargs)
         ax = po.ax
-        ax.plot(np.arange(self.length), self.data, color="steelblue", marker="o", lw=1.0)  # type: ignore
+        ax.plot(np.arange(self.length), self.data_arr, color="steelblue", marker="o", lw=1.0)  # type: ignore
         for subseq in self.subsequences[1:]:
             ax.axvline(subseq.splice_start, color="red", linestyle="--", lw=1.0)  # type: ignore
         po.apply()

@@ -49,7 +49,7 @@ import pysindy as ps # type: ignore
 from pysindy.feature_library import PolynomialLibrary # type: ignore
 from scipy.integrate import solve_ivp # type: ignore
 import sys
-from typing import Literal, cast
+from typing import Literal, cast, List
 import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -69,13 +69,31 @@ DifferentiationMethod = Literal["smooth", "finite", "spectral"]
 # ScoreInfo
 # ---------------------------------------------------------------------------
 
-@dataclass
 class ScoreInfo:
-    min: float
-    median: float
-    max: float
-    values: list[float]
-    num_nonzero_term: int
+    def __init__(self, min: float, median: float, max: float, values: list[float], num_nonzero_term: int):
+        self.min = min
+        self.median = median
+        self.max = max
+        self.values = values
+        self.num_nonzero_term = num_nonzero_term
+
+    @classmethod
+    def sum(cls, scores: List['ScoreInfo']) -> 'ScoreInfo':
+        total_values = []
+        total_nonzero_terms = 0
+        for score in scores:
+            total_values.extend(score.values)
+            total_nonzero_terms += score.num_nonzero_term
+        return cls(
+            min=min(score.min for score in scores),
+            median=np.median(total_values) if total_values else float("nan"),
+            max=max(score.max for score in scores),
+            values=total_values,
+            num_nonzero_term=total_nonzero_terms,
+        )
+
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +171,7 @@ class SystemDiscovery:
                     f"DataFrame 0: {ref_cols}, DataFrame {i}: {list(d.columns)}."
                 )
 
-        self.df = dfs[0].copy()
+        self.df = pd.concat(dfs)
         self.threshold = threshold
         self.alpha = alpha
         self.differentiation = differentiation
@@ -672,8 +690,8 @@ class SystemDiscovery:
             X = test_df.to_numpy(dtype=float)
             time_arr = test_df.index.to_numpy(dtype=float)
         else:
-            X = None
-            time_arr = None
+            X = self.df.to_numpy(dtype=float)
+            time_arr = self.df.index.to_numpy(dtype=float)
         try:
             if method == "simulation":
                 result = self._r_squared_simulation(X=X, time_arr=time_arr)

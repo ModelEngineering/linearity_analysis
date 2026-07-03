@@ -683,18 +683,18 @@ class TestPlot(unittest.TestCase):
         self.assertEqual(len(po.fig.axes), 2)  # type: ignore
         plt.close(po.fig)
 
+@unittest.skipUnless(HAS_REAL_ZIP, "Real timecourse zip not found")
 class TestBug(unittest.TestCase):
 
     def test_bug_1(self) -> None:
         #if IGNORE_TESTS:
         #    return
-        model = Model.makeBiomodel(model_num=45)
-        timecourse = Timecourse(model, start_time=0, end_time=None, num_point=1000)
-        result = PiecewiseSystemDiscovery.plotBiomodelsSignal(timecourse=timecourse, 
-                legend=False, max_change_point=2,
-                min_segment_length=1, min_fractional_reduction=0.0)
-        result.piecewise_system_discovery.fit()
-        result.piecewise_system_discovery.plotPiecewise(legend=False)
+        model = Model.makeBiomodel(model_num=680)
+        timecourse = Timecourse(model, start_time=0, end_time=50, num_point=1000)
+        psd = PiecewiseSystemDiscovery(timecourse, max_change_point=2,
+                min_segment_length=100, min_fractional_reduction=0.00)
+        psd.fit()
+        psd.plotPiecewise(legend=False)
         plt.show()
 
 if __name__ == "__main__":
