@@ -39,7 +39,7 @@ _END_TIME = 10.0
 _NUM_POINT_PER_SEGMENT = 100
 
 
-def _segment_ode(rates):
+def _subsequence_ode(rates):
     a, b = rates
     def f(_t, x):
         return [-a * x[0], a * x[0] - b * x[1]]
@@ -51,9 +51,9 @@ def _jacobian(rates) -> np.ndarray:
     return np.array([[-a, 0.0], [a, -b]])
 
 
-def _makeTwoRegimeTimecourse(min_segment_length: int = 10) -> Timecourse:
+def _makeTwoRegimeTimecourse(min_subsequence_length: int = 10) -> Timecourse:
     t_a = np.linspace(0.0, _SPLIT_TIME, _NUM_POINT_PER_SEGMENT, endpoint=False)
-    sol_a = solve_ivp(_segment_ode(_RATE_A), [0.0, _SPLIT_TIME], [10.0, 0.0],
+    sol_a = solve_ivp(_subsequence_ode(_RATE_A), [0.0, _SPLIT_TIME], [10.0, 0.0],
             t_eval=t_a, rtol=1e-10, atol=1e-12)
     x_split = sol_a.y[:, -1]
     # One extra point in segment B (vs. segment A) avoids an exact 50/50 split:
@@ -61,7 +61,7 @@ def _makeTwoRegimeTimecourse(min_segment_length: int = 10) -> Timecourse:
     # halfway between the two regimes, making every point equidistant from the
     # median and the change-point signal completely flat.
     t_b = np.linspace(_SPLIT_TIME, _END_TIME, _NUM_POINT_PER_SEGMENT + 1)
-    sol_b = solve_ivp(_segment_ode(_RATE_B), [_SPLIT_TIME, _END_TIME], x_split,
+    sol_b = solve_ivp(_subsequence_ode(_RATE_B), [_SPLIT_TIME, _END_TIME], x_split,
             t_eval=t_b, rtol=1e-10, atol=1e-12)
     time_arr = np.concatenate([t_a, t_b])
     data_arr = np.concatenate([sol_a.y.T, sol_b.y.T], axis=0)
@@ -87,12 +87,12 @@ class TestPiecewiseSystemDiscoveryConstructor(unittest.TestCase):
             return
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(
-            tc, max_change_point=1, min_segment_length=10,
+            tc, max_change_point=1, min_subsequence_length=10,
             min_fractional_reduction=0.01, fit_kernel_bandwidth=0.5,
             predict_kernel_bandwidth=0.5,
         )
         self.assertEqual(psd.max_change_point, 1)
-        self.assertEqual(psd.min_segment_length, 10)
+        self.assertEqual(psd.min_subsequence_length, 10)
         self.assertAlmostEqual(psd.min_fractional_reduction, 0.01)
         self.assertAlmostEqual(psd.predict_kernel_bandwidth, 0.5)
 
@@ -109,8 +109,8 @@ class TestPiecewiseSystemDiscoveryConstructor(unittest.TestCase):
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc)
         self.assertFalse(psd._is_fitted)  # pylint: disable=protected-access
-        self.assertEqual(psd._segment_models, [])  # pylint: disable=protected-access
-        self.assertEqual(psd._segment_boundaries, [])  # pylint: disable=protected-access
+        self.assertEqual(psd._subsequence_models, [])  # pylint: disable=protected-access
+        self.assertEqual(psd._subsequence_boundaries, [])  # pylint: disable=protected-access
 
     def test_require_fitted_raises_before_fit(self) -> None:
         if IGNORE_TESTS:
@@ -121,147 +121,6 @@ class TestPiecewiseSystemDiscoveryConstructor(unittest.TestCase):
             psd._require_fitted()  # pylint: disable=protected-access
 
 
-class TestGaussianSmooth(unittest.TestCase):
-    """Tests for PiecewiseSystemDiscovery._gaussianSmooth."""
-
-    def test_constant_values_unchanged(self) -> None:
-        if IGNORE_TESTS:
-            return
-        times = np.array([0.0, 1.0, 2.0, 3.0])
-        values = np.array([5.0, 5.0, 5.0, 5.0])
-        result = PiecewiseSystemDiscovery._gaussianSmooth(times, values, bandwidth=1.0)  # pylint: disable=protected-access
-        np.testing.assert_allclose(result, values)
-
-    def test_self_weight_dominates_for_small_bandwidth(self) -> None:
-        if IGNORE_TESTS:
-            return
-        times = np.array([0.0, 1.0, 2.0])
-        values = np.array([0.0, 10.0, 0.0])
-        result = PiecewiseSystemDiscovery._gaussianSmooth(times, values, bandwidth=0.01)  # pylint: disable=protected-access
-        np.testing.assert_allclose(result, values, atol=1e-6)
-
-    def test_smoothing_blends_neighbors_for_large_bandwidth(self) -> None:
-        if IGNORE_TESTS:
-            return
-        times = np.array([0.0, 1.0, 2.0])
-        values = np.array([0.0, 10.0, 0.0])
-        result = PiecewiseSystemDiscovery._gaussianSmooth(times, values, bandwidth=100.0)  # pylint: disable=protected-access
-        self.assertAlmostEqual(result[0], result[1], delta=0.5)
-        self.assertAlmostEqual(result[1], result[2], delta=0.5)
-
-class TestComputeChangePointSignalJacobian(unittest.TestCase):
-    """Tests for PiecewiseSystemDiscovery._computeChangePointSignalJacobian."""
-
-    def test_signal_length(self) -> None:
-        if IGNORE_TESTS:
-            return
-        tc = _makeTwoRegimeTimecourse()
-        psd = PiecewiseSystemDiscovery(tc)
-        signal = psd._computeChangePointSignalDifference(  # pylint: disable=protected-access
-                tc.timecourse_df, tc.jacobian_collection_arr)
-        self.assertEqual(len(signal), len(tc.timecourse_df) - 1)
-
-    def test_signal_peaks_near_regime_split(self) -> None:
-        """With a small smoothing bandwidth, the largest signal should occur
-        near t=5, where the Jacobian changes sharply."""
-        if IGNORE_TESTS:
-            return
-        tc = _makeTwoRegimeTimecourse()
-        psd = PiecewiseSystemDiscovery(tc)
-        signal = psd._computeChangePointSignalDifference(  # pylint: disable=protected-access
-                tc.timecourse_df, tc.jacobian_collection_arr)
-        split_time_arr = tc.timecourse_df.index.to_numpy(dtype=float)[1:]
-        peak_time = split_time_arr[int(np.argmax(signal))]
-        self.assertAlmostEqual(peak_time, _SPLIT_TIME, delta=0.5)
-
-    def test_signal_near_zero_within_constant_regime(self) -> None:
-        if IGNORE_TESTS:
-            return
-        tc = _makeTwoRegimeTimecourse()
-        psd = PiecewiseSystemDiscovery(tc)
-        signal = psd._computeChangePointSignalDifference(  # pylint: disable=protected-access
-                tc.timecourse_df, tc.jacobian_collection_arr)
-        split_time_arr = tc.timecourse_df.index.to_numpy(dtype=float)[1:]
-        mid_regime_a = np.argmin(np.abs(split_time_arr - 2.0))
-        self.assertLess(signal[mid_regime_a], 0.01)
-
-
-class TestDetectChangePoints(unittest.TestCase):
-    """Tests for PiecewiseSystemDiscovery._detectChangePoints."""
-
-    def test_no_change_point_below_threshold(self) -> None:
-        if IGNORE_TESTS:
-            return
-        tc = _makeTwoRegimeTimecourse()
-        psd = PiecewiseSystemDiscovery(tc, min_fractional_reduction=1e6)
-        signal = np.array([0.1, 0.1, 0.1, 0.1, 0.1])
-        result = psd._detectChangePoints(signal, num_point=10)  # pylint: disable=protected-access
-        self.assertEqual(result, [])
-
-    def test_single_clear_change_point_detected(self) -> None:
-        if IGNORE_TESTS:
-            return
-        tc = _makeTwoRegimeTimecourse()
-        psd = PiecewiseSystemDiscovery(tc, max_change_point=1,
-                min_segment_length=2, min_fractional_reduction=0.05)
-        # num_point=10, candidates are split indices 1..9 (signal indices 0..8).
-        # A clear spike at split index 5 (signal index 4).
-        signal = np.array([0.01, 0.01, 0.01, 0.01, 1.0, 0.01, 0.01, 0.01, 0.01])
-        result = psd._detectChangePoints(signal, num_point=10)  # pylint: disable=protected-access
-        self.assertEqual(result, [5])
-
-    def test_rejects_candidate_violating_min_segment_length(self) -> None:
-        """A spike at split index 1 would create a 1-point left segment,
-        violating min_segment_length=3; it must be skipped.
-        The detector will find the best split that respects min_segment_length.
-        """
-        if IGNORE_TESTS:
-            return
-        tc = _makeTwoRegimeTimecourse()
-        psd = PiecewiseSystemDiscovery(tc, max_change_point=1,
-                min_segment_length=3, min_fractional_reduction=0.05)
-        signal = np.array([1.0, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01])
-        result = psd._detectChangePoints(signal, num_point=10)  # pylint: disable=protected-access
-        self.assertEqual(result, [4])
-
-    def test_stops_at_max_change_point(self) -> None:
-        if IGNORE_TESTS:
-            return
-        tc = _makeTwoRegimeTimecourse()
-        psd = PiecewiseSystemDiscovery(tc, max_change_point=1,
-                min_segment_length=2, min_fractional_reduction=0.05)
-        # Two clear spikes; only the larger (split index 5) should be kept
-        # since max_change_point=1.
-        signal = np.array([0.01, 0.01, 0.01, 0.8, 1.0, 0.01, 0.01, 0.01, 0.01])
-        result = psd._detectChangePoints(signal, num_point=10)  # pylint: disable=protected-access
-        self.assertEqual(result, [6])
-
-    def test_two_change_points_sorted_by_time(self) -> None:
-        if IGNORE_TESTS:
-            return
-        tc = _makeTwoRegimeTimecourse()
-        psd = PiecewiseSystemDiscovery(tc, max_change_point=2,
-                min_segment_length=2, min_fractional_reduction=0.05)
-        signal = np.array([0.01, 0.01, 0.8, 0.01, 0.01, 1.0, 0.01, 0.01, 0.01])
-        result = psd._detectChangePoints(signal, num_point=10)  # pylint: disable=protected-access
-        self.assertEqual(result, [3, 7])
-
-    def test_continues_past_length_rejection_to_next_candidate(self) -> None:
-        """The highest-signal candidate (split index 1) is above threshold
-        but rejected for violating min_segment_length=3 (left segment would
-        be only 1 point). The detector will find the best split that respects
-        min_segment_length.
-        """
-        if IGNORE_TESTS:
-            return
-        tc = _makeTwoRegimeTimecourse()
-        psd = PiecewiseSystemDiscovery(tc, max_change_point=1,
-                min_segment_length=3, min_fractional_reduction=0.05)
-        signal = np.array([1.0, 0.01, 0.01, 0.3, 0.01, 0.01, 0.01, 0.01, 0.01])
-        result = psd._detectChangePoints(signal, num_point=10)  # pylint: disable=protected-access
-        self.assertEqual(result, [5])
-
-
 class TestFit(unittest.TestCase):
     """Tests for PiecewiseSystemDiscovery.fit()."""
 
@@ -270,7 +129,7 @@ class TestFit(unittest.TestCase):
             return
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc, max_change_point=1,
-                min_segment_length=10, min_fractional_reduction=0.05,
+                min_subsequence_length=10, min_fractional_reduction=0.05,
                 poly_degree=1, differentiation="finite")
         result = psd.fit()
         self.assertIs(result, psd)
@@ -280,7 +139,7 @@ class TestFit(unittest.TestCase):
             return
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc, max_change_point=1,
-                min_segment_length=10, min_fractional_reduction=0.05,
+                min_subsequence_length=10, min_fractional_reduction=0.05,
                 poly_degree=1, differentiation="finite").fit()
         self.assertTrue(psd._is_fitted)  # pylint: disable=protected-access
 
@@ -289,19 +148,19 @@ class TestFit(unittest.TestCase):
             return
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc, max_change_point=1,
-                min_segment_length=10, min_fractional_reduction=0.05,
+                min_subsequence_length=10, min_fractional_reduction=0.05,
                  poly_degree=1, differentiation="finite").fit()
-        self.assertEqual(len(psd._segment_models), 2)  # pylint: disable=protected-access
-        self.assertEqual(len(psd._segment_boundaries), 2)  # pylint: disable=protected-access
+        self.assertEqual(len(psd._subsequence_models), 2)  # pylint: disable=protected-access
+        self.assertEqual(len(psd._subsequence_boundaries), 2)  # pylint: disable=protected-access
 
-    def test_segment_boundary_near_split_time(self) -> None:
+    def test_subsequence_boundary_near_split_time(self) -> None:
         if IGNORE_TESTS:
             return
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc, max_change_point=1,
-                min_segment_length=10, min_fractional_reduction=0.05,
+                min_subsequence_length=10, min_fractional_reduction=0.05,
                  poly_degree=1, differentiation="finite").fit()
-        boundary_time = psd._segment_boundaries[0][1]  # pylint: disable=protected-access
+        boundary_time = psd._subsequence_boundaries[0][1]  # pylint: disable=protected-access
         self.assertAlmostEqual(boundary_time, _SPLIT_TIME, delta=0.5)
 
     def test_segments_default_to_is_normalize_true(self) -> None:
@@ -310,9 +169,9 @@ class TestFit(unittest.TestCase):
             return
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc, max_change_point=1,
-                min_segment_length=10, min_fractional_reduction=0.05,
+                min_subsequence_length=10, min_fractional_reduction=0.05,
                  poly_degree=1, differentiation="finite").fit()
-        for model in psd._segment_models:  # pylint: disable=protected-access
+        for model in psd._subsequence_models:  # pylint: disable=protected-access
             self.assertTrue(model._is_normalize)  # pylint: disable=protected-access
 
     def test_segments_honor_explicit_is_normalize_override(self) -> None:
@@ -321,13 +180,13 @@ class TestFit(unittest.TestCase):
             return
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc, max_change_point=1,
-                min_segment_length=10, min_fractional_reduction=0.05,
+                min_subsequence_length=10, min_fractional_reduction=0.05,
                  poly_degree=1, differentiation="finite",
                 is_normalize=False).fit()
-        for model in psd._segment_models:  # pylint: disable=protected-access
+        for model in psd._subsequence_models:  # pylint: disable=protected-access
             self.assertFalse(model._is_normalize)  # pylint: disable=protected-access
 
-    def test_segment_coefficients_are_physical_units(self) -> None:
+    def test_subsequence_coefficients_are_physical_units(self) -> None:
         """Regression guard for the units-mismatch bug: with the default
         is_normalize=True and raw per-segment data, the fitted cross-term
         coefficient (S1 in dS2/dt) must match the true physical-units rate
@@ -336,20 +195,20 @@ class TestFit(unittest.TestCase):
             return
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc, max_change_point=1,
-                min_segment_length=10, min_fractional_reduction=0.05,
+                min_subsequence_length=10, min_fractional_reduction=0.05,
                 poly_degree=1, differentiation="finite").fit()
-        summary_a = psd._segment_models[0].summary()  # pylint: disable=protected-access
+        summary_a = psd._subsequence_models[0].summary()  # pylint: disable=protected-access
         s1_in_ds2dt = float(summary_a.loc["S1", "dS2/dt"])  # type: ignore
         self.assertAlmostEqual(s1_in_ds2dt, _RATE_A[0], delta=0.05)
 
-    def test_segment_models_are_fitted(self) -> None:
+    def test_subsequence_models_are_fitted(self) -> None:
         if IGNORE_TESTS:
             return
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc, max_change_point=1,
-                min_segment_length=10, min_fractional_reduction=0.05,
+                min_subsequence_length=10, min_fractional_reduction=0.05,
                 poly_degree=1, differentiation="finite").fit()
-        for model in psd._segment_models:  # pylint: disable=protected-access
+        for model in psd._subsequence_models:  # pylint: disable=protected-access
             self.assertTrue(model._is_fitted)  # pylint: disable=protected-access
 
     def test_no_change_point_yields_single_segment(self) -> None:
@@ -359,26 +218,26 @@ class TestFit(unittest.TestCase):
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc, max_change_point=1,
                 min_fractional_reduction=1e6, poly_degree=1, differentiation="finite").fit()
-        self.assertEqual(len(psd._segment_models), 1)  # pylint: disable=protected-access
-        start, end = psd._segment_boundaries[0]  # pylint: disable=protected-access
+        self.assertEqual(len(psd._subsequence_models), 1)  # pylint: disable=protected-access
+        start, end = psd._subsequence_boundaries[0]  # pylint: disable=protected-access
         self.assertAlmostEqual(start, tc.timecourse_df.index[0])
         self.assertAlmostEqual(end, tc.timecourse_df.index[-1])
 
     def test_all_segments_too_short_yields_single_segment(self) -> None:
-        """min_segment_length larger than any achievable segment also collapses
+        """min_subsequence_length larger than any achievable segment also collapses
         to a single segment (every candidate gets rejected)."""
         if IGNORE_TESTS:
             return
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc, max_change_point=1,
-                min_segment_length=1000, min_fractional_reduction=0.05,
+                min_subsequence_length=1000, min_fractional_reduction=0.05,
                 poly_degree=1, differentiation="finite").fit()
-        self.assertEqual(len(psd._segment_models), 1)  # pylint: disable=protected-access
+        self.assertEqual(len(psd._subsequence_models), 1)  # pylint: disable=protected-access
 
 
 def _fitTwoRegimePsd(**overrides) -> "PiecewiseSystemDiscovery":
     tc = _makeTwoRegimeTimecourse()
-    params = dict(max_change_point=1, min_segment_length=10,
+    params = dict(max_change_point=1, min_subsequence_length=10,
             min_fractional_reduction=0.05, 
             poly_degree=1, differentiation="finite")
     params.update(overrides)
@@ -394,16 +253,16 @@ class TestPredictDerivative(unittest.TestCase):
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc)
         with self.assertRaises(RuntimeError):
-            psd.predict_derivative(0.0, np.array([10.0, 0.0]))
+            psd._predict_derivative(0.0, np.array([10.0, 0.0]))
 
     def test_returns_correct_shape(self) -> None:
         if IGNORE_TESTS:
             return
         psd = _fitTwoRegimePsd()
-        result = psd.predict_derivative(2.0, np.array([8.0, 1.0]))
+        result = psd._predict_derivative(2.0, np.array([8.0, 1.0]))
         self.assertEqual(result.shape, (2,))
 
-    def test_deep_in_segment_a_matches_segment_a_model(self) -> None:
+    def test_deep_in_subsequence_a_matches_subsequence_a_model(self) -> None:
         """Far from the boundary, Gaussian weighting should make the blended
         derivative closely match the nearest (dominant) segment's own
         derivative evaluator."""
@@ -411,17 +270,17 @@ class TestPredictDerivative(unittest.TestCase):
             return
         psd = _fitTwoRegimePsd()
         x = np.array([8.0, 1.0])
-        blended = psd.predict_derivative(0.5, x)
-        segment_a_only = psd._segment_models[0].predictOneStepDerivative(x)  # pylint: disable=protected-access
+        blended = psd._predict_derivative(0.5, x)
+        segment_a_only = psd._subsequence_models[0].predictOneStepDerivative(x)  # pylint: disable=protected-access
         np.testing.assert_allclose(blended, segment_a_only, atol=0.3)
 
-    def test_deep_in_segment_b_matches_segment_b_model(self) -> None:
+    def test_deep_in_subsequence_b_matches_subsequence_b_model(self) -> None:
         if IGNORE_TESTS:
             return
         psd = _fitTwoRegimePsd()
         x = np.array([2.0, 3.0])
-        blended = psd.predict_derivative(9.5, x)
-        segment_b_only = psd._segment_models[1].predictOneStepDerivative(x)  # pylint: disable=protected-access
+        blended = psd._predict_derivative(9.5, x)
+        segment_b_only = psd._subsequence_models[1].predictOneStepDerivative(x)  # pylint: disable=protected-access
         np.testing.assert_allclose(blended, segment_b_only, atol=0.3)
 
 
@@ -499,16 +358,16 @@ class TestScore(unittest.TestCase):
         if IGNORE_TESTS:
             return
         psd = _fitTwoRegimePsd()
-        expected = sum(m.score().num_nonzero_term for m in psd._segment_models)  # pylint: disable=protected-access
+        expected = sum(m.score().num_nonzero_term for m in psd._subsequence_models)  # pylint: disable=protected-access
         self.assertEqual(psd.score().num_nonzero_term, expected)
 
-    def test_values_length_is_weighted_by_segment_length(self) -> None:
+    def test_values_length_is_weighted_by_subsequence_length(self) -> None:
         if IGNORE_TESTS:
             return
         psd = _fitTwoRegimePsd()
         expected_length = sum(
                 len(m.score().values) * length
-                for m, length in zip(psd._segment_models, psd._segment_lengths))  # pylint: disable=protected-access
+                for m, length in zip(psd._subsequence_models, psd._subsequence_lengths))  # pylint: disable=protected-access
         self.assertEqual(len(psd.score().values), expected_length)
 
     def test_min_median_max_match_manual_computation(self) -> None:
@@ -516,14 +375,14 @@ class TestScore(unittest.TestCase):
             return
         psd = _fitTwoRegimePsd()
         weighted_values: list = []
-        for model, length in zip(psd._segment_models, psd._segment_lengths):  # pylint: disable=protected-access
+        for model, length in zip(psd._subsequence_models, psd._subsequence_lengths):  # pylint: disable=protected-access
             weighted_values.extend(model.score().values * length)
         info = psd.score()
         self.assertAlmostEqual(info.min, min(weighted_values))
         self.assertAlmostEqual(info.max, max(weighted_values))
         self.assertAlmostEqual(info.median, float(np.median(weighted_values)))
 
-    def test_single_segment_score_matches_underlying_model(self) -> None:
+    def test_single_subsequence_score_matches_underlying_model(self) -> None:
         """With no change points, score() should reduce to the single
         segment model's own score()."""
         if IGNORE_TESTS:
@@ -531,7 +390,7 @@ class TestScore(unittest.TestCase):
         psd = _fitTwoRegimePsd(min_fractional_reduction=1e6)
         result = psd.score()
         total_num_nonzero_term = 0
-        for model in psd._segment_models:  # pylint: disable=protected-access
+        for model in psd._subsequence_models:  # pylint: disable=protected-access
             model_score = model.score()
             total_num_nonzero_term += model_score.num_nonzero_term
             self.assertAlmostEqual(result.min, model_score.min, delta=1e-3)
@@ -555,14 +414,14 @@ class TestPrintEquations(unittest.TestCase):
             return
         psd = _fitTwoRegimePsd()
         text = str(psd)
-        self.assertEqual(text.count("Segment"), len(psd._segment_models))  # pylint: disable=protected-access
+        self.assertEqual(text.count("Segment"), len(psd._subsequence_models))  # pylint: disable=protected-access
 
-    def test_str_contains_segment_time_ranges(self) -> None:
+    def test_str_contains_subsequence_time_ranges(self) -> None:
         if IGNORE_TESTS:
             return
         psd = _fitTwoRegimePsd()
         text = str(psd)
-        for start, end in psd._segment_boundaries:  # pylint: disable=protected-access
+        for start, end in psd._subsequence_boundaries:  # pylint: disable=protected-access
             self.assertIn(f"{start:.1f}", text)
             self.assertIn(f"{end:.1f}", text)
 
@@ -644,7 +503,7 @@ class TestPlot(unittest.TestCase):
             return
         import matplotlib.pyplot as plt  # type: ignore
         psd = _fitTwoRegimePsd(max_change_point=1)
-        change_point_times = [start for start, _ in psd._segment_boundaries[1:]]  # pylint: disable=protected-access
+        change_point_times = [start for start, _ in psd._subsequence_boundaries[1:]]  # pylint: disable=protected-access
         po = psd.plotPiecewise()
         ax_bot = po.fig.axes[1]  # type: ignore
         vline_xs = [line.get_xdata()[0] for line in ax_bot.lines  # type: ignore
@@ -675,7 +534,7 @@ class TestPlot(unittest.TestCase):
         import matplotlib.pyplot as plt  # type: ignore
         tc = TimecourseIterator().getTimecourse("BIOMD0000000008")
         psd = PiecewiseSystemDiscovery(
-            tc, max_change_point=2, min_segment_length=10,
+            tc, max_change_point=2, min_subsequence_length=10,
             poly_degree=1, differentiation="finite",
         ).fit()
         po = psd.plotPiecewise()
@@ -689,10 +548,10 @@ class TestBug(unittest.TestCase):
     def test_bug_1(self) -> None:
         #if IGNORE_TESTS:
         #    return
-        model = Model.makeBiomodel(model_num=680)
+        model = Model.makeBiomodel(model_num=8)
         timecourse = Timecourse(model, start_time=0, end_time=50, num_point=1000)
         psd = PiecewiseSystemDiscovery(timecourse, max_change_point=2,
-                min_segment_length=100, min_fractional_reduction=0.00)
+                min_subsequence_length=100, min_fractional_reduction=0.00)
         psd.fit()
         psd.plotPiecewise(legend=False)
         plt.show()

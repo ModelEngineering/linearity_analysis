@@ -104,7 +104,7 @@ class ChangePointDetector:
         return best_k, reduction
 
     def fit(self, max_change_point: int, min_fractional_reduction: float,
-            min_segment_length: int = 1) -> None:
+            min_subsequence_length: int = 1) -> None:
         """
         Find change points based on the provided stopping criteria.
 
@@ -126,7 +126,7 @@ class ChangePointDetector:
         # largest reduction first so the fixed-K budget is spent optimally.
         # Each entry: (-reduction, start, end, k) — negated for min-heap ordering.
         heap: List[Tuple[float, int, int, int]] = []
-        k_init, red_init = self._find_best_split(0, self.length, min_segment_length)
+        k_init, red_init = self._find_best_split(0, self.length, min_subsequence_length)
         if red_init > 0:
             heapq.heappush(heap, (-red_init, 0, self.length, k_init))
 
@@ -135,7 +135,7 @@ class ChangePointDetector:
 
         while heap and len(change_points) < max_change_point:
             neg_red, start, end, k = heapq.heappop(heap)
-            if end - start < 2 * min_segment_length:
+            if end - start < 2 * min_subsequence_length:
                 continue  # Skip segments that are too short to split into two min_segment_length pieces
             reduction = -neg_red
 
@@ -146,8 +146,8 @@ class ChangePointDetector:
             total_abs_reduction += reduction
 
             for seg_start, seg_end in ((start, k), (k, end)):
-                if seg_end - seg_start >= 2 * min_segment_length:
-                    k_sub, red_sub = self._find_best_split(seg_start, seg_end, min_segment_length)
+                if seg_end - seg_start >= 2 * min_subsequence_length:
+                    k_sub, red_sub = self._find_best_split(seg_start, seg_end, min_subsequence_length)
                     if red_sub > 0:
                         heapq.heappush(heap, (-red_sub, seg_start, seg_end, k_sub))
 

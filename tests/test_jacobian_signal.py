@@ -273,30 +273,30 @@ class TestDenan(unittest.TestCase):
 
 
 class TestMakeDetector(unittest.TestCase):
-    """Tests for JacobianSignal.makeDetector."""
+    """Tests for JacobianSignal.fit."""
 
     def test_returns_change_point_detector(self) -> None:
         if IGNORE_TESTS:
             return
         js = _makeJacobianSignal()
-        detector = js.makeDetector(max_change_point=1,
-                min_fractional_reduction=0.0, min_segment_length=1)
+        detector = js.fit(max_change_point=1,
+                min_fractional_reduction=0.0, min_subsequence_length=1)
         self.assertIsInstance(detector, ChangePointDetector)
 
     def test_detector_wraps_signal_arr(self) -> None:
         if IGNORE_TESTS:
             return
         js = _makeJacobianSignal()
-        detector = js.makeDetector(max_change_point=1,
-                min_fractional_reduction=0.0, min_segment_length=1)
+        detector = js.fit(max_change_point=1,
+                min_fractional_reduction=0.0, min_subsequence_length=1)
         np.testing.assert_array_equal(detector.data_arr, js.signal_arr)
 
     def test_detector_has_been_fitted(self) -> None:
         if IGNORE_TESTS:
             return
         js = _makeJacobianSignal()
-        detector = js.makeDetector(max_change_point=1,
-                min_fractional_reduction=0.0, min_segment_length=1)
+        detector = js.fit(max_change_point=1,
+                min_fractional_reduction=0.0, min_subsequence_length=1)
         self.assertGreater(len(detector.subsequences), 0)
 
     def test_finds_change_point_for_stepped_jacobian(self) -> None:
@@ -305,8 +305,8 @@ class TestMakeDetector(unittest.TestCase):
         num_point = 20
         js = _makeJacobianSignal(num_point=num_point,
                 jacobian_collection_arr=_steppedJacobianCollection(num_point))
-        detector = js.makeDetector(max_change_point=1,
-                min_fractional_reduction=0.0, min_segment_length=1)
+        detector = js.fit(max_change_point=1,
+                min_fractional_reduction=0.0, min_subsequence_length=1)
         self.assertEqual(len(detector.subsequences), 2)
 
     def test_no_change_point_when_max_change_point_is_zero(self) -> None:
@@ -315,8 +315,8 @@ class TestMakeDetector(unittest.TestCase):
         num_point = 20
         js = _makeJacobianSignal(num_point=num_point,
                 jacobian_collection_arr=_steppedJacobianCollection(num_point))
-        detector = js.makeDetector(max_change_point=0,
-                min_fractional_reduction=0.0, min_segment_length=1)
+        detector = js.fit(max_change_point=0,
+                min_fractional_reduction=0.0, min_subsequence_length=1)
         self.assertEqual(len(detector.subsequences), 1)
 
 
@@ -346,7 +346,7 @@ class TestJacobianSignalPlot(unittest.TestCase):
         if IGNORE_TESTS:
             return
         result = self.js.plot(max_change_point=0,
-                min_fractional_reduction=1.0, min_segment_length=1)
+                min_fractional_reduction=1.0, min_subsequence_length=1)
         self.assertEqual(len(result), 2)
         for po in result:
             self.assertIsInstance(po, PlotOptions)
@@ -357,7 +357,7 @@ class TestJacobianSignalPlot(unittest.TestCase):
         js = _makeJacobianSignal(num_point=self.num_point,
                 jacobian_collection_arr=_steppedJacobianCollection(self.num_point))
         top_po, bot_po = js.plot(max_change_point=1,
-                min_fractional_reduction=0.0, min_segment_length=1)
+                min_fractional_reduction=0.0, min_subsequence_length=1)
         self.assertEqual(len(self._dashed_lines(top_po.ax)), 1)
         self.assertEqual(len(self._dashed_lines(bot_po.ax)), 1)
 
@@ -366,12 +366,12 @@ class TestJacobianSignalPlot(unittest.TestCase):
             return
         js = _makeJacobianSignal(num_point=self.num_point,
                 jacobian_collection_arr=_steppedJacobianCollection(self.num_point))
-        detector = js.makeDetector(max_change_point=1,
-                min_fractional_reduction=0.0, min_segment_length=1)
+        detector = js.fit(max_change_point=1,
+                min_fractional_reduction=0.0, min_subsequence_length=1)
         raw_split_idx = detector.subsequences[1].splice_start
         expected_time = js._timecourse_df.index[raw_split_idx + 1]
         top_po, _ = js.plot(max_change_point=1,
-                min_fractional_reduction=0.0, min_segment_length=1)
+                min_fractional_reduction=0.0, min_subsequence_length=1)
         vline_x = self._dashed_lines(top_po.ax)[0].get_xdata()[0]
         self.assertAlmostEqual(vline_x, expected_time)
 
@@ -434,8 +434,8 @@ class TestJacobianSignalWithBiomodel45(unittest.TestCase):
     def test_make_detector_returns_fitted_detector_with_subsequences(self) -> None:
         if IGNORE_TESTS:
             return
-        detector = self.js.makeDetector(max_change_point=1,
-                min_fractional_reduction=0.0, min_segment_length=1)
+        detector = self.js.fit(max_change_point=1,
+                min_fractional_reduction=0.0, min_subsequence_length=1)
         self.assertIsInstance(detector, ChangePointDetector)
         self.assertGreater(len(detector.subsequences), 0)
 
@@ -443,7 +443,7 @@ class TestJacobianSignalWithBiomodel45(unittest.TestCase):
         if IGNORE_TESTS:
             return
         self.js.plot(max_change_point=4, min_fractional_reduction=0.0,
-                min_segment_length=100)
+                min_subsequence_length=100)
         plt.close("all")
 
 

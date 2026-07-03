@@ -71,24 +71,36 @@ class JacobianSignal(object):
         """Replace NaN entries in a Jacobian with zeros."""
         return np.where(np.isnan(jacobian_arr), 0.0, jacobian_arr)
     
-    def makeDetector(self, max_change_point: int,
+    def fit(self, max_change_point: int,
             min_fractional_reduction: float,
-            min_segment_length: int) -> ChangePointDetector:
-        """fit() step 4. signal_arr[k] is the signal for split index k+1
-        (the time-grid index at which a new segment would begin).
+            min_subsequence_length: int) -> ChangePointDetector:
+        """
+        Fit a ChangePointDetector to the Jacobian signal.
 
-        Returns a sorted (by time) list of accepted interior split indices.
+        Parameters
+        ----------
+        max_change_point : int
+            The maximum number of change points to detect.
+        min_fractional_reduction : float
+            The minimum fractional reduction in the adjusted sum of squares required to accept a change point.
+        min_subsequence_length : int
+            The minimum length of a subsequence between change points.
+
+        Returns
+        -------
+        ChangePointDetector
+            A fitted ChangePointDetector object containing the detected change points and associated information.
         """
         detector = ChangePointDetector(self.signal_arr)
         detector.fit(max_change_point=max_change_point,
                 min_fractional_reduction=min_fractional_reduction,
-                min_segment_length=min_segment_length)
+                min_subsequence_length=min_subsequence_length)
         return detector
 
     def plot(self,
             max_change_point: int,
             min_fractional_reduction: float,
-            min_segment_length: int,
+            min_subsequence_length: int,
             **plt_kwargs: Any) -> List[PlotOptions]:
         """
         Two-panel plot.
@@ -108,9 +120,9 @@ class JacobianSignal(object):
             Wraps the figure and the bottom axes.  Call ``plt.show()`` or
             ``po.fig.savefig(...)`` on the returned object as needed.
         """
-        detector = self.makeDetector(max_change_point=max_change_point,
+        detector = self.fit(max_change_point=max_change_point,
                 min_fractional_reduction=min_fractional_reduction,
-                min_segment_length=min_segment_length)
+                min_subsequence_length=min_subsequence_length)
         change_point_idxs = [i.splice_start for i in detector.subsequences[1:]]
         change_point_times = [self._timecourse_df.index[i+1] 
                 for i in change_point_idxs]  
