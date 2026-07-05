@@ -681,8 +681,8 @@ class TestGetBiomodelsEndtimes(unittest.TestCase):
             writer = csv.writer(f)
             writer.writerow(["wrong_col", cn.COL_ENDTIME])
             writer.writerow(["BIOMD0000000001", "25.0"])
-        result = getBiomodelsEndtimes(csv_path)
-        self.assertEqual(result, {})
+        with self.assertRaises(ValueError):
+            getBiomodelsEndtimes(csv_path)
 
     def test_missing_end_time_column_returns_empty_dict(self) -> None:
         """Returns empty dict when CSV is missing the end_time column."""
@@ -693,8 +693,8 @@ class TestGetBiomodelsEndtimes(unittest.TestCase):
             writer = csv.writer(f)
             writer.writerow([cn.COL_MODEL_NAME, "wrong_col"])
             writer.writerow(["BIOMD0000000001", "25.0"])
-        result = getBiomodelsEndtimes(csv_path)
-        self.assertEqual(result, {})
+        with self.assertRaises(ValueError):
+            getBiomodelsEndtimes(csv_path)
 
 
 class TestBiomodelsItemEndTime(unittest.TestCase):

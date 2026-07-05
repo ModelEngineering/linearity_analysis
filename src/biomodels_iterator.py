@@ -8,7 +8,8 @@ import pandas as pd  # type: ignore
 from typing import Iterator, List, Optional, Tuple
 
 
-def getBiomodelsEndtimes(endtimes_csv_path: str = cn.CALCULATED_ENTIMES_PATH) -> dict:
+def getBiomodelsEndtimes(endtimes_csv_path: str = cn.CALCULATED_ENTIMES_PATH,
+        is_include_endtime_source: bool = False) -> dict:
     """
     Load a mapping of BioModels IDs to end times from a CSV file. Adjusts
     the end times based on the source of the end time (e.g., steadystate or max_median_cv) using predefined fractions.
@@ -17,6 +18,8 @@ def getBiomodelsEndtimes(endtimes_csv_path: str = cn.CALCULATED_ENTIMES_PATH) ->
     ----------
     endtimes_csv_path : str
         Path to the CSV file with columns cn.COL_MODEL_NAME and cn.COL_ENDTIME.
+    is_include_endtime_source : bool
+        Whether to include the end time source in the returned dictionary.
 
     Returns
     -------
@@ -27,12 +30,21 @@ def getBiomodelsEndtimes(endtimes_csv_path: str = cn.CALCULATED_ENTIMES_PATH) ->
     result_dct: dict = {}
     if os.path.exists(endtimes_csv_path):
         df = pd.read_csv(endtimes_csv_path)
+        if not cn.COL_ENDTIME in df.columns or not cn.COL_MODEL_NAME in df.columns:
+            raise ValueError(f"CSV file {endtimes_csv_path} must contain columns '{cn.COL_MODEL_NAME}' and '{cn.COL_ENDTIME}'")
+        if len(df) == 0:
+            return result_dct
+        if cn.COL_ENDTIME_SOURCE not in df.columns:
+            df[cn.COL_ENDTIME_SOURCE] = cn.ENDTIME_SOURCE_USER_SPECIFIED
         sel = df[cn.COL_ENDTIME_SOURCE] == cn.ENDTIME_SOURCE_STEADYSTATE
         df.loc[sel, cn.COL_ENDTIME] = df.loc[sel, cn.COL_ENDTIME] * cn.ENDTIME_FRACTION_STEADYSTATE
         sel = df[cn.COL_ENDTIME_SOURCE] == cn.ENDTIME_SOURCE_MAX_MEDIAN_CV
         df.loc[sel, cn.COL_ENDTIME] = df.loc[sel, cn.COL_ENDTIME] * cn.ENDTIME_FRACTION_MAXMEDIAN
         if cn.COL_MODEL_NAME in df.columns and cn.COL_ENDTIME in df.columns:
             result_dct = dict(zip(df[cn.COL_MODEL_NAME], df[cn.COL_ENDTIME]))
+        if is_include_endtime_source and cn.COL_ENDTIME_SOURCE in df.columns:
+            source_dct = dict(zip(df[cn.COL_MODEL_NAME], df[cn.COL_ENDTIME_SOURCE]))
+            result_dct = {k: (v, source_dct[k]) for k, v in result_dct.items()}
     return result_dct
 
 ############################################

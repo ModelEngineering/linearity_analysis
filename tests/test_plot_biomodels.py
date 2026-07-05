@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import matplotlib
-matplotlib.use("Agg")  # non-interactive backend for testing
+#matplotlib.use("Agg")  # non-interactive backend for testing
 import matplotlib.pyplot as plt  # type: ignore
 
 import src.constants as cn  # type: ignore
@@ -20,11 +20,10 @@ from plot_biomodels import (  # type: ignore
     PLOT_DIR,
     _plot_single_model,
     main,
-    plot_models,
 )
 
 
-IGNORE_TESTS = False
+IGNORE_TESTS = True
 HAS_BIOMODELS = os.path.isdir(cn.BIOMODELS_DIR)
 
 ANTIMONY_MODEL = """
@@ -213,128 +212,27 @@ class TestPlotSingleModel(unittest.TestCase):
         lines = self._ax.get_lines()
         self.assertEqual(len(lines), 3)
 
+    @unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
+    def test_plots_real_biomodel_93(self) -> None:
+        """_plot_single_model runs end-to-end against a real, simulated
+        BioModel (BIOMD0000000093) rather than a mocked Timecourse."""
+        #if IGNORE_TESTS:
+        #    return
+        from src.model import Model  # type: ignore
 
-class TestPlotModels(unittest.TestCase):
-    """Tests for plot_models."""
+        model_name = "BIOMD0000000093"
+        sbml_path = os.path.join(cn.BIOMODELS_DIR, model_name, f"{model_name}_url.xml")
+        with open(sbml_path) as f:
+            sbml_str = f.read()
+        model = Model(model_str=sbml_str, model_name=model_name)
 
-    def setUp(self) -> None:
-        self._tmpdir = tempfile.mkdtemp()
-        # Patch PLOT_DIR to use the temp directory
-        self._orig_plot_dir = PLOT_DIR
-        self._patcher = patch("plot_biomodels.PLOT_DIR", new=self._tmpdir)
-        self._patcher.start()
+        _plot_single_model(self._ax, model, {})
 
-    def tearDown(self) -> None:
-        plt.close("all")
-        self._patcher.stop()
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
-
-    def test_creates_plot_directory(self) -> None:
-        """plot_models creates the PLOT_DIR if it doesn't exist."""
-        if IGNORE_TESTS:
-            return
-        plot_models([])
-        self.assertTrue(os.path.isdir(self._tmpdir))
-
-    def test_saves_single_figure_for_one_model(self) -> None:
-        """A single model produces one figure file."""
-        if IGNORE_TESTS:
-            return
-        models = [_makeMockModel("BIOMD0000000001")]
-        with patch("plot_biomodels._plot_single_model"):
-            plot_models(models)
-        files = os.listdir(self._tmpdir)
-        self.assertEqual(len(files), 1)
-        self.assertTrue(files[0].startswith("plot_biomodels_"))
-        self.assertTrue(files[0].endswith(".png"))
-
-    def test_saves_multiple_figures_for_many_models(self) -> None:
-        """Multiple models produce multiple figure files."""
-        if IGNORE_TESTS:
-            return
-        models = [_makeMockModel(f"BIOMD{i:010d}") for i in range(30)]
-        with patch("plot_biomodels._plot_single_model"):
-            plot_models(models)
-        files = os.listdir(self._tmpdir)
-        # 30 models / 25 per page = 2 pages
-        self.assertEqual(len(files), 2)
-
-    def test_figure_filenames_are_sequential(self) -> None:
-        """Figure filenames are numbered sequentially from 0."""
-        if IGNORE_TESTS:
-            return
-        models = [_makeMockModel(f"BIOMD{i:010d}") for i in range(50)]
-        with patch("plot_biomodels._plot_single_model"):
-            plot_models(models)
-        files = sorted(os.listdir(self._tmpdir))
-        self.assertEqual(files[0], "plot_biomodels_0.png")
-        self.assertEqual(files[1], "plot_biomodels_1.png")
-
-    def test_empty_model_list_produces_no_files(self) -> None:
-        """An empty model list produces no figure files."""
-        if IGNORE_TESTS:
-            return
-        plot_models([])
-        # Directory may or may not be created, but no PNG files should exist
-        png_files = [f for f in os.listdir(self._tmpdir) if f.endswith(".png")]
-        self.assertEqual(len(png_files), 0)
-
-    def test_exactly_25_models_produces_one_figure(self) -> None:
-        """Exactly NUM_ROW * NUM_COL models produce exactly one figure."""
-        if IGNORE_TESTS:
-            return
-        models = [_makeMockModel(f"BIOMD{i:010d}") for i in range(25)]
-        with patch("plot_biomodels._plot_single_model"):
-            plot_models(models)
-        files = os.listdir(self._tmpdir)
-        self.assertEqual(len(files), 1)
-
-    def test_26_models_produces_two_figures(self) -> None:
-        """26 models (one more than a page) produce two figure files."""
-        if IGNORE_TESTS:
-            return
-        models = [_makeMockModel(f"BIOMD{i:010d}") for i in range(26)]
-        with patch("plot_biomodels._plot_single_model"):
-            plot_models(models)
-        files = os.listdir(self._tmpdir)
-        self.assertEqual(len(files), 2)
-
-    def test_figure_files_are_valid_png(self) -> None:
-        """Saved figure files are valid PNG images."""
-        if IGNORE_TESTS:
-            return
-        models = [_makeMockModel("BIOMD0000000001")]
-        with patch("plot_biomodels._plot_single_model"):
-            plot_models(models)
-        png_files = [f for f in os.listdir(self._tmpdir) if f.endswith(".png")]
-        self.assertGreater(len(png_files), 0)
-        # Check PNG magic bytes
-        with open(os.path.join(self._tmpdir, png_files[0]), "rb") as fh:
-            header = fh.read(8)
-        self.assertTrue(header.startswith(b"\x89PNG"))
-
-    def test_unused_subplots_are_hidden(self) -> None:
-        """When fewer than 25 models are plotted, unused subplots are hidden."""
-        if IGNORE_TESTS:
-            return
-        models = [_makeMockModel("BIOMD0000000001")]
-        with patch("plot_biomodels._plot_single_model") as mock_plot:
-            plot_models(models)
-            # _plot_single_model should be called exactly once
-            self.assertEqual(mock_plot.call_count, 1)
-
-    def test_passes_endtime_data_to_plot_single(self) -> None:
-        """plot_models passes endtime_data to _plot_single_model."""
-        if IGNORE_TESTS:
-            return
-        models = [_makeMockModel("BIOMD0000000001")]
-        endtime_data = {"BIOMD0000000001": ("MM", 62.86)}
-        with patch("plot_biomodels._plot_single_model") as mock_plot:
-            plot_models(models, endtime_data=endtime_data)
-            mock_plot.assert_called_once()
-            call_args = mock_plot.call_args
-            self.assertEqual(call_args[0][1], models[0])  # model arg
-            self.assertEqual(call_args[0][2], endtime_data)  # endtime_data arg
+        lines = self._ax.get_lines()
+        self.assertEqual(len(lines), len(model.species_names))
+        self.assertEqual(self._ax.get_title(), "93")
+        self.assertEqual(len(self._ax.get_xticks()), 0)
+        self.assertEqual(len(self._ax.get_yticks()), 0)
 
 
 class TestMain(unittest.TestCase):

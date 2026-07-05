@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import csv
 
-from src.biomodels_iterator import BiomodelsIterator  # type: ignore
+from src.biomodels_iterator import BiomodelsIterator, getBiomodelsEndtimes  # type: ignore
 from src.model import Model  # type: ignore
 from src.timecourse import Timecourse  # type: ignore
 
@@ -24,27 +24,21 @@ SOURCE_CODE_MAP = {
 
 ENDTIME_CSV = os.path.join("data", "biomodels_endtime.csv")
 
-
 def _load_endtime_data() -> dict[str, tuple[str, float]]:
-    '''Load end_time data from CSV. Returns {model_name: (source_code, end_time)}.'''
-    result: dict[str, tuple[str, float]] = {}
-    if not os.path.isfile(ENDTIME_CSV):
-        return result
-    with open(ENDTIME_CSV, "r") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            model_name = row.get("model_name", "").strip()
-            source = row.get("end_time_source", "").strip()
-            end_time_str = row.get("end_time", "").strip()
-            if not model_name or not source:
-                continue
-            try:
-                end_time = float(end_time_str)
-            except (ValueError, TypeError):
-                end_time = 0.0
-            code = SOURCE_CODE_MAP.get(source, "??")
-            result[model_name] = (code, end_time)
-    return result
+    """Load end_time data from CSV. Returns {model_name: (source_code, end_time)}.
+
+    Note: getBiomodelsEndtimes returns (end_time_float, source_string) tuples,
+    so we swap them to match the declared return type (source_code, end_time).
+    """
+    raw_dct = getBiomodelsEndtimes(endtimes_csv_path=ENDTIME_CSV,
+            is_include_endtime_source=True)
+    # Swap from (end_time_float, source_string) -> (source_string, end_time_float)
+    result_dct: dict[str, tuple[str, float]] = {}
+    for k, v in raw_dct.items():
+        if isinstance(v, tuple) and len(v) == 2:
+            # v is (end_time_float, source_string), swap to (source_string, end_time_float)
+            result_dct[k] = (v[1], float(v[0]))
+    return result_dct
 
 
 def _extract_model_number(model_name: str) -> str:
@@ -77,19 +71,19 @@ def _plot_single_model(ax, model: Model, endtime_data: dict[str, tuple[str, floa
     # Extract just the model number for the title
     model_num = _extract_model_number(model.model_name)
 
-    # Get end_time info
-    source_code, end_time = _get_endtime_info(model.model_name, endtime_data)
+    # Get end_time info (note: getBiomodelsEndtimes returns (end_time_float, source_string))
+    source_code, end_time_val = _get_endtime_info(model.model_name, endtime_data)
 
     # Build title: model number only
     ax.set_title(f"{model_num}", fontsize=10)
 
     # Display end_time info below the title using annotate to avoid overflow
-    if source_code and end_time > 0:
+    if source_code and end_time_val > 0:
         # Format end_time: use integer if whole number, else 2 decimal places
-        if end_time == int(end_time):
-            et_str = str(int(end_time))
+        if end_time_val == int(end_time_val):
+            et_str = str(int(end_time_val))
         else:
-            et_str = f"{end_time:.2f}"
+            et_str = f"{end_time_val:.2f}"
         info_text = f"[{source_code}] t={et_str}"
         ax.annotate(
             info_text,
@@ -116,47 +110,6 @@ def _plot_single_model(ax, model: Model, endtime_data: dict[str, tuple[str, floa
                     ax.plot(timecourse.timecourse_df.index, values / std)
     except Exception as e:
         print(f"Error plotting {model.model_name}: {e}")
-
-
-def plot_models(models: list[Model], endtime_data: dict[str, tuple[str, float]] | None = None) -> None:
-    '''Plot models in a series of 5x5 grid figures.
-
-    Each figure contains up to NUM_ROW * NUM_COL (25) model subplots.
-    All species for a given model are plotted on the same axes.
-    No legend, no x-tick labels, no y-tick labels.
-    Figures are saved as plot_biomodels_{n}.png in the plots directory.
-    '''
-    if endtime_data is None:
-        endtime_data = {}
-
-    os.makedirs(PLOT_DIR, exist_ok=True)
-
-    num_per_page = NUM_ROW * NUM_COL
-    for page_idx, page_start in enumerate(range(0, len(models), num_per_page)):
-        page_models = models[page_start:page_start + num_per_page]
-
-        fig, axes = plt.subplots(
-            nrows=NUM_ROW, ncols=NUM_COL, figsize=(12, 8)
-        )
-
-        for idx, model in enumerate(page_models):
-            irow = idx // NUM_COL
-            icol = idx % NUM_COL
-            ax = axes[irow, icol]
-            _plot_single_model(ax, model, endtime_data)
-
-        # Hide any unused subplots
-        for idx in range(len(page_models), num_per_page):
-            irow = idx // NUM_COL
-            icol = idx % NUM_COL
-            axes[irow, icol].set_visible(False)
-
-        fig.tight_layout()
-
-        filename = os.path.join(PLOT_DIR, f"plot_biomodels_{page_idx}.png")
-        fig.savefig(filename, dpi=150, bbox_inches="tight")
-        print(f"Saved {filename}")
-        plt.close(fig)
 
 
 def _flush_page(
