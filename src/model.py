@@ -41,6 +41,13 @@ class Model(object):
         if not isinstance(other, Model):
             return NotImplemented
         return self.sbml_str == other.sbml_str and self.model_name == other.model_name
+    
+    def getBiomodelNumber(self) -> int:
+        """Return the BioModels number if the model name is a BioModels identifier."""
+        if self.model_name.startswith("BIOMD"):
+            return int(self.model_name[5:])
+        else:
+            raise ValueError(f"Model name '{self.model_name}' is not a BioModels identifier.")
 
     # ------------------------------------------------------------------
     # Class methods

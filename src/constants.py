@@ -55,3 +55,7 @@ JAC_FIRST = "first" # Use the first Jacobian
 # Perturbation parameters for Jacobian fitting
 PERTURBATION_VALUE_FRACTION = 0.0  # Perturb each point
 PERTURBATION_SPECIES_FRACTION = 0.5  # Perturb this fraction of points
+
+# Endtime fraction
+ENDTIME_FRACTION_STEADYSTATE = 0.1  # Fraction of endtime to use for timecourse analysis
+ENDTIME_FRACTION_MAXMEDIAN = 0.1  # Fraction of endtime to use for timecourse analysis

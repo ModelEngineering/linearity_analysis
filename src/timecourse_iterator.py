@@ -20,14 +20,18 @@ class TimecourseIterator:
     """Iterates over serialized Timecourses in the timecourse zip archive."""
 
     def __init__(self, zip_path: str = cn.TIMECOURSE_ZIP_PATH,
-            num_model:int = -1) -> None:
+            num_model:int = -1, first_index:int = 0, last_index:int = -1) -> None:
         """
         Args:
             zip_path (str, optional): _description_. Defaults to cn.TIMECOURSE_ZIP_PATH.
             num_model (int, optional): number of models to process. Defaults to -1 (all)
+            first_index (int, optional): index of the first model to process. Defaults to 0.
+            last_index (int, optional): index of the last model to process. Defaults to -1 (all).
         """
         self.zip_path = zip_path
         self.num_model = num_model
+        self.first_index = first_index
+        self.last_index = last_index
 
     def getTimecourse(self, model_name: str) -> Timecourse:
         """Return the deserialized Timecourse for *model_name* from the zip.

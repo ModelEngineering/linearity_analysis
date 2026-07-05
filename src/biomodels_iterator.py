@@ -10,7 +10,8 @@ from typing import Iterator, List, Optional, Tuple
 
 def getBiomodelsEndtimes(endtimes_csv_path: str = cn.CALCULATED_ENTIMES_PATH) -> dict:
     """
-    Load a mapping of BioModels IDs to end times from a CSV file.
+    Load a mapping of BioModels IDs to end times from a CSV file. Adjusts
+    the end times based on the source of the end time (e.g., steadystate or max_median_cv) using predefined fractions.
 
     Parameters
     ----------
@@ -26,6 +27,10 @@ def getBiomodelsEndtimes(endtimes_csv_path: str = cn.CALCULATED_ENTIMES_PATH) ->
     result_dct: dict = {}
     if os.path.exists(endtimes_csv_path):
         df = pd.read_csv(endtimes_csv_path)
+        sel = df[cn.COL_ENDTIME_SOURCE] == cn.ENDTIME_SOURCE_STEADYSTATE
+        df.loc[sel, cn.COL_ENDTIME] = df.loc[sel, cn.COL_ENDTIME] * cn.ENDTIME_FRACTION_STEADYSTATE
+        sel = df[cn.COL_ENDTIME_SOURCE] == cn.ENDTIME_SOURCE_MAX_MEDIAN_CV
+        df.loc[sel, cn.COL_ENDTIME] = df.loc[sel, cn.COL_ENDTIME] * cn.ENDTIME_FRACTION_MAXMEDIAN
         if cn.COL_MODEL_NAME in df.columns and cn.COL_ENDTIME in df.columns:
             result_dct = dict(zip(df[cn.COL_MODEL_NAME], df[cn.COL_ENDTIME]))
     return result_dct

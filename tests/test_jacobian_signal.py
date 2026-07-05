@@ -439,6 +439,15 @@ class TestJacobianSignalWithBiomodel45(unittest.TestCase):
         self.assertIsInstance(detector, ChangePointDetector)
         self.assertGreater(len(detector.subsequences), 0)
 
+    def test_plot1(self) -> None:
+        if IGNORE_TESTS:
+            return
+        return
+        self.js.plot(max_change_point=4, min_fractional_reduction=0.0,
+                min_subsequence_length=100)
+        plt.show()
+        plt.close("all")
+
     def test_plot(self) -> None:
         if IGNORE_TESTS:
             return
