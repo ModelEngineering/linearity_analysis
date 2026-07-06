@@ -49,6 +49,10 @@ class Model(object):
         else:
             raise ValueError(f"Model name '{self.model_name}' is not a BioModels identifier.")
 
+    @staticmethod 
+    def getBiomodelName(model_num: int) -> str:
+        return f"BIOMD{model_num:010d}"
+
     # ------------------------------------------------------------------
     # Class methods
     # ------------------------------------------------------------------

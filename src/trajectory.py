@@ -159,7 +159,7 @@ class Trajectory(object):
             model_num: int,
             start_time: float = cn.START_TIME,
             end_time: Optional[float] = None,
-            num_point: int = cn.NUM_POINTS) -> "Trajectory":
+            num_point: int = cn.NUM_POINT) -> "Trajectory":
         """Create a Trajectory from a BioModels entry by number.
 
         Parameters
@@ -192,7 +192,7 @@ class Trajectory(object):
             perturbation: float = 0,
             start_time: float = cn.START_TIME,
             end_time: Optional[float] = 10.0,
-            num_point: int = cn.NUM_POINTS) -> pd.DataFrame:
+            num_point: int = cn.NUM_POINT) -> pd.DataFrame:
 
         """Create a timecourse DataFrame by running a simulation with a perturbation
         in non-zero initial values.
@@ -252,7 +252,7 @@ class Trajectory(object):
             model: Model,
             start_time: float = cn.START_TIME,
             end_time: Optional[float] = None,
-            num_point: int = cn.NUM_POINTS) -> "Trajectory":
+            num_point: int = cn.NUM_POINT) -> "Trajectory":
         """Create a Trajectory by running a simulation.
 
         This is the only method that uses RoadRunner.

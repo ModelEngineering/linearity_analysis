@@ -19,10 +19,10 @@ TIMECOURSE_ZIP_PATH = os.path.join(TIMECOURSE_SERIALIZATION_DIR, "timecourse.zip
 TYPE_ROADRUNNER = "tellurium.roadrunner.extended_roadrunner.ExtendedRoadRunner"
 NULL_ROADRUNNER = te.loada("")
 
-# Constants
+# Default values
 START_TIME = 0.0
 END_TIME = 10.0
-NUM_POINTS = 10*int(END_TIME - START_TIME) + 1
+NUM_POINT = 1000
 
 # Diameter metrics
 DIAMETER_IVP = "weighted_eigenvectors"
@@ -37,12 +37,14 @@ COL_NUM_REACTION = "num_reaction"
 COL_NUM_SPECIES = "num_species"
 COL_NUM_PERTURBATION = "num_perturbation"
 COL_NUM_TIMEPOINT = "num_timepoint"
+COL_NAMES = [COL_MODEL_NAME, COL_MAXCV, COL_ENDTIME, COL_ENDTIME_SOURCE]
+
+# Symbolic values
 ENDTIME_SOURCE_RECIROCAL_MIN_EIGENVALUE = "reciprocal_min_eigenvalue"
 ENDTIME_SOURCE_SEDML = "sedml"
 ENDTIME_SOURCE_STEADYSTATE = "steadystate"
 ENDTIME_SOURCE_MAX_MEDIAN_CV = "max_median_cv"
 ENDTIME_SOURCE_USER_SPECIFIED = "user_specified"
-COL_NAMES = [COL_MODEL_NAME, COL_MAXCV, COL_ENDTIME, COL_ENDTIME_SOURCE]
 
 # Common default values
 NULL_ARRAY = np.array([])

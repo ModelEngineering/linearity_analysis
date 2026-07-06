@@ -3,23 +3,16 @@
 
 import src.constants as cn  # type: ignore
 from src.model import Model  # type: ignore
+from src.simulator import Simulator, SimulationResult  # type: ignore
 from src.biomodels_iterator import getBiomodelsEndtimes  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
-from src.change_point_detector import ChangePointDetector  # type: ignore
 
-from collections import namedtuple
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pickle
 import os
 import pandas as pd  # type: ignore
-import tellurium as te  # type: ignore
-from typing import List, Optional, Dict
-
-MAX_ITERATOR_STEP = 50 * int(1e6)
-
-SimulationResult = namedtuple('SimulationResult',
-        ['timecourse_df', 'jacobian_collection_arr'])
+from typing import List, Optional, cast
 
 
 class Timecourse(object):
@@ -27,7 +20,7 @@ class Timecourse(object):
     def __init__(self, model: Model,
         start_time: float = cn.START_TIME,
         end_time: Optional[float] = None,
-        num_point: int = cn.NUM_POINTS,
+        num_point: int = cn.NUM_POINT,
         timecourse_df: pd.DataFrame = pd.DataFrame(),
         jacobian_collection_arr: np.ndarray = np.array([]),
         perturbation_value_fraction: float = cn.PERTURBATION_VALUE_FRACTION,
@@ -63,9 +56,6 @@ class Timecourse(object):
         #
         self._timecourse_df = timecourse_df
         self._jacobian_collection_arr = jacobian_collection_arr
-        # Dictionary of floating species with perturbations to their initial values
-        self.perturbation_dct = self._getPerturbedInitialValues()
-        self.num_perturbation = len(self.perturbation_dct)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Timecourse):
@@ -122,50 +112,13 @@ class Timecourse(object):
             self._timecourse_df = simulation_result.timecourse_df
         return self._jacobian_collection_arr
     
-    def _checkSpeciesNames(self, names: List[str]) -> None:
-        """Check that the species names in the simulation result match the model."""
-        result_species = list(names)
-        if result_species != self.model.species_names:
-            raise ValueError(
-                    f"Simulation species {result_species} do not match "
-                    f"model species {self.model.species_names}.")
-        
-    def _getPerturbedInitialValues(self) -> Dict[str, float]:
-        """Perturb initial values of floating species by randomly selecting a fraction."""
-        dct: Dict[str, float] = {}
-        #
-        num_species = self.model.num_species
-        num_perturb = int(self.perturbation_species_fraction * num_species)
-        if num_perturb <= 0:
-            return dct
-        perturb_indices = np.random.choice(num_species, size=num_perturb, replace=False)
-        for idx in perturb_indices:
-            species_name = self.model.species_names[idx]
-            try:
-                # FIXME: Handle evolution to initial value dict
-                original_value = self.model.initial_value_dct[species_name]
-                perturbation = self.perturbation_value_fraction * original_value
-                dct[species_name] = max(0.0, original_value + perturbation)
-            except:
-                # If no initial value, skip perturbation
-                continue
-        return dct
-    
-    def _setInitialValues(self, rr, initial_dct: Dict[str, float]) -> None:
-        """Set initial values of floating species in the RoadRunner model."""
-        for idx, name in enumerate(self.model.species_names):
-            if name in initial_dct.keys():
-                rr[name] = initial_dct[name]
-
     def _simulate(self, is_jacobian_collection: bool = False) -> SimulationResult:
-        """Create a Trajectory by running a simulation.
-
-        This is the only method that uses RoadRunner.
+        """Delegate simulation to a Simulator instance.
 
         end_time resolution order:
             1. Caller-supplied value (source: user_specified).
             2. BioModels CSV lookup (source: sedml).
-            3. Auto-detection via _makeEndtime (source: set by that method).
+            3. Auto-detection via _updateEndtime (source: set by that method).
 
         Parameters
         ----------
@@ -176,62 +129,15 @@ class Timecourse(object):
         -------
         SimulationResult
         """
-        rr = te.loadSBMLModel(self.model.sbml_str)
-        rr.reset()
-        rr.integrator.setValue('maximum_num_steps', MAX_ITERATOR_STEP)
-
-        # Timecourse simulation
-        rr.reset()
-        self._setInitialValues(rr, self.perturbation_dct)
-        if self.start_time > 0:
-            rr.simulate(0, self.start_time, 2)
-        try:
-            rr_result = rr.simulate(self.start_time, self.end_time, self.num_point)
-        except Exception as e:
-            raise ValueError(f"Simulation failed: {e}")
-        # Check column order before converting to ndarray (colnames lost after np.array).
-        # Skip the leading 'time' column and strip brackets from species names.
-        result_species = [
-                c[1:-1] if c.startswith("[") and c.endswith("]") else c
-                for c in rr_result.colnames[1:]  # type: ignore
-        ]
-        self._checkSpeciesNames(result_species)
-        result_arr = np.array(rr_result)
-        timepoint_arr = result_arr[:, 0]
-        timecourse_df = pd.DataFrame(
-                result_arr[:, 1:],
-                index=timepoint_arr,
-                columns=self.model.species_names,
+        simulator = Simulator(
+            model=self.model,
+            start_time=self.start_time,
+            end_time=cast(float, self.end_time),
+            num_point=self.num_point,
+            perturbation_value_fraction=self.perturbation_value_fraction,
+            perturbation_species_fraction=self.perturbation_species_fraction,
         )
-        timecourse_df.index.name = "time"
-
-        # Step-by-step simulation to collect Jacobians and forcing inputs
-        if is_jacobian_collection:
-            rr.reset()
-            self._setInitialValues(rr, self.perturbation_dct)
-            if self.start_time > 0:
-                rr.simulate(0, self.start_time, 2)
-            jacobian_collection: List[np.ndarray] = []
-            for i, t in enumerate(timepoint_arr):
-                if i == 0:
-                    rr.simulate(self.start_time, self.start_time + 1e-10, 2)
-                else:
-                    rr.simulate(timepoint_arr[i - 1], t, 2)
-                jacobian_arr = rr.getFullJacobian()
-                self._checkSpeciesNames(jacobian_arr.rownames)
-                self._checkSpeciesNames(jacobian_arr.colnames)
-                jacobian_arr = np.array(jacobian_arr).copy()
-                if np.all(np.isclose(jacobian_arr, 0.0)):
-                    raise ValueError(
-                            f"Jacobian at t={t} is all zeros; model may be degenerate.")
-                jacobian_collection.append(jacobian_arr)
-        else:
-            jacobian_collection = []
-
-        return SimulationResult(
-                jacobian_collection_arr=np.array(jacobian_collection),
-                timecourse_df=timecourse_df,
-        )
+        return simulator.simulate(is_jacobian_collection=is_jacobian_collection)
     
     def serialize(self) -> str:
         """
@@ -326,7 +232,7 @@ class Timecourse(object):
     def makeTimecourses(cls, model: Model,
         start_time: float = cn.START_TIME,
         end_time: Optional[float] = None,
-        num_point: int = cn.NUM_POINTS,
+        num_point: int = cn.NUM_POINT,
         perturbation_value_fraction: List[float] = [0.0],
         perturbation_species_fraction: List[float] = [1.0],
         is_plot: bool = True,

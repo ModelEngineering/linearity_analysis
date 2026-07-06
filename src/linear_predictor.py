@@ -65,7 +65,7 @@ class LinearPredictor(object):
             num_step: int = 1,
             start_time: float = cn.START_TIME,
             end_time: Optional[float] = None,
-            num_point: int = cn.NUM_POINTS) -> "LinearPredictor":
+            num_point: int = cn.NUM_POINT) -> "LinearPredictor":
         """Construct a LinearPredictor from a BioModels entry.
 
         Exactly one of model_name or model_num must be supplied.
