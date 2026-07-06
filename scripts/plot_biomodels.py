@@ -104,10 +104,11 @@ def _plot_single_model(ax, model: Model, endtime_data: dict[str, tuple[str, floa
             if species in timecourse.timecourse_df.columns:
                 values = timecourse.timecourse_df[species]
                 std = float(values.std())
+                mean = float(values.mean())
                 if std == 0:
                     ax.plot(timecourse.timecourse_df.index, [0.0] * len(values))
                 else:
-                    ax.plot(timecourse.timecourse_df.index, values / std)
+                    ax.plot(timecourse.timecourse_df.index, (values - mean) / std)
     except Exception as e:
         print(f"Error plotting {model.model_name}: {e}")
 

@@ -1,5 +1,6 @@
 # Tasks
 
-1. Why does piecewise produce better results than w/o piecewise?
-2. Not properly handling boundary species. Can estimate constants well, but not including the bias terms.
-3. Re-run no split linear analyses
+0. Refactor to build CharacteristicTimeEstimator and Simulator. The latter is used by the former and by Timecourse.
+1. Assess characteristic times.
+2. Assess predictions by piecewise
+3. Not properly handling boundary species. Can estimate constants well, but not including the bias terms.
