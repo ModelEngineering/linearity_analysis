@@ -226,7 +226,7 @@ class TestPlotSingleModel(unittest.TestCase):
             sbml_str = f.read()
         model = Model(model_str=sbml_str, model_name=model_name)
 
-        _plot_single_model(self._ax, model, {})
+        _plot_single_model(self._ax, model, {model_name: ("MM", 62.86)})
 
         lines = self._ax.get_lines()
         self.assertEqual(len(lines), len(model.species_names))

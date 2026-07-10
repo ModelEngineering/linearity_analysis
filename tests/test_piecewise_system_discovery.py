@@ -209,7 +209,7 @@ class TestFit(unittest.TestCase):
                 min_subsequence_length=10, min_fractional_reduction=0.05,
                 poly_degree=1, differentiation="finite").fit()
         for model in psd._subsequence_models:  # pylint: disable=protected-access
-            self.assertTrue(model._is_fitted)  # pylint: disable=protected-access
+            self.assertTrue(model.is_fitted)  # pylint: disable=protected-access
 
     def test_no_change_point_yields_single_segment(self) -> None:
         """A very high threshold rejects all candidates; entire timecourse is one segment."""

@@ -148,6 +148,18 @@ class TestScalerDenormalize(unittest.TestCase):
     def setUp(self) -> None:
         self.s = Scaler(_DF)
 
+    def test_denormalize_constant_column_near_zero_mean(self) -> None:
+        """denormalize substitutes the mean for a constant column, even when
+        that mean is near zero (previously this multiplied by 1/mean instead)."""
+        if IGNORE_TESTS:
+            return
+        df = pd.DataFrame({'A': [1e-10, 1e-10, 1e-10], 'B': [1.0, 3.0, 5.0]})
+        s = Scaler(df)
+        Z = np.array([[1.0, 1.0]])  # normalize() forces constant columns to 1.0
+        result = s.denormalize(Z)
+        self.assertAlmostEqual(result[0, 0], 1e-10)
+
+
     def test_denormalize_multiplies_by_scale(self) -> None:
         """denormalize(Z) returns Z * sigma for each column."""
         if IGNORE_TESTS:

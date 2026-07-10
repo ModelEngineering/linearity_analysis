@@ -86,13 +86,34 @@ class Scaler(object):
             list[np.ndarray]: denormalized data
         """
         denormalized_arr = normalized_arr * self._scale_arr
-        for icol, std in enumerate(self._scale_arr):
-            if np.isclose(std, 0):
-                if denormalized_arr.ndim == 1:
-                    denormalized_arr[icol] = np.mean(self._matrix_arr[:, icol])
-                else:
-                    denormalized_arr[:, icol] = np.mean(self._matrix_arr[:, icol])
+        col_names = list(self._column_names)
+        constant_indices = [col_names.index(n) for n in self._constant_cols]
+        for icol in constant_indices:
+            mean_val = np.mean(self._matrix_arr[:, icol])
+            if denormalized_arr.ndim == 1:
+                denormalized_arr[icol] = mean_val
+            else:
+                denormalized_arr[:, icol] = mean_val
         return denormalized_arr
+
+#    def deprecatedDenormalize(self, normalized_arr: np.ndarray) -> np.ndarray:
+#        """Performs denormalization. Handles constant valued data
+#            by setting denormalized values to the mean.
+#
+#        Args:
+#            normalized_arr (list[np.ndarray]): normalized data
+#
+#        Returns:
+#            list[np.ndarray]: denormalized data
+#        """
+#        denormalized_arr = normalized_arr * self._scale_arr
+#        for icol, std in enumerate(self._scale_arr):
+#            if np.isclose(std, 0):
+#                if denormalized_arr.ndim == 1:
+#                    denormalized_arr[icol] = np.mean(self._matrix_arr[:, icol])
+#                else:
+#                    denormalized_arr[:, icol] = np.mean(self._matrix_arr[:, icol])
+#        return denormalized_arr
     
     def normalizeThreshold(self, state_variable: str, feature_str: str,
             physical_threshold: float) -> float:

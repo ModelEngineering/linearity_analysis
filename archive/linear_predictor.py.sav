@@ -1,187 +1,407 @@
-'''Linear predictor for chemical reaction network trajectories.'''
+"""Predicts model timecourses using a linear ODE approximation."""
+import src.constants as cn  # type: ignore
+from src.trajectory import Trajectory  # type: ignore
+from src.score import Score, ScoreInfo  # type: ignore
+from src.model import Model  # type: ignore
 
-from trajectory import Trajectory  # type: ignore
-from src.l_roadrunner import LRoadrunner  # type: ignore
-
-import collections
-import matplotlib.axes as maxes  # type: ignore
-import matplotlib.figure as mfigure  # type: ignore
-import matplotlib.pyplot as plt  # type: ignore
+from lmfit import Parameters, minimize as lmfit_minimize  # type: ignore
 import numpy as np  # type: ignore
+import pandas as pd  # type: ignore
 from scipy.integrate import solve_ivp  # type: ignore
-from typing import Optional
-
-
-ZERO_TOL = 1e-10  # Threshold below which concentrations are treated as zero.
-
-PredictionResult = collections.namedtuple(
-    "PredictionResult",
-    ["prediction_arr", "mean_abs_error", "max_abs_err"],
-)
+from scipy.linalg import expm  # type: ignore
+from src.plot_options import PlotOptions  # type: ignore
+from typing import List, Optional
 
 
 class LinearPredictor(object):
-    """Predicts floating species concentrations using a linear ODE with a mean Jacobian.
+    """Predicts floating species concentrations using a linear ODE.
 
-    The linear model is: dx/dt = mean_jacobian_collection_arr @ x + forced_input_arr,
-    where mean_jacobian_collection_arr is the element-wise mean of all Jacobians in the
-    collection and forced_input_arr is a constant forcing vector (e.g., from
-    boundary species or 0th-order rate laws).
+    The ODE is dx/dt = J @ x + f, where J is the selected Jacobian and
+    f is the median forcing input from the Trajectory.
+
+    Prediction is windowed: starting from the actual observed state at
+    t[i], the ODE is integrated forward for num_step steps to t[i+num_step],
+    then restarted from the actual state at t[i+num_step].  With num_step=1
+    each step is predicted independently from the true preceding state; with
+    a large num_step the prediction approaches a single continuous ODE
+    integration from t[0].
     """
 
     def __init__(self,
-            jacobian_collection: Trajectory,
-            initial_value_arr: np.ndarray,
-            forced_input_arr: np.ndarray,
-            ) -> None:
+            trajectory: Trajectory,
+            jacobian_selection: str = cn.JAC_MEDIAN,
+            num_step: int = -1,
+            is_species_prediction: bool = False) -> None:
         """
         Parameters
         ----------
-        jacobian_collection : JacobianCollection
-            Collection of Jacobian matrices over one or more timepoints. The
-            mean of these Jacobians is used as the linear model.
-        initial_value_arr : np.ndarray
-            1-D array of shape (n_species,) containing the initial floating
-            species concentrations at t=0.
-        forced_input_arr : np.ndarray
-            1-D array of shape (n_species,) representing the constant forcing
-            vector u in dx/dt = J_mean @ x + u.
+        trajectory : Trajectory
+        jacobian_selection : str
+            Which Jacobian to use: cn.JAC_MEDIAN, cn.JAC_FIRST, or cn.JAC_FITTED.
+        num_step : int
+            Window size in timepoints. The ODE is restarted from the actual
+            observed state every num_step points. Must be >= 1, or -1 to use
+            num_point - 1 (single window covering the full trajectory).
+        is_species_prediction : bool
+            If True, predict each species in isolation, using the actual observed values of the other species at each timepoint.
+            If False, predict all species concentrations without using other actual values
         """
-        self.jacobian_collection = jacobian_collection
-        self._l_roadrunner = jacobian_collection.l_roadrunner
-        self.initial_value_arr = initial_value_arr
-        self.forced_input_arr = forced_input_arr
-        self.mean_jacobian_collection_arr = np.mean(jacobian_collection.jacobian_collection_arr, axis=0)
+        self.trajectory = trajectory
+        self.jacobian_selection = jacobian_selection
+        if num_step < 0:
+            num_step = self.trajectory.num_point - 1
+        if num_step < 1:
+            raise ValueError(f"num_step must be >= 1 or -1, got {num_step}.")
+        self.num_step = num_step
+        self.is_species_prediction = is_species_prediction
+        self.forcing_input_arr = np.median(self.trajectory.forcing_input_collection_arr, axis=0)
+        self._fitted_jacobian_arr = np.array([])
 
-    def predict(self, times: np.ndarray, l_roadrunner: Optional[LRoadrunner] = None) -> "PredictionResult":
-        """Predict floating species concentrations at the given times.
+    @classmethod
+    def makeFromBiomodels(cls,
+            model_name: str = "",
+            model_num: int = 0,
+            jacobian_selection: str = cn.JAC_MEDIAN,
+            num_step: int = 1,
+            start_time: float = cn.START_TIME,
+            end_time: Optional[float] = None,
+            num_point: int = cn.NUM_POINT) -> "LinearPredictor":
+        """Construct a LinearPredictor from a BioModels entry.
 
-        Solves the linear ODE dx/dt = mean_jacobian_collection_arr @ x + forced_input_arr
-        with initial condition initial_value_arr at t=times[0], using
-        scipy.integrate.solve_ivp for numerical robustness.
-
-        When ``l_roadrunner`` is provided, the method also computes error metrics
-        by comparing the prediction against the reference simulation.  The
-        relative absolute error per entry is ``|1 - predicted / simulated|``; if
-        both values are within ``ZERO_TOL`` the entry contributes 0 error.
+        Exactly one of model_name or model_num must be supplied.
 
         Parameters
         ----------
-        times : np.ndarray
-            1-D array of times relative to t=0 (i.e., relative to the state
-            described by initial_value_arr). Must be non-decreasing.
-        l_roadrunner : LRoadrunner, optional
-            When supplied, its ``simulate()`` output is used as the reference
-            to compute ``mean_abs_error`` and ``max_abs_err``.  The simulation
-            must have the same number of timepoints as ``times``.  If omitted
-            or if shapes do not match, error fields are set to ``np.nan``.
+        model_name : str
+            BioModel identifier, e.g. 'BIOMD0000000008'. Must start with 'BIOMD'.
+        model_num : int
+            BioModel number, e.g. 8. Formatted to 'BIOMD0000000008'.
+        jacobian_selection : str
+            Passed to LinearPredictor constructor.
+        num_step : int
+            Passed to LinearPredictor constructor.
+        start_time : float
+            Passed to Trajectory.makeFromSimulation.
+        end_time : Optional[float]
+            Passed to Trajectory.makeFromSimulation. None triggers auto-detection.
+        num_point : int
+            Passed to Trajectory.makeFromSimulation.
 
         Returns
         -------
-        PredictionResult
-            Named tuple with fields:
-            - ``prediction_arr`` : ndarray of shape (len(times), n_species)
-            - ``mean_abs_error`` : float — mean of |1 - predicted/simulated|
-            - ``max_abs_err``    : float — max  of |1 - predicted/simulated|
+        LinearPredictor
         """
-        # Degenerate case: all times equal — no integration needed.
-        if float(times[0]) == float(times[-1]):
-            prediction_arr = np.tile(self.initial_value_arr, (len(times), 1))
-        else:
-            def _ode(t: float, x: np.ndarray) -> np.ndarray:
-                return self.mean_jacobian_collection_arr @ x + self.forced_input_arr
+        if model_name and model_num:
+            raise ValueError("Provide model_name or model_num, not both.")
+        if not model_name and not model_num:
+            raise ValueError("Provide either model_name or model_num.")
+        if model_num:
+            model_name = f"BIOMD{model_num:010d}"
+        model = Model.makeBiomodel(model_name)
+        trajectory = Trajectory.makeFromSimulation(
+                model,
+                start_time=start_time,
+                end_time=end_time,
+                num_point=num_point,
+        )
+        return cls(trajectory,
+                jacobian_selection=jacobian_selection,
+                num_step=num_step)
 
+    def _getJacobian(self) -> np.ndarray:
+        """Return the Jacobian matrix selected by jacobian_selection."""
+        if self.jacobian_selection == cn.JAC_FITTED:
+            if self.trajectory.model.num_species > self.trajectory.num_point:
+                print(
+                        f"Cannot use JAC_FITTED: num_species "
+                        f"({self.trajectory.model.num_species}) > num_point "
+                        f"({self.trajectory.num_point}).")
+                return self.trajectory.jacobian_median_arr
+            else:
+                try:
+                    jacobian = self._fitJacobian()
+                    return jacobian
+                except Exception as e:
+                    print(f"Error fitting Jacobian: {e}")
+                    print("Falling back to JAC_MEDIAN.")
+                    return self.trajectory.jacobian_median_arr
+        if self.jacobian_selection == cn.JAC_MEDIAN:
+            return self.trajectory.jacobian_median_arr
+        if self.jacobian_selection == cn.JAC_FIRST:
+            return self.trajectory.jacobian_collection_arr[0]
+        raise ValueError(
+                f"Unknown jacobian_selection: {self.jacobian_selection!r}. "
+                f"Must be {cn.JAC_MEDIAN!r}, {cn.JAC_FIRST!r}, or "
+                f"{cn.JAC_FITTED!r}.")
+
+    def _predictWithJacobian(self, jacobian_arr: np.ndarray,
+            num_step: Optional[int] = None,
+            ) -> np.ndarray:
+        """Predict the trajectory using num_step-sized windows.
+
+        For each window [t[i], t[i+num_step]], integrates the linear ODE
+        forward starting from the actual observed state in timecourse_df at
+        t[i].  Restarts from the next actual state at the end of each window.
+
+        Parameters
+        ----------
+        jacobian_arr : np.ndarray
+            Shape (num_species, num_species). The Jacobian to use.
+        num_step : Optional[int]
+            Window size in timepoints. Overrides self.num_step when provided.
+
+        Returns
+        -------
+        np.ndarray
+            Shape (num_point, num_species). Predicted concentrations at each
+            timepoint.
+        """
+        if num_step is None:
+            num_step = self.num_step
+        #
+        timecourse_arr = self.trajectory.timecourse_df.values
+        timepoints = self.trajectory.timepoint_arr
+        num_point = len(timepoints)
+        num_species = self.trajectory.model.num_species
+
+        prediction_arr = np.empty((num_point, num_species))
+        prediction_arr[0] = timecourse_arr[0]
+
+        ##
+        def _ode(t: float, x: np.ndarray) -> np.ndarray:
+            if self.is_species_prediction:
+                matches = np.where(timepoints <= t)[0]
+                idx = matches[-1] if len(matches) > 0 else 0
+                actual_arr = timecourse_arr[idx]
+                results = []
+                for i in range(num_species):
+                    x_i = actual_arr.copy()
+                    x_i[i] = x[i]
+                    results.append(jacobian_arr[i] @ x_i + self.forcing_input_arr[i])
+                return np.array(results)
+            else:
+                return jacobian_arr @ x + self.forcing_input_arr
+        ##
+
+        window_start = 0
+        while window_start < num_point - 1:
+            window_end = min(window_start + num_step, num_point - 1)
+            x0 = timecourse_arr[window_start].astype(float)
+            t_eval = timepoints[window_start + 1: window_end + 1]
             sol = solve_ivp(
-                _ode,
-                (float(times[0]), float(times[-1])),
-                self.initial_value_arr,
-                t_eval=times,
-                method="RK45",
-                rtol=1e-8,
-                atol=1e-10,
+                    _ode,
+                    (float(timepoints[window_start]), float(timepoints[window_end])),
+                    x0,
+                    t_eval=t_eval,
+                    method="Radau",
+                    rtol=1e-8,
+                    atol=1e-10,
             )
-            prediction_arr = sol.y.T  # shape: (len(times), n_species)
+            prediction_arr[window_start + 1: window_end + 1] = sol.y.T
+            window_start = window_end
 
-        mean_abs_error: float = np.nan
-        max_abs_err: float = np.nan
-        effective_lr = l_roadrunner if l_roadrunner is not None else self._l_roadrunner
-        if effective_lr is not None:
-            simulated_arr = effective_lr.simulate(is_with_timepoints=False)
-            if simulated_arr.shape == prediction_arr.shape:
-                with np.errstate(divide="ignore", invalid="ignore"):
-                    abs_error_arr = np.abs(1.0 - prediction_arr / simulated_arr)
-                both_near_zero = (
-                    (np.abs(prediction_arr) < ZERO_TOL)
-                    & (np.abs(simulated_arr) < ZERO_TOL)
-                )
-                abs_error_arr[both_near_zero] = 0.0
-                mean_abs_error = float(np.nanmean(abs_error_arr))
-                max_abs_err = float(np.nanmax(abs_error_arr))
+        return prediction_arr
 
-        return PredictionResult(
-            prediction_arr=prediction_arr,
-            mean_abs_error=mean_abs_error,
-            max_abs_err=max_abs_err,
+    def _predictWithExpm(self, jacobian_arr: np.ndarray) -> np.ndarray:
+        """Step-by-step prediction using the matrix exponential.
+
+        Exact solution of dx/dt = J @ x + f for each one-step window,
+        restarting from the actual observed state at each timepoint.
+        Uses an augmented system [[J, f], [0, 0]] so the forcing term
+        is handled exactly without inverting J.  When timepoints are
+        uniformly spaced the matrix exponential is computed once and
+        reused for all steps.
+
+        Parameters
+        ----------
+        jacobian_arr : np.ndarray
+            Shape (num_species, num_species). The Jacobian to use.
+
+        Returns
+        -------
+        np.ndarray
+            Shape (num_point, num_species). Predicted concentrations at each
+            timepoint.
+        """
+        forcing_arr = np.median(self.trajectory.forcing_input_collection_arr, axis=0)
+        timecourse_arr = self.trajectory.timecourse_df.values
+        timepoints = self.trajectory.timepoint_arr
+        num_point = len(timepoints)
+        n = jacobian_arr.shape[0]
+
+        # Augmented system: d/dt [x; 1] = [[J, f], [0, 0]] @ [x; 1]
+        A_aug = np.zeros((n + 1, n + 1))
+        A_aug[:n, :n] = jacobian_arr
+        A_aug[:n, n] = forcing_arr
+
+        prediction_arr = np.empty((num_point, n))
+        prediction_arr[0] = timecourse_arr[0]
+
+        dts = np.diff(timepoints)
+        if np.allclose(dts, dts[0]):
+            M = expm(A_aug * float(dts[0]))
+            for k in range(num_point - 1):
+                x_aug = np.append(timecourse_arr[k].astype(float), 1.0)
+                prediction_arr[k + 1] = M[:n] @ x_aug
+        else:
+            for k in range(num_point - 1):
+                dt = float(timepoints[k + 1] - timepoints[k])
+                M = expm(A_aug * dt)
+                x_aug = np.append(timecourse_arr[k].astype(float), 1.0)
+                prediction_arr[k + 1] = M[:n] @ x_aug
+
+        return prediction_arr
+
+    def _fitJacobian(self, max_nfev: int = 1000) -> np.ndarray:
+        """Fit each row of the Jacobian to minimise the L2 prediction error.
+
+        Fits the Jacobian row by row (one species at a time).  For each row,
+        lmfit least-squares adjusts the Jacobian coefficients so that the
+        windowed prediction for that species best matches timecourse_df.
+        Previously fitted rows are kept fixed during each row's optimisation.
+
+        Parameters
+        ----------
+        max_nfev : int
+            Maximum function evaluations per row optimisation.
+
+        Returns
+        -------
+        np.ndarray
+            Fitted Jacobian of shape (num_species, num_species).
+        """
+        # Check if computed previously
+        if self._fitted_jacobian_arr.size > 0:
+            return self._fitted_jacobian_arr
+        #
+        num_species = self.trajectory.model.num_species
+        if self.trajectory.num_point < num_species:
+            raise ValueError(
+                    f"Cannot fit Jacobian: num_point "
+                    f"({self.trajectory.num_point}) < num_species "
+                    f"({num_species}).")
+
+        jacobian_arr = self.trajectory.jacobian_median_arr.copy()
+
+        def _calculateResiduals(params: Parameters, ispecies: int) -> np.ndarray:
+            for i in range(num_species):
+                jacobian_arr[ispecies, i] = params[f"d{i}"].value
+            # prediction_arr = self._predictWithJacobian(
+            #         jacobian_arr, num_step=1)[:, ispecies]
+            prediction_arr = self._predictWithExpm(jacobian_arr)[:, ispecies]
+            residual_arr = (self.trajectory.timecourse_df.iloc[:, ispecies].values
+                    - prediction_arr)
+            return residual_arr[1:]
+
+        for ispecies, _ in enumerate(self.trajectory.model.species_names):
+            params = Parameters()
+            for idx, coeff in enumerate(jacobian_arr[ispecies]):
+                params.add(f"d{idx}", value=coeff)
+            result = lmfit_minimize(_calculateResiduals, params,
+                    method="leastsq", args=(ispecies,), max_nfev=max_nfev)
+            jacobian_arr[ispecies] = [result.params[f"d{idx}"].value  # type: ignore
+                    for idx in range(jacobian_arr.shape[1])]
+
+        self._fitted_jacobian_arr = jacobian_arr
+        return self._fitted_jacobian_arr
+
+    def predict(self) -> pd.DataFrame:
+        """Predict species concentrations over the Trajectory's timecourse.
+
+        Uses windowed ODE integration: the ODE is restarted from the actual
+        observed state in timecourse_df every num_step timepoints.
+
+        Returns
+        -------
+        pd.DataFrame
+            Time-indexed DataFrame with columns matching the model's species names.
+        """
+        prediction_arr = self._predictWithJacobian(self._getJacobian())
+        return pd.DataFrame(
+                prediction_arr,
+                index=self.trajectory.timepoint_arr,
+                columns=self.trajectory.model.species_names,
         )
 
-    def plot(self, l_roadrunner: LRoadrunner,
-            ax: Optional[maxes.Axes] = None,
-            title: str = "Linear Prediction vs Simulation",
-            ylim: Optional[tuple[float, float]] = None,
-            xlim: Optional[tuple[float, float]] = None) -> mfigure.Figure:
-        """Plot the linear prediction and the simulation on the same axes.
-
-        The simulation is drawn as solid lines; the linear prediction as dashed
-        lines.  One line per floating species is drawn, using matplotlib's
-        default colour cycle so that prediction and simulation for the same
-        species share a colour.
+    def score(self, description: str = "") -> pd.DataFrame:
+        """Score the prediction against the actual timecourse.
 
         Parameters
         ----------
-        l_roadrunner : LRoadrunner
-            LRoadrunner instance used to run the reference simulation.  Its
-            ``start_time``, ``end_time``, and ``num_points`` determine the
-            simulated time grid.
-        ax : plt.Axes, optional
-            Axes to draw on.  A new figure and axes are created when omitted.
-        title : str, optional
-            Title for the plot.  Default is "Linear Prediction vs Simulation".
-        ylim : tuple[float, float], optional
-            y-axis limits as (ymin, ymax).  If omitted, determined automatically.
-        xlim : tuple[float, float], optional
-            x-axis limits as (xmin, xmax).  If omitted, determined automatically.
+        description : str
+            Label stored in the 'description' column of the returned DataFrame.
 
         Returns
         -------
-        plt.Figure
-            The figure containing the plot.
+        pd.DataFrame
+            One row per aggregation level: one model-level row
+            (aggregation_type='model') and one per species.
         """
-        times = self.jacobian_collection.timepoint_arr
-        predicted_arr = self.predict(times).prediction_arr
-        simulated_arr = l_roadrunner.simulate(is_with_timepoints=False)
+        prediction_df = self.predict()
+        scorer = Score(is_initialize=True)
+        score_infos = scorer.makeScoreInfo(
+                description, self.trajectory.timecourse_df, prediction_df)
+        df = pd.DataFrame([info.__dict__ for info in score_infos])
+        return df
 
-        if ax is None:
-            fig, ax = plt.subplots()
-        else:
-            fig = ax.get_figure()
+    @property
+    def cost(self) -> float:
+        """Mean squared relative prediction error, aggregated across species.
 
-        rr = l_roadrunner.getRoadrunner()
-        species_ids = rr.getFloatingSpeciesIds()
-        n_species = predicted_arr.shape[1]
+        For each species: mean over timepoints of ((predicted - actual) / actual)²,
+        skipping the first timepoint (exact by construction) and any timepoints
+        where actual == 0.  Returns the median of the per-species costs.
 
-        for i in range(n_species):
-            label = species_ids[i] if i < len(species_ids) else f"species_{i}"
+        Returns
+        -------
+        float
+        """
+        actual_arr = self.trajectory.timecourse_df.values[1:]
+        predicted_arr = self.predict().values[1:]
+        with np.errstate(divide='ignore', invalid='ignore'):
+            rel_arr = np.where(
+                    actual_arr == 0,
+                    np.nan,
+                    (predicted_arr - actual_arr) / actual_arr,
+            )
+        species_costs = np.nanmean(rel_arr ** 2, axis=0)
+        return float(np.nanmedian(species_costs))
+
+    def plotPrediction(self, **kwargs) -> PlotOptions:
+        """Plot actual and predicted timecourses.
+
+        Actual values are drawn as solid lines; predictions as dashed lines.
+        One line per species; actual and predicted for the same species share a
+        colour.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to PlotOptions. Supported keys: ax, fig, title, xlabel,
+            ylabel, legend, xlim, ylim, model_name.
+
+        Returns
+        -------
+        PlotOptions
+        """
+        prediction_df = self.predict()
+        actual_df = self.trajectory.timecourse_df
+        score = Score(is_initialize=True)
+        score.addTestResult(prediction_df, actual_df)
+        p95 = score.score_df.loc[0, "p95"]
+
+        if not "title" in kwargs:
+            kwargs["title"] = (f"{self.trajectory.model.model_name} "
+                    f"num_step={self.num_step}, p95={p95:.2f}")    
+        plot_options = PlotOptions(**kwargs)
+        ax = plot_options.ax
+
+        for i, name in enumerate(prediction_df.columns):
             color = f"C{i}"
-            ax.plot(times, simulated_arr[:, i], color=color, label=f"{label} (simulation)")
-            ax.plot(times, predicted_arr[:, i], color=color, linestyle="--",
-                    label=f"{label} (prediction)")
+            ax.plot(actual_df.index, actual_df[name], color=color,  # type: ignore
+                    label=f"{name} (actual)")
+            ax.plot(prediction_df.index, prediction_df[name], color=color,  # type: ignore
+                    linestyle="--", label=f"{name} (predicted)")
 
-        ax.set_xlabel("Time")
-        ax.set_ylabel("Concentration")
-        ax.legend()
-        ax.set_title(title)
-        if ylim is not None:
-            ax.set_ylim(ylim)
-        if xlim is not None:
-            ax.set_xlim(xlim)
-        return fig  # type: ignore
+        plot_options.apply()
+        return plot_options

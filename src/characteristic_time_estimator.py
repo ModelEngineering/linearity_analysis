@@ -18,11 +18,12 @@ import src.constants as cn  # type: ignore
 from src.biomodels_iterator import getBiomodelsEndtimes  # type: ignore
 from src.model import Model  # type: ignore
 from src.simulator import Simulator, SimulationResult  # type: ignore
+from src.plot_options import PlotOptions  # type: ignore
 
+import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 from scipy.optimize import minimize_scalar  # type: ignore
-import tellurium as te  # type: ignore
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any, List
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +63,6 @@ class CharacteristicTimeEstimator:
     STEADY_STATE_THRESHOLD = 0.01
     LOG_LOWER = -5.0
     LOG_UPPER = 6.0
-    MAX_ITERATOR_STEP = 50 * int(1e6)
 
     def __init__(self,
             model: Model,
@@ -148,35 +148,23 @@ class CharacteristicTimeEstimator:
     def detect_steadystate(self) -> Optional[float]:
         """Find the shortest end time at which the model reaches steady state.
 
-        Uses RoadRunner's built-in steady-state solver to obtain reference
-        values, then uses :class:`Simulator` in a binary-search loop to find
-        the earliest simulation end time that converges to those values.
+        Uses :class:`Simulator` to obtain reference steady-state values, then
+        uses :class:`Simulator` again in a binary-search loop to find the
+        earliest simulation end time that converges to those values.
 
         Returns
         -------
         float or None
             The detected end time, or ``None`` if steady state cannot be found.
         """
-        # --- Step 1: obtain reference steady-state values via RoadRunner ---
-        rr = te.loadSBMLModel(self.model.sbml_str)
-        rr.reset()
-        rr.integrator.setValue('maximum_num_steps', self.MAX_ITERATOR_STEP)
-
-        try:
-            solver = rr.getSteadyStateSolver()
-            for key, value in {
-                "allow_approx": True,
-                "approx_tolerance": 1e-3,
-                "relative_tolerance": 1e-3,
-                "maximum_iterations": 1000,
-            }.items():
-                solver.setValue(key, value)
-            rr.steadyState()
-        except RuntimeError:
-            return None
-
-        raw_ss = np.array(rr.getFloatingSpeciesConcentrations())
-        if len(raw_ss) == 0 or np.any(np.isnan(raw_ss)) or np.any(np.isinf(raw_ss)):
+        # --- Step 1: obtain reference steady-state values via Simulator ---
+        steadystate_simulator = Simulator(
+            model=self.model,
+            start_time=self.start_time,
+            num_point=self.num_point,
+        )
+        raw_ss = steadystate_simulator.getSteadyState()
+        if raw_ss is None:
             return None
 
         # Use a small floor to avoid division by zero, but track which species
@@ -241,14 +229,10 @@ class CharacteristicTimeEstimator:
         float or None
             The detected end time, or ``None`` if optimisation fails.
         """
-        rr = te.loadSBMLModel(self.model.sbml_str)
-        rr.reset()
-        rr.integrator.setValue('maximum_num_steps', self.MAX_ITERATOR_STEP)
-
-        if len(rr.getFloatingSpeciesIds()) == 0:
+        if self.model.num_species == 0:
             return None
 
-        species_names = list(rr.getFloatingSpeciesIds())
+        species_names = self.model.species_names
 
         def _negative_median_cv(log_end_time: float) -> float:
             end_t = 10.0 ** log_end_time
@@ -275,7 +259,86 @@ class CharacteristicTimeEstimator:
             bounds=(self.LOG_LOWER, self.LOG_UPPER),
             method="bounded",
         )
-        return float(10.0 ** opt.x) if opt.fun < 0 else None
+        return float(10.0 ** opt.x) if opt.fun < 0 else None  # type: ignore
+    
+    def plotStdNrml(self, end_time: float, **plt_kwargs: Any) -> List[PlotOptions]:
+        """Three-panel plot of the timecourse, its per-species normalization,
+        and the cross-species standard deviation of the normalized values.
+
+        Top panel: `timecourse_df` (one line per species, original units).
+        Middle panel: the same timecourse with each species column
+            normalized to zero mean and unit standard deviation (columns
+            with zero variance become all-zero after normalization).
+        Bottom panel: the standard deviation, across species, of the
+            normalized values at each time point -- a high value indicates
+            the species trajectories have diverged from one another at
+            that time.
+
+        Parameters
+        ----------
+        end_time : float
+            End time for the simulation.
+        **plt_kwargs
+            Forwarded to PlotOptions for every panel (xlabel, legend, xlim,
+            ylim, model_name). ``ylabel`` is set per panel and is not
+            forwarded. ``title`` (if given) becomes the overall figure
+            title, prefixed with ``model_name`` as in
+            :meth:`PlotOptions.apply`. ``figsize`` is consumed here
+            (default ``(10, 12)``). ``fig``/``ax`` are managed internally
+            (one figure with three panels) and must not be passed.
+
+        Returns
+        -------
+        List[PlotOptions]
+            One PlotOptions per panel, in order [timecourse, standardized,
+            metric].
+        """
+        timecourse_df = self._run_simulation(end_time=end_time).timecourse_df
+        normalized_df = (timecourse_df - timecourse_df.mean()) / timecourse_df.std()
+        normalized_df = normalized_df.fillna(0)  # Handle any NaN values resulting from std=0
+        metric_arr = normalized_df.std(axis=1).values
+        species_names = list(timecourse_df.columns)
+
+        figsize = plt_kwargs.pop("figsize", (10, 12))
+        suptitle = plt_kwargs.pop("title", None)
+        plt_kwargs.pop("ylabel", None)
+        plt_kwargs.setdefault("xlabel", "Time")
+        model_name = plt_kwargs.get("model_name", "")
+
+        fig, (ax_top, ax_mid, ax_bot) = plt.subplots(3, 1, figsize=figsize, sharex=True)
+
+        # Top panel: raw timecourse.
+        top_po = PlotOptions(fig=fig, ax=ax_top, **plt_kwargs)
+        top_po.ylabel = "Concentration"
+        for idx, name in enumerate(species_names):
+            ax_top.plot(timecourse_df.index, timecourse_df[name],  # type: ignore
+                    color=f"C{idx}", label=name)
+        ax_top.set_title("Timecourse")  # type: ignore
+        top_po.apply()
+
+        # Middle panel: per-species normalized timecourse.
+        mid_po = PlotOptions(fig=fig, ax=ax_mid, **plt_kwargs)
+        mid_po.ylabel = "Normalized Value"
+        for idx, name in enumerate(species_names):
+            ax_mid.plot(normalized_df.index, normalized_df[name],  # type: ignore
+                    color=f"C{idx}", label=name)
+        ax_mid.set_title("Standardized Timecourse")  # type: ignore
+        mid_po.apply()
+
+        # Bottom panel: cross-species std of normalized values (single, unlabeled line).
+        plt_kwargs.setdefault("legend", False)
+        bot_po = PlotOptions(fig=fig, ax=ax_bot, **plt_kwargs)
+        bot_po.ylabel = "Standard Deviation of Normalized Values"
+        ax_bot.plot(timecourse_df.index, metric_arr)  # type: ignore
+        ax_bot.set_title("Standard Deviation Across Species")  # type: ignore
+        bot_po.apply()
+
+        if suptitle is not None:
+            full_title = f"{model_name}: {suptitle}" if model_name else suptitle
+            fig.suptitle(full_title, fontsize=13, fontweight="bold")
+        fig.tight_layout()
+
+        return [top_po, mid_po, bot_po]
 
     # ------------------------------------------------------------------
     # Private helpers

@@ -1,5 +1,5 @@
 """
-Analyze linear predictor accuracy across BioModels, parallelized across processes.
+Analyze SystemDiscovery prediction accuracy across BioModels, parallelized across processes.
 
 Usage:
     python analyze_linear_predictor.py <num_processes> <process_index>
@@ -11,9 +11,10 @@ Each instance processes a distinct slice of available BioModels and writes
 results to a per-instance CSV (linear_predictor_scores2_<process_index>.csv).
 """
 import src.constants as cn # type: ignore
-from src.linear_predictor import LinearPredictor # type: ignore
+from src.system_discovery import SystemDiscovery # type: ignore
 from src.score import Score # type: ignore
 from src.biomodels_iterator import BiomodelsIterator # type: ignore
+from src.timecourse_iterator import TimecourseIterator # type: ignore
 
 import argparse
 import math
@@ -108,15 +109,18 @@ def processModels(first_model_num: int, last_model_num: int, process_index: int,
             excluded_models=excluded_models,
             first_model_num=first_model_num,
             last_model_num=last_model_num)
+    timecourse_iterator = TimecourseIterator()
     #
     for item in iterator:
         model_name = item.model_name
         try:
-            predictor = LinearPredictor.makeFromBiomodels(
-                    model_name=model_name, num_step=-1)
-            prediction_df = predictor.predict()
+            timecourse = timecourse_iterator.getTimecourse(model_name)
+            discovery = SystemDiscovery.makeBiomodel(
+                    model_name=model_name, timecourse=timecourse)
+            discovery.fit()
+            prediction_df = discovery.predict()
             score.addTestResult(
-                    predictor.trajectory.timecourse_df, prediction_df,
+                    timecourse.timecourse_df, prediction_df,
                     description=model_name)
         except Exception as e:
             print(f"Error occurred while processing model {model_name}: {e}")

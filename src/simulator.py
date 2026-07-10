@@ -8,7 +8,7 @@ from collections import namedtuple
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 import tellurium as te  # type: ignore
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 MAX_ITERATOR_STEP = 50 * int(1e6)
 
@@ -28,8 +28,8 @@ class Simulator(object):
     def __init__(self,
         model: Model,
         start_time: float,
-        end_time: float,
-        num_point: int,
+        end_time: Optional[float] = None,
+        num_point: int = cn.NUM_POINT,
         perturbation_value_fraction: float = cn.PERTURBATION_VALUE_FRACTION,
         perturbation_species_fraction: float = cn.PERTURBATION_SPECIES_FRACTION
         ) -> None:
@@ -40,8 +40,9 @@ class Simulator(object):
             The model to simulate.
         start_time : float
             Start time of the simulation.
-        end_time : float
-            End time of the simulation (required, must not be None).
+        end_time : float, optional
+            End time of the simulation. Required by :meth:`simulate`; may be
+            omitted when only calling :meth:`getSteadyState`.
         num_point : int
             Number of time points to simulate.
         perturbation_value_fraction : float
@@ -52,8 +53,6 @@ class Simulator(object):
         """
         self.model = model
         self.start_time = start_time
-        if not isinstance(end_time, (int, float)):
-            raise ValueError("end_time must be a number (int or float).")
         self.end_time = end_time
         self.num_point = num_point
         self.perturbation_value_fraction = perturbation_value_fraction
@@ -91,7 +90,7 @@ class Simulator(object):
     def simulate(self, is_jacobian_collection: bool = False) -> SimulationResult:
         """Run a simulation and optionally collect Jacobians.
 
-        This is the only method that uses RoadRunner.
+        This is the only method that uses RoadRunner for time-course integration.
 
         Parameters
         ----------
@@ -102,13 +101,9 @@ class Simulator(object):
         -------
         SimulationResult
         """
-        rr = te.loadSBMLModel(self.model.sbml_str)
-        rr.reset()
-        rr.integrator.setValue('maximum_num_steps', self.MAX_ITERATOR_STEP)
-
-        # Apply perturbed initial values
-        initial_dct = self._getPerturbedInitialValues()
-        self._setInitialValues(rr, initial_dct)
+        if not isinstance(self.end_time, (int, float)):
+            raise ValueError("end_time must be a number (int or float) to simulate.")
+        rr, initial_dct = self._makeRoadRunner()
 
         # Pre-start simulation if start_time > 0
         if self.start_time > 0:
@@ -164,9 +159,56 @@ class Simulator(object):
                 timecourse_df=timecourse_df,
         )
 
+    def getSteadyState(self) -> Optional[np.ndarray]:
+        """Compute floating species concentrations at steady state.
+
+        Uses RoadRunner's built-in steady-state solver with tolerant settings
+        suitable for approximate convergence. Does not require `end_time`.
+
+        Returns
+        -------
+        np.ndarray or None
+            Concentrations in `self.model.species_names` order, or ``None``
+            if steady state could not be found, or is degenerate (empty,
+            NaN, or infinite).
+        """
+        rr, _ = self._makeRoadRunner()
+        try:
+            solver = rr.getSteadyStateSolver()
+            for key, value in {
+                "allow_approx": True,
+                "approx_tolerance": 1e-3,
+                "relative_tolerance": 1e-3,
+                "maximum_iterations": 1000,
+            }.items():
+                solver.setValue(key, value)
+            rr.steadyState()
+        except RuntimeError:
+            return None
+        raw_ss = np.array(rr.getFloatingSpeciesConcentrations())
+        if len(raw_ss) == 0 or np.any(np.isnan(raw_ss)) or np.any(np.isinf(raw_ss)):
+            return None
+        return raw_ss
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _makeRoadRunner(self):
+        """Load a RoadRunner instance configured with perturbed initial values.
+
+        Returns
+        -------
+        tuple
+            ``(rr, initial_dct)`` — the configured RoadRunner instance and the
+            perturbed initial values that were applied.
+        """
+        rr = te.loadSBMLModel(self.model.sbml_str)
+        rr.reset()
+        rr.integrator.setValue('maximum_num_steps', self.MAX_ITERATOR_STEP)
+        initial_dct = self._getPerturbedInitialValues()
+        self._setInitialValues(rr, initial_dct)
+        return rr, initial_dct
 
     def _checkSpeciesNames(self, names: List[str]) -> None:
         """Check that the species names in the simulation result match the model."""

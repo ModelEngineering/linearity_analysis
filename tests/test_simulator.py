@@ -4,6 +4,7 @@ import os
 import sys
 import types
 import unittest
+from unittest.mock import patch, MagicMock
 
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
@@ -242,6 +243,42 @@ class TestSimulatorSimulate(unittest.TestCase):
         # S2 starts at 0 and ends higher
         self.assertAlmostEqual(s2_values[0], 0.0, places=5)
         self.assertGreater(s2_values[-1], s2_values[0])
+
+
+class TestSimulatorGetSteadyState(unittest.TestCase):
+    """Tests for Simulator.getSteadyState()."""
+
+    def test_returns_concentrations_at_steady_state(self) -> None:
+        """S1 -> S2 -> (removed): both species drain to 0 at steady state."""
+        model = _make_model()
+        sim = Simulator(model=model, start_time=0.0, num_point=10)
+        raw_ss = sim.getSteadyState()
+        self.assertIsNotNone(raw_ss)
+        np.testing.assert_allclose(raw_ss, [0.0, 0.0], atol=1e-6)
+
+    def test_end_time_not_required(self) -> None:
+        """getSteadyState works without end_time being set."""
+        model = _make_model()
+        sim = Simulator(model=model, start_time=0.0, num_point=10)
+        self.assertIsNone(sim.end_time)
+        self.assertIsNotNone(sim.getSteadyState())
+
+    def test_returns_none_when_no_floating_species(self) -> None:
+        """A model with no floating species has an empty concentration array."""
+        model = _make_model(antimony_str="a := 1; b := 2;", model_name="no_float")
+        sim = Simulator(model=model, start_time=0.0, num_point=10)
+        self.assertIsNone(sim.getSteadyState())
+
+    def test_returns_none_on_runtime_error(self) -> None:
+        """If the steady-state solver raises RuntimeError, return None."""
+        model = _make_model()
+        sim = Simulator(model=model, start_time=0.0, num_point=10)
+        with patch('simulator.te') as mock_te:
+            mock_rr = MagicMock()
+            mock_rr.getSteadyStateSolver.return_value.setValue.side_effect = RuntimeError("no ss")
+            mock_te.loadSBMLModel.return_value = mock_rr
+            result = sim.getSteadyState()
+        self.assertIsNone(result)
 
 
 class TestSimulatorEndToEnd(unittest.TestCase):

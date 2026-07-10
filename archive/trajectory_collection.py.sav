@@ -1,267 +1,257 @@
-'''A collection of trajectories that constitute a larger timecourse.'''
+"""Collection of Trajectory objects sharing the same Model."""
 
-import src.constants as cn
-from trajectory import Trajectory  # type: ignore
-from src.l_roadrunner import NULL_L_ROADRUNNER  # type: ignore
+import src.constants as cn  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
+from src.trajectory import Trajectory  # type: ignore
 
-import matplotlib.cm as mcm  # type: ignore
-import matplotlib.colors as mcolors  # type: ignore
-import matplotlib.figure as mfigure  # type: ignore
-import matplotlib.gridspec as mgridspec  # type: ignore
-import matplotlib.pyplot as plt  # type: ignore
+from collections import namedtuple
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
-import seaborn as sns  # type: ignore
-from typing import List, Optional, Tuple
-import src.utils as utils  # type: ignore
+from typing import List, Optional, Union
 
-# TODO: Implement a plot that shows the timecourse of the simulation in combination
-# TODO: predict uses Trajector to predict for each segment. Accumulates the predictions and timepoints.
-#   with the clustered Jacobian information
+Segment = namedtuple("Segment", ["trajectory", "start_time", "end_time"])
+
 
 class TrajectoryCollection(object):
-    """A collection of trajectories that constitute a larger timecourse."""
+    """An ordered, non-overlapping collection of Trajectory sharing one Model.
+
+    Use split() to partition a single Trajectory into a TrajectoryCollection.
+    """
 
     def __init__(self, trajectories: List[Trajectory]) -> None:
         """
         Parameters
         ----------
-        trajectory_collections : list[Trajectory]
-            List of trajectories for each cluster.
+        trajectories : List[Trajectory]
+            All must share the same Model. Sorted by Trajectory.__lt__;
+            overlapping time ranges raise ValueError.
         """
-        self.trajectories = trajectories
-        if len(trajectories) > 0:
-            self.l_roadrunner = trajectories[0].l_roadrunner
-        else:
-            self.l_roadrunner = NULL_L_ROADRUNNER
-        # Sort trajectories by start times
-        self.trajectories.sort(key=lambda traj: traj.timepoint_arr[0])
-        # Construct the list of split times from the start times of the trajectories
-        self.split_times: List[float] = [
-                float(t.timepoint_arr[0]) for t in self.trajectories[1:]]  # type: ignore
-        self.species_names: list = self.l_roadrunner.species_names if self.l_roadrunner is not NULL_L_ROADRUNNER else []
+        # Error checking
+        if not trajectories:
+            raise ValueError("trajectories must not be empty.")
+        self.trajectories = sorted(trajectories)
+        if not self.isConsecutive():
+            raise ValueError("Trajectories must be consecutive (no gaps or overlaps). "
+                    "continuous time range.")
+        #
+        self.model = self.trajectories[0].model
+        self.segments = [Segment(traj, traj.start_time, traj.end_time)
+                for traj in self.trajectories]
+        for traj in trajectories[1:]:
+            if traj.model != self.model:
+                raise ValueError(
+                        "All trajectories must share the same Model.")
+        self.start_time = self.segments[0].start_time
+        self.end_time = self.segments[-1].end_time
 
-    @classmethod
-    def split(cls, trajectory: Trajectory, split_times: List[float], **kwargs
-            ) -> 'TrajectoryCollection':
-        """Creates a trajectory collection by splitting a single trajectory
-            at specified timepoints. Given an initial trajectory
-            and m split times, this method creates a TrajectoryCollection with
-            m+1 trajectories corresponding to the time segments. For example
-            suppose the original trajectory has timepoints from t0 to tm, and we want to split it at times s1 and s2 (
-            if m=2, [t2, t5]), this method creates 3 trajectories
-                [t0, t1, t2], [t2, t3, t4, t5], [t5, t6, ..., tm]
+    def isConsecutive(self) -> bool:
+        """True iff trajectories are consecutive (no gaps or overlaps)."""
+        for t1, t2 in zip(self.trajectories, self.trajectories[1:]):
+            if not np.isclose(t1.end_time, t2.start_time):
+                return False
+        return True 
 
-        Parameters
-        ----------
-        trajectory : Trajectory
-            The trajectory to be split into a collection.
-        split_times : list[float]
-            A list of timepoints at which to split the trajectory.
-                Must be within the bounds of the trajectory's timecourse.        
-        **kwargs
-            Additional keyword arguments to pass to the Trajectory.fromArrays method
-        """
-        split_times = sorted(split_times)
-        start_times = [float(trajectory.timepoint_arr[0])] + list(split_times)
-        end_times = list(split_times) + [float(trajectory.timepoint_arr[-1])]
-        trajectories: List[Trajectory] = []
-        for start_time, end_time in zip(start_times, end_times):
-            if start_time < trajectory.timepoint_arr[0] or start_time > trajectory.timepoint_arr[-1]:
-                raise ValueError(f"Split time {start_time} is out of bounds for the trajectory timecourse.")
-            if end_time < trajectory.timepoint_arr[0] or end_time > trajectory.timepoint_arr[-1]:
-                raise ValueError(f"Split time {end_time} is out of bounds for the trajectory timecourse.")
-            istart = utils.findFloatIndex(trajectory.timepoint_arr, start_time)
-            iend = utils.findFloatIndex(trajectory.timepoint_arr, end_time)
-            jacobian_arr = trajectory.jacobian_collection_arr[istart:iend + 1]  # type: ignore
-            timepoint_arr = trajectory.timepoint_arr[istart:iend + 1]  # type: ignore
-            trajectories.append(
-                    Trajectory.fromArrays(jacobian_arr, timepoint_arr,
-                    trajectory.l_roadrunner, **kwargs))
-        trajectory_collection = TrajectoryCollection(trajectories)
-        return trajectory_collection
-    
-    @classmethod
-    def unitsplit(cls, trajectory: Trajectory, **kwargs) -> 'TrajectoryCollection':
-        """Creates a trajectory collection that splits a single trajectory
-        into segments of unit length.
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, TrajectoryCollection):
+            raise ValueError("Can only compare TrajectoryCollection to another ")
+        if len(self.trajectories) != len(other.trajectories):
+            return False
+        return all(t1 == t2 for t1, t2 in zip(self.trajectories, other.trajectories))
 
-        Parameters
-        ----------
-        trajectory : Trajectory
-            The trajectory to be split into a collection.
-        **kwargs
-            Additional keyword arguments to pass to the Trajectory.fromArrays method
-        """
-        split_times = trajectory.timepoint_arr[1:-1].tolist()
-        return cls.split(trajectory, split_times, **kwargs)
-
-    def predict(self)-> pd.DataFrame:
-        """Predicts each trajectory and concatenate the results.
+    def makeTimecourse(self) -> pd.DataFrame:
+        """Concatenate actual timecourses, dropping duplicate boundary rows.
 
         Returns
         -------
         pd.DataFrame
-            The predicted trajectory for the entire timecourse, concatenated from each cluster's prediction.
+            Time-indexed DataFrame with one row per unique timepoint.
         """
-        predicted_trajectories = []
-        for idx, trajectory in enumerate(self.trajectories):
-            pred_df = trajectory.predict()
-            if idx > 0:
-                pred_df = pred_df.iloc[1:]  # Remove the first timepoint to avoid duplication
-            predicted_trajectories.append(pred_df)
-        return pd.concat(predicted_trajectories, axis=0)
-    
-    def plotTrajectories(self, **kwargs) -> PlotOptions:
-        """
-        Plot the predicted timecourse of simulation species concentrations.
-        The first plot shows how the Jacobian changes over time relative to the centroid.
-        The second plot shows the dynamics of the model's species concentrations
-        over time.
+        dfs = []
+        for i, traj in enumerate(self.trajectories):
+            tc_df = traj.timecourse_df
+            if i > 0:
+                tc_df = tc_df.iloc[1:]
+            dfs.append(tc_df)
+        return pd.concat(dfs)
+
+    def plotTimecourse(self, **kwargs) -> PlotOptions:
+        """Plot the pieced-together timecourse with dashed vertical separators.
+
+        Each trajectory's timecourse is drawn continuously; a vertical dashed
+        line marks the boundary between adjacent trajectories.  One legend
+        entry per species.
 
         Parameters
         ----------
-        ax : Optional[plt.Axes]
-            An optional matplotlib Axes
-        fig : Optional[plt.Figure]
-            An optional matplotlib Figure object to use. If None, a new figure will be created.
-        is_legend : bool
-            Whether to include a legend in the species timecourse plot (default: True).
-        ylim : Tuple[float, float]
-            The y-axis limits for the Jacobian deviation plot (default: (0.0, 1.0)).
-        xlim: Tuple[float, float]
-            The x-axis limits for both plots (default: None, which means automatic limits).
-        title: str
-            The title for the plot
+        **kwargs
+            Passed to PlotOptions. Supported keys: ax, fig, title, xlabel,
+            ylabel, legend, xlim, ylim, model_name.
+
+        Returns
+        -------
+        PlotOptions
         """
-        dfs: List[pd.DataFrame] = []
-        for idx, trajectory in enumerate(self.trajectories):
-            timecourse_df = trajectory.l_roadrunner.timecourse_df.loc[trajectory.timepoint_arr]
-            if idx > 0:
-                timecourse_df = timecourse_df.iloc[1:]  # Remove shared boundary row
-            dfs.append(timecourse_df)
-        plot_df = pd.concat(dfs, axis=0)
-        num_species = self.l_roadrunner.num_species
-        species_names = self.l_roadrunner.species_names
-        # Timecourse plot
-        options = PlotOptions(**kwargs)
-        ax = options.ax
-        colors = [sns.color_palette("tab10")[i % 10] for i in range(num_species)]
-        time_arr = plot_df.index.values
-        for i, species_name in enumerate(species_names):
-            ax.plot(time_arr, plot_df[species_name].values,   # type: ignore
-                    label=species_name, color=colors[i], alpha=0.7)
-        # Show the split times as vertical dashed lines
-        for split_time in self.split_times:
-            ax.axvline(x=split_time, color='gray', linestyle='--', alpha=0.5) # type: ignore
-        options.apply()
-        return options
+        plot_options = PlotOptions(**kwargs)
+        ax = plot_options.ax
+        for i, name in enumerate(self.model.species_names):
+            color = f"C{i}"
+            for j, traj in enumerate(self.trajectories):
+                label = name if j == 0 else None
+                ax.plot(                                           # type: ignore 
+                        traj.timecourse_df.index,
+                        traj.timecourse_df[name],
+                        color=color,
+                        label=label,
+                )
+        for traj in self.trajectories[:-1]:
+            ax.axvline(x=traj.end_time, color="black", linestyle="--",   # type: ignore
+                    linewidth=0.8)
+        plot_options.apply()
+        return plot_options
 
-    @property
-    def max_cv(self) -> float:
-        """Compute the maximum CV across all clusters."""
-        if len(self.trajectories) == 0:
-            return np.nan
-        return max(c.max_cv for c in self.trajectories)
+    @classmethod
+    def split(cls,
+            trajectory: Trajectory,
+            timepoints: List[float]) -> "TrajectoryCollection":
+        """Partition a Trajectory at the given split times.
 
-    @property
-    def score(self) -> float:
-        """Return the clustering score, defined as max_cv across all clusters.
-
-        Lower is better: a perfect clustering would have zero within-cluster
-        variation (CV = 0).
-        """
-        return self.max_cv
-
-#    def heatmaps(self) -> mfigure.Figure:
-#        """Plot the CV heatmap for each JacobianCollection in a single row.
-#
-#        Each subplot title shows the start and end timepoints of its cluster.
-#        A single shared horizontal colorbar is drawn in a dedicated row below
-#        the heatmaps so it does not overlap them.
-#
-#        Returns
-#        -------
-#        matplotlib.figure.Figure
-#            The figure containing one heatmap per cluster and a shared colorbar.
-#        """
-#        jcs = self.trajectories
-#        n = len(jcs)
-#
-#        # Two rows: heatmaps on top, colorbar on bottom (small height ratio).
-#        fig = plt.figure(figsize=(5 * n, 5))
-#        gs = mgridspec.GridSpec(2, n, figure=fig, height_ratios=[10, 1], hspace=0.4)
-#
-#        heatmap_axes = [fig.add_subplot(gs[0, i]) for i in range(n)]
-#        cbar_ax = fig.add_subplot(gs[1, :])
-#
-#        for ax, jc in zip(heatmap_axes, jcs):
-#            t_start = float(jc.timepoint_arr[0])
-#            t_end = float(jc.timepoint_arr[-1])
-#            with np.errstate(divide="ignore", invalid="ignore"):
-#                cv_arr = np.abs(jc.jacobian_std_arr / jc.jacobian_median_arr)
-#            cv_arr = np.where(np.isfinite(cv_arr), cv_arr, 0.0)
-#            annot_arr = np.vectorize(lambda v: f"{v:.2g}")(jc.jacobian_median_arr)
-#            rr = jc.l_roadrunner.getRoadrunner() if hasattr(jc, "l_roadrunner") else None
-#            species_ids = rr.getFloatingSpeciesIds() if rr is not None else None
-#            sns.heatmap(
-#                cv_arr,
-#                annot=annot_arr,
-#                fmt="",
-#                cmap="coolwarm",
-#                cbar=False,
-#                xticklabels=species_ids if species_ids is not None else "auto",
-#                yticklabels=species_ids if species_ids is not None else "auto",
-#                ax=ax,
-#                vmin=0.0,
-#                vmax=1.0,
-#            )
-#            ax.set_xlabel("Species")
-#            ax.set_ylabel("Species")
-#            ax.set_title(f"t={t_start:.3g} to {t_end:.3g}")
-#
-#        norm = mcolors.Normalize(vmin=0.0, vmax=1.0)
-#        sm = mcm.ScalarMappable(cmap="coolwarm", norm=norm)
-#        sm.set_array([])
-#        cbar = fig.colorbar(sm, cax=cbar_ax, orientation="horizontal")
-#        cbar.set_label("CV (|std/mean|)")
-#
-#        return fig
-    
-    def plotPrediction(self, **kwargs) -> PlotOptions:
-        """
-        Plot the predicted timecourses for the TrajectoryCollection.
+        Each split time becomes the shared end/start boundary between adjacent
+        sub-trajectories.  Times not exactly in timepoint_arr snap to the
+        nearest available timepoint.  Split times that snap to start_time or
+        end_time are ignored.
 
         Parameters
         ----------
-        ax : Optional[plt.Axes]
-            An optional matplotlib Axes
-        fig : Optional[plt.Figure]
-            An optional matplotlib Figure object to use. If None, a new figure will be created.
-        legend : bool
-            Whether to include a legend in the species timecourse plot (default: True).
-        xlabel: str
-            The label for the x-axis (default: "time").
-        ylabel: str
-            The label for the y-axis (default: "concentration").
-        ylim : Tuple[float, float]
-            The y-axis limits for the Jacobian deviation plot (default: (0.0, 1.0)).
-        xlim: Tuple[float, float]
-            The x-axis limits for both plots (default: None, which means automatic limits).
-        title: str
-            The title for the plot
+        trajectory : Trajectory
+        timepoints : List[float]
+
+        Returns
+        -------
+        TrajectoryCollection
         """
-        plt_opt = PlotOptions(**kwargs)
-        for idx, trajectory in enumerate(self.trajectories):
-            if idx + 1 == len(self.trajectories):
-                plt_opt.legend = self.species_names # type: ignore
+        tp_arr = trajectory.timepoint_arr
+        snapped = []
+        for t in timepoints:
+            idx = int(np.argmin(np.abs(tp_arr - t)))
+            snapped.append(float(tp_arr[idx]))
+        snapped = sorted({
+                t for t in snapped
+                if trajectory.start_time < t < trajectory.end_time
+        })
+        boundaries = [trajectory.start_time] + snapped + [trajectory.end_time]
+        sub_trajectories = [
+                trajectory.makeSubmodel(boundaries[i], boundaries[i + 1])
+                for i in range(len(boundaries) - 1)
+        ]
+        return cls(sub_trajectories)
+
+    @classmethod
+    def autoSplit(cls,
+            trajectory: Trajectory,
+            num_split: int,
+            is_slow_subspace: bool = False,
+            is_species_prediction: bool = False,
+            min_num_point_per_segment: int = 3,
+            ) -> "TrajectoryCollection":
+        """Find split points greedily, each step picking the globally best available split.
+
+        At each iteration every existing segment is scanned for its best internal
+        split point. The split that gives the greatest cost reduction across all
+        segments is applied. Segments with only two timepoints (no internal point)
+        are skipped. Stops early if no splittable segment remains.
+
+        Parameters
+        ----------
+        trajectory : Trajectory
+        num_split : int
+            Number of splits (num_split+1 sub-trajectories). Clamped to
+            [0, len(timepoint_arr) - 2].
+        min_num_point_per_segment : int
+            Minimum number of timepoints required for a segment to be considered splittable.
+
+        Returns
+        -------
+        TrajectoryCollection
+        """
+        from src.linear_predictor import LinearPredictor  # local import avoids circularity
+        from src.slow_subspace_predictor import SlowSubspacePredictor  # type: ignore
+
+        jacobian_selection = cn.JAC_MEDIAN
+        tp_arr = trajectory.timepoint_arr
+        num_point = trajectory.num_point
+        num_split = max(0, min(num_split, num_point - 2))
+
+        if num_split == 0:
+            return cls([trajectory])
+
+        INF = float("inf")
+        cost_cache: dict = {}
+
+        def _segmentCost(i: int, j: int) -> float:
+            # llambda is a regularization parameter, lowering cost for longer segments
+            if i == j:
+                return 0.0
+            if (i, j) in cost_cache:
+                return cost_cache[(i, j)]
+            sub_traj = trajectory.makeSubmodel(float(tp_arr[i]), float(tp_arr[j]))
+            if is_slow_subspace:
+                lp: Union[SlowSubspacePredictor, LinearPredictor] = SlowSubspacePredictor(sub_traj,
+                        num_step=-1)
             else:
-                plt_opt.legend = False
-            plt_opt = trajectory.plotPrediction(**plt_opt.to_dict())
-            if idx > 0:
-                first_prediction_time = float(trajectory.timepoint_arr[1])
-                plt_opt.ax.axvline(x=first_prediction_time,  # type: ignore
-                        color='gray', linestyle='--', alpha=0.5)
-        plt_opt.apply()
-        return plt_opt
+                lp = LinearPredictor(sub_traj,
+                        jacobian_selection=jacobian_selection, num_step=-1,
+                        is_species_prediction=is_species_prediction)  # Changed from -1 to 1
+            c = lp.cost
+            cost_cache[(i, j)] = c if np.isfinite(c) else INF
+            return cost_cache[(i, j)]
+
+        def _bestSplitForSegment(istart: int, iend: int):
+            """Return (best_k, combined_cost) for the best split of [istart, iend].
+
+            Returns (None, INF) when there are no internal timepoints to split on.
+            """
+            best_k = None
+            best_cost = INF
+            for k in range(istart + 1, iend):
+                c = 1/np.max([_segmentCost(istart, k), _segmentCost(k, iend)])
+                #c = _segmentCost(istart, k) +  _segmentCost(k, iend)
+                if c < best_cost:
+                    best_cost = c
+                    best_k = k
+            return best_k, best_cost
+
+        # Maintain active segments as a dict: (istart, iend) -> segment cost.
+        segments_dct: dict = {(0, num_point - 1): _segmentCost(0, num_point - 1)}
+
+        for _ in range(num_split):
+            # Among all segments' best splits, pick the one with the greatest gain.
+            best_gain = -INF
+            best_segment = None
+            best_split_k = None
+
+            for (istart, iend), seg_cost in segments_dct.items():
+                if iend - istart < min_num_point_per_segment:
+                    continue
+                split_k, split_cost = _bestSplitForSegment(istart, iend)
+                if split_k is None:
+                    continue
+                gain = seg_cost - split_cost
+                if gain > best_gain:
+                    best_gain = gain
+                    best_segment = (istart, iend)
+                    best_split_k = split_k
+
+            if best_segment is None:
+                break  # every remaining segment has only 2 points; cannot split
+
+            assert best_split_k is not None
+            istart, iend = best_segment
+            del segments_dct[best_segment]
+            segments_dct[(istart, best_split_k)] = _segmentCost(istart, best_split_k)
+            segments_dct[(best_split_k, iend)] = _segmentCost(best_split_k, iend)
+
+        # Recover split times from the interior boundaries between segments.
+        sorted_segs = sorted(segments_dct.keys())
+        split_indices = [iend for (_, iend) in sorted_segs[:-1]]
+        split_times = [float(tp_arr[idx]) for idx in split_indices]
+        return cls.split(trajectory, split_times)

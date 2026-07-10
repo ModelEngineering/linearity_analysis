@@ -12,10 +12,11 @@ import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 
 import src.constants as cn  # type: ignore
-from src.trajectory import Trajectory  # type: ignore
+from src.timecourse_iterator import TimecourseIterator  # type: ignore
+from src.model import Model  # type: ignore
+from src.system_discovery import SystemDiscovery  # type: ignore
 from src.score import (Score, ScoreInfo,  # type: ignore
         AGGREGATION_TYPE, AGGREGATION_MEAN, AGGREGATION_COUNT)
-from linear_predictor import LinearPredictor  # type: ignore
 
 BIOMODELS_DIR = cn.BIOMODELS_DIR
 HAS_BIOMODELS = os.path.isdir(BIOMODELS_DIR)
@@ -378,22 +379,22 @@ class TestMakeScoreInfo(unittest.TestCase):
 class TestScoreBiomodels(unittest.TestCase):
     """Non-mocked tests using real BioModels and Trajectory.predictLinear."""
 
-    def _checkBiomodel(self, model_num: int, end_time: float) -> None:
+    def _checkBiomodel(self, model_num: int) -> None:
         """Run full pipeline for one BioModel and assert valid score statistics."""
         if IGNORE_TESTS:
             return
-        trajectory = Trajectory.makeBiomodel(model_num=model_num, start_time=0.0, end_time=end_time, num_point=11)
-        predictor = LinearPredictor(trajectory)
-        try:
-            pred_df = predictor.predict()
-        except ValueError as e:
-            self.skipTest(
-                    f"predictLinear raised ValueError for model {model_num}: {e}")
+        iterator = TimecourseIterator()
+        model_name = Model.getBiomodelName(model_num)
+        timecourse = iterator.getTimecourse(model_name=model_name)
+        discovery = SystemDiscovery.makeBiomodel(
+                    model_name=model_name, timecourse=timecourse)
+        discovery.fit()
+        pred_df = discovery.predict()
         score = Score(serialization_path=_temp_csv_path())
-        score.addTestResult(trajectory.timecourse_df, pred_df,
+        score.addTestResult(timecourse.timecourse_df, pred_df,
                 description=f"BIOMD{model_num:010d}")
         # Correct row structure
-        n_species = trajectory.model.num_species
+        n_species = timecourse.model.num_species
         self.assertEqual(len(score.score_df), 1 + n_species)
         # Model row statistics are valid
         model_row = score.score_df[
@@ -408,25 +409,25 @@ class TestScoreBiomodels(unittest.TestCase):
                 score.score_df[AGGREGATION_TYPE] != "model"]
         self.assertEqual(
                 list(species_rows[AGGREGATION_TYPE]),
-                list(trajectory.timecourse_df.columns))
+                list(timecourse.timecourse_df.columns))
 
     def test_biomd8(self) -> None:
         """Full pipeline for BIOMD0000000008."""
         if IGNORE_TESTS:
             return
-        self._checkBiomodel(8, end_time=10.0)
+        self._checkBiomodel(8)
 
     def test_biomd53(self) -> None:
         """Full pipeline for BIOMD0000000053."""
         if IGNORE_TESTS:
             return
-        self._checkBiomodel(53, end_time=100.0)
+        self._checkBiomodel(53)
 
     def test_biomd206(self) -> None:
         """Full pipeline for BIOMD0000000206."""
         if IGNORE_TESTS:
             return
-        self._checkBiomodel(206, end_time=10.0)
+        self._checkBiomodel(206)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ import csv
 from src.biomodels_iterator import BiomodelsIterator, getBiomodelsEndtimes  # type: ignore
 from src.model import Model  # type: ignore
 from src.timecourse import Timecourse  # type: ignore
+from src.timecourse_iterator import TimecourseIterator  # type: ignore
 
 import matplotlib.pyplot as plt  # type: ignore
 import os
@@ -66,7 +67,7 @@ def _plot_single_model(ax, model: Model, endtime_data: dict[str, tuple[str, floa
     End_time info is displayed below the title using a coding scheme and value.
     No legend, no x-tick labels, no y-tick labels.
     '''
-    timecourse = Timecourse(model=model)
+    timecourse = TimecourseIterator().getTimecourse(model.model_name)
 
     # Extract just the model number for the title
     model_num = _extract_model_number(model.model_name)

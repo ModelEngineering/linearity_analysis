@@ -46,6 +46,7 @@ import matplotlib.pyplot as plt # type: ignore
 import numpy as np # type: ignore
 import pandas as pd # type: ignore
 import pysindy as ps # type: ignore
+from scipy.linalg import expm  # type: ignore
 from pysindy.feature_library import PolynomialLibrary # type: ignore
 from scipy.integrate import solve_ivp # type: ignore
 import sys
@@ -187,6 +188,7 @@ class SystemDiscovery:
             )
 
         self.species_cols = species_cols
+        self.num_species = len(species_cols)
         self._X_list: list[np.ndarray] = [d[species_cols].to_numpy(dtype=float) for d in dfs]
         self._time_list: list[np.ndarray] = [d.index.to_numpy(dtype=float) for d in dfs]
         self.time_arr: np.ndarray = self._time_list[0]
@@ -233,7 +235,7 @@ class SystemDiscovery:
             optimizer=optimizer,
             differentiation_method=diff_method,
         )
-        self._is_fitted: bool = False
+        self.is_fitted: bool = False
 
     # ------------------------------------------------------------------
     # Public interface
@@ -265,7 +267,12 @@ class SystemDiscovery:
                 if name not in allowed:
                     self.model.optimizer.coef_[i, 0] = 0.0
         self._apply_threshold()
-        self._is_fitted = True
+        # Check that the features align with the species names.
+        if not all([n1 == n2 for n1, n2 in zip(self.species_names, self.model.feature_names)]):  # type: ignore
+            raise RuntimeError(
+                "Mismatch between species names and model feature names after fitting."
+            )
+        self.is_fitted = True
         return self
 
     @classmethod
@@ -274,7 +281,7 @@ class SystemDiscovery:
         model_name: str,
         *,
         threshold: float = 0.01,
-        poly_degree: int = 2,
+        poly_degree: int = 1,
         timecourse: Timecourse | None = None,
     ) -> "SystemDiscovery":
         """Create a SystemDiscovery from a BioModel timecourse.
@@ -641,19 +648,11 @@ class SystemDiscovery:
         print(self.__str__())
 
     def __str__(self) -> str:
-        equation_str = ""
-        summary_df = self.summary()
-        for idx, col in enumerate(summary_df.columns):
-            if idx > 0:
-                equation_str = equation_str[0:-3]
-            equation_str += f"\n{col} = "
-            for idx in summary_df.index:
-                val = cast(float, summary_df.at[idx, col])
-                if np.isclose(val, 0):
-                    continue
-                term = f"{val:.3f} * {idx}" if idx != "1" else f"{val:.3f}"
-                equation_str += f"{term} + "
-        return equation_str.rstrip(" + ")
+        if self.is_fitted:
+            result = "\n".join([f"d{n}/dt = {e}" for n, e in self.getEquations().items()])
+        else:
+            result = "Model not fitted yet."
+        return result
 
     def getNonzeroTerms(self) -> dict[str, int]:
         """Return a dict mapping species name → number of non-zero terms in its ODE."""
@@ -663,6 +662,12 @@ class SystemDiscovery:
             sp_name: np.sum(np.abs(coefs[i]) > 1e-10)  # type: ignore
             for i, sp_name in enumerate(self.species_names)
         }
+
+    def getEquations(self) -> dict[str, str]:
+        """Return a dict mapping species name → string representation of its ODE."""
+        self._require_fitted()
+        equation_dct = {self.species_names[n]: eq for n, eq in enumerate(self.model.equations())}
+        return equation_dct
 
     def calculateRsq(self, method: str = "derivative",
             test_df: pd.DataFrame = NULL_DF) -> dict[str, float]:
@@ -885,23 +890,67 @@ class SystemDiscovery:
             return {name: float("nan") for name in self.species_names}
 
     def _require_fitted(self) -> None:
-        if not self._is_fitted:
+        if not self.is_fitted:
             raise RuntimeError("Call `.fit()` before using this method.")
 
     def _simulate(self,
-                  x0: np.ndarray | None = None,
-                  time_arr: np.ndarray | None = None) -> np.ndarray:
-        """Integrate the discovered ODE forward from *x0* over *time_arr*."""
+            x0: np.ndarray | None = None,
+            time_arr: np.ndarray | None = None) -> np.ndarray:
+        """
+        Chooses the simulation method based on the model's configuration
+        (matrix exponential for linear systems, otherwise general ODE integration).
+        Does parameter checks and calls the appropriate simulation method.
+
+        Args
+        ----
+        x0 : np.ndarray, optional
+            Initial state vector in physical units.  If None, uses the first row of training data
+        time_arr : np.ndarray, optional
+            Time points at which to evaluate the solution.
+            If None, uses the training time grid
+
+        Returns
+        -------
+        np.ndarray
+        """
         if x0 is None:
             x0 = self.X[0, :]
         if time_arr is None:
             time_arr = self.time_arr
 
+        if self.poly_degree != 1 or not self.include_bias:
+            return self._simulateGeneral(x0=x0, time_arr=time_arr)
+        else:
+            return self._simulateSimple(x0=x0, time_arr=time_arr)
+    
+    def _simulateGeneral(self,
+            x0: np.ndarray,
+            time_arr: np.ndarray) -> np.ndarray:
+        """
+        Implements a general ODE simulation using solve_ivp. This method
+        is used for integrating the discovered ODE forward from *x0* over *time_arr*.
+        Integrate the discovered ODE forward from *x0* over *time_arr*.
+        Assumes that parameter checks have been done.
+
+        Args
+        ----
+        x0 : np.ndarray, optional
+            Initial state vector in physical units.  If None, uses the first row of training data
+        time_arr : np.ndarray, optional
+            Time points at which to evaluate the solution.
+            If None, uses the training time grid
+
+        Returns
+        -------
+        np.ndarray
+        """
+        ##
         def rhs(_t, x):
             z = self._normalizer.normalize(x)
             dz_dt = self.model.predict(z.reshape(1, -1))[0]
             dx_dt = self._normalizer.denormalize(dz_dt)
             return np.array(dx_dt, dtype=float)
+        ##
 
         try:
             sol = solve_ivp(
@@ -918,6 +967,55 @@ class SystemDiscovery:
         if not sol.success:
             raise RuntimeError(f"ODE integration failed: {sol.message}")
         return sol.y.T   # shape (n_timepoints, n_species)
+
+    def _simulateSimple(self,
+            x0: np.ndarray, 
+            time_arr: np.ndarray) -> np.ndarray:
+        """
+        Integrate the discovered ODE forward from *x0* over *time_arr*.
+        Assumes uniform time steps, poly_degree=1, and include_bias=True.
+        Assumes that parameter checks have been done.
+
+        Args
+        ----
+        x0 : np.ndarray, optional
+            Initial state vector in physical units.  If None, uses the first row of training data
+        time_arr : np.ndarray, optional
+            Time points at which to evaluate the solution.
+            If None, uses the training time grid
+
+        Returns
+        -------
+        np.ndarray
+        """
+        # Check assumptions
+        if self.poly_degree != 1 or not self.include_bias:
+            raise ValueError("Matrix exponential simulation only supports poly_degree=1 and include_bias=True.")
+        # Convert the initial value to the standardized inputs
+        z0 = self._normalizer.normalize(x0)
+        # Extract the A and B matrices.
+        coef_arr = self.model.coefficients()   # shape (n_states, n_features)
+        A = coef_arr[:, 1:]        # first n columns -> state terms
+        B = coef_arr[:, 0]        # remaining columns -> control terms (shape (n_states, n_controls))
+        B = B.flatten()
+        # Construct the exponential matrix for the linear system dx/dt = Ax + Bu.
+        size = self.num_species + 1  # +1 for the control input
+        M = np.zeros((size, size))
+        M[:self.num_species, :self.num_species] = A
+        M[:self.num_species, self.num_species] = B
+        # Compute the simulated result using the matrix exponential.
+        dt = np.mean(np.diff(time_arr))  # assume uniform time steps
+        Md = expm(M * dt)
+        Ad = Md[:self.num_species, :self.num_species]
+        Bd = Md[:self.num_species, self.num_species]
+        # Iterative calculate the results
+        zpreds = [z0]
+        for t in time_arr[1:]:
+            z_next = Ad @ zpreds[-1] + Bd 
+            zpreds.append(z_next)
+        zpred_arr = np.array(zpreds)
+        xpred_arr = self._normalizer.denormalize(zpred_arr)
+        return xpred_arr
 
     @staticmethod
     def _validate_dataframe(df: pd.DataFrame) -> None:
@@ -945,7 +1043,7 @@ def discoverNetwork(
     threshold: float = 0.01,
     alpha: float = 0.05,
     differentiation: DifferentiationMethod = "smooth",
-    poly_degree: int = 2,
+    poly_degree: int = 1,
     include_bias: bool = True,
     species_names: list[str] | None = None,
     plot: bool = True,

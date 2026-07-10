@@ -2,7 +2,8 @@
 
 import src.constants as cn  # type: ignore
 from src.biomodels_iterator import BiomodelsIterator, BiomodelsItem # type: ignore
-from src.trajectory import Trajectory  # type: ignore
+from src.characteristic_time_estimator import CharacteristicTimeEstimator  # type: ignore
+from src.model import Model  # type: ignore
 
 import pandas as pd  # type: ignore
 import numpy as np  # type: ignore
@@ -11,6 +12,7 @@ from typing import List, Dict, Tuple, Optional
 
 EXCLUDED_MODELS = ["BIOMD0000000268",
         "BIOMD0000000625",]
+NUM_POINT = 1000
 
 
 def main(output_path: str = cn.CALCULATED_ENTIMES_PATH, is_report: bool = True) -> pd.DataFrame:
@@ -30,19 +32,18 @@ def main(output_path: str = cn.CALCULATED_ENTIMES_PATH, is_report: bool = True) 
     endtime_df = pd.DataFrame(result_dct)
     for item in BiomodelsIterator(excluded_models=EXCLUDED_MODELS, existing_csv_path=output_path,
             is_report=is_report):
-        model_name = item.model_name
-        if len(item.sbml_paths) == 0:
-            continue
+        model = Model.makeBiomodel(item.model_name)
         #
         try:
-            trajectory = Trajectory.makeBiomodel(item.model_num)
+            end_time, end_time_source= CharacteristicTimeEstimator.estimate(
+                    model, num_point=NUM_POINT)
         except Exception as e:
-            print(f"Error occurred while processing model {model_name}: {e}")
+            print(f"Error occurred while processing model {item.model_name}: {e}")
             continue
         #
-        result_dct[cn.COL_MODEL_NAME].append(model_name)
-        result_dct[cn.COL_ENDTIME].append(trajectory.end_time)
-        result_dct[cn.COL_ENDTIME_SOURCE].append(trajectory.end_time_source)
+        result_dct[cn.COL_MODEL_NAME].append(item.model_name)
+        result_dct[cn.COL_ENDTIME].append(end_time)
+        result_dct[cn.COL_ENDTIME_SOURCE].append(end_time_source)
         existing_df : pd.DataFrame = item.existing_df
         df = pd.DataFrame(result_dct)
         if len(df) > 0 and len(existing_df) > 0:

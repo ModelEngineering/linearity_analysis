@@ -22,6 +22,7 @@ from src.timecourse import Timecourse as _Timecourse  # type: ignore
 from system_discovery import SystemDiscovery, discoverNetwork, MAX_SPECIES  # type: ignore
 
 HAS_REAL_ZIP = os.path.isfile(cn.TIMECOURSE_ZIP_PATH)
+HAS_REAL_MODELS_DIR = os.path.isdir(cn.BIOMODELS_DIR)
 FIRST_REAL_MODEL = "BIOMD0000000003"
 
 _ANTIMONY_TWO_SPECIES = """
@@ -230,18 +231,18 @@ class TestNetworkRateDiscoveryFit(unittest.TestCase):
         )
 
     def test_not_fitted_initially(self) -> None:
-        """_is_fitted is False before fit() is called."""
+        """is_fitted is False before fit() is called."""
         if IGNORE_TESTS:
             return
         nd = self._make_unfitted()
-        self.assertFalse(nd._is_fitted)  # pylint: disable=protected-access
+        self.assertFalse(nd.is_fitted)  # pylint: disable=protected-access
 
     def test_fit_sets_fitted_flag(self) -> None:
-        """_is_fitted is True after fit() returns."""
+        """is_fitted is True after fit() returns."""
         if IGNORE_TESTS:
             return
         nd = self._make_unfitted().fit()
-        self.assertTrue(nd._is_fitted)  # pylint: disable=protected-access
+        self.assertTrue(nd.is_fitted)  # pylint: disable=protected-access
 
     def test_fit_returns_self(self) -> None:
         """fit() returns the same NetworkRateDiscovery instance."""
@@ -324,6 +325,56 @@ class TestNetworkRateDiscoveryDecay(unittest.TestCase):
         s1_coef = cast(float, summary.loc["S1", "dS1/dt"])
         assert(s1_coef < 0.0)
 
+    def test_get_equations_returns_dict(self) -> None:
+        """getEquations() returns a dict."""
+        if IGNORE_TESTS:
+            return
+        result = self.nd.getEquations()
+        self.assertIsInstance(result, dict)
+
+    def test_get_equations_has_s1_key(self) -> None:
+        """getEquations() has a key 'S1'."""
+        if IGNORE_TESTS:
+            return
+        result = self.nd.getEquations()
+        self.assertIn("S1", result)
+
+    def test_get_equations_value_mentions_s1(self) -> None:
+        """The dS1/dt equation string references S1 (its only feature)."""
+        if IGNORE_TESTS:
+            return
+        result = self.nd.getEquations()
+        self.assertIn("S1", result["S1"])
+
+    def test_get_equations_raises_before_fit(self) -> None:
+        """getEquations() before fit() raises RuntimeError."""
+        if IGNORE_TESTS:
+            return
+        nd = SystemDiscovery(
+            _make_decay_df(),
+            threshold=0.01,
+            alpha=0.01,
+            poly_degree=1,
+            include_bias=False,
+            differentiation="finite",
+        )
+        with self.assertRaises(RuntimeError):
+            nd.getEquations()
+
+    def test_str_before_fit(self) -> None:
+        """str(nd) reports 'Model not fitted yet.' before fit() is called."""
+        if IGNORE_TESTS:
+            return
+        nd = SystemDiscovery(
+            _make_decay_df(),
+            threshold=0.01,
+            alpha=0.01,
+            poly_degree=1,
+            include_bias=False,
+            differentiation="finite",
+        )
+        self.assertEqual(str(nd), "Model not fitted yet.")
+
 
 class TestNetworkRateDiscoveryTwoSpecies(unittest.TestCase):
     """Tests using the 2-species irreversible conversion model."""
@@ -356,6 +407,29 @@ class TestNetworkRateDiscoveryTwoSpecies(unittest.TestCase):
         result = self.nd.calculateRsq(method="derivative")
         self.assertGreater(result["S1"], 0.95)
         self.assertGreater(result["S2"], 0.95)
+
+    def test_get_equations_has_both_keys(self) -> None:
+        """getEquations() has keys 'S1' and 'S2' for the two-species model."""
+        if IGNORE_TESTS:
+            return
+        result = self.nd.getEquations()
+        self.assertIn("S1", result)
+        self.assertIn("S2", result)
+
+    def test_get_equations_ds2_dt_mentions_both_species(self) -> None:
+        """dS2/dt depends on both S1 (production) and S2 (decay)."""
+        if IGNORE_TESTS:
+            return
+        result = self.nd.getEquations()
+        self.assertIn("S1", result["S2"])
+        self.assertIn("S2", result["S2"])
+
+    def test_str_has_one_line_per_species(self) -> None:
+        """str(nd) has exactly one line per species."""
+        if IGNORE_TESTS:
+            return
+        lines = str(self.nd).split("\n")
+        self.assertEqual(len(lines), 2)
 
     def test_species_names_override(self) -> None:
         """species_names=['A','B'] gives columns 'dA/dt' and 'dB/dt' in summary."""
@@ -425,7 +499,7 @@ class TestDiscoverNetworkFunction(unittest.TestCase):
             heatmap=False,
         )
         self.assertIsInstance(nd, SystemDiscovery)
-        self.assertTrue(nd._is_fitted)  # pylint: disable=protected-access
+        self.assertTrue(nd.is_fitted)  # pylint: disable=protected-access
 
 
 class TestNetworkRateDiscoveryAntimonyNetwork1(unittest.TestCase):
@@ -646,7 +720,7 @@ class TestSummaryEntryThreshold(unittest.TestCase):
             if sp not in self.nd._normalizer._constant_cols  # pylint: disable=protected-access
         ]
         for feat in result.index:
-            max_variable = float(df_norm.loc[feat, variable_cols].abs().max())
+            max_variable = float(df_norm.loc[feat, variable_cols].abs().max())  # type: ignore
             self.assertGreater(max_variable, 0)
 
 
@@ -993,6 +1067,80 @@ class TestPredictOneStepDerivative(unittest.TestCase):
             nd_raw.predictOneStepDerivative(x),
             atol=0.5,
         )
+
+
+_MATRIX_EXP_BIOMODEL_CACHE: dict[str, SystemDiscovery] = {}
+
+
+def _get_fitted_real_biomodel(model_name: str) -> SystemDiscovery:
+    """Fit a real BioModel's timecourse with poly_degree=1, include_bias=True.
+
+    _simulateSimple only supports this configuration (see its internal
+    guard), so real-biomodel comparisons must be fit this way regardless of
+    how well a linear model actually describes the (likely nonlinear) kinetics.
+    """
+    if model_name not in _MATRIX_EXP_BIOMODEL_CACHE:
+        if model_name == "BIOMD0000000001":
+            # Listed in data/badmodels.txt and so excluded from the
+            # pre-serialized timecourse zip, but it simulates fine directly
+            # from its SBML for this comparison.
+            timecourse = _Timecourse(model=_Model.makeBiomodel(model_name))
+        else:
+            timecourse = None
+        _MATRIX_EXP_BIOMODEL_CACHE[model_name] = SystemDiscovery.makeBiomodel(
+            model_name, poly_degree=1, timecourse=timecourse,
+        ).fit()
+    return _MATRIX_EXP_BIOMODEL_CACHE[model_name]
+
+
+class TestMatrixExpSimulateBiomodels(unittest.TestCase):
+    """Compare _simulate and _simulateSimple on real BioModels.
+
+    Constant-valued species are excluded from the comparison: Scaler.denormalize
+    (src/scaler.py) mishandles species whose training mean is near zero, since
+    its guard for "is this a constant column" re-tests self._scale_arr, which
+    __init__ already overwrote to 1/mean for constant columns -- so it never
+    reads as close to zero and the mean-substitution branch never fires.
+    _simulateSimple is the only place this surfaces, because it denormalizes
+    whole state trajectories; _simulate only ever denormalizes derivatives, so
+    it never hits the bug. That is a pre-existing Scaler defect, not a defect in
+    _simulateSimple's own bias/A/B slicing, which is what these tests target.
+    """
+
+    def _compare(self, model_name: str) -> None:
+        nd = _get_fitted_real_biomodel(model_name)
+        x0 = nd.X[0, :]
+        sim = nd._simulate(x0=x0)  # pylint: disable=protected-access
+        mexp = nd._simulateSimple(x0=x0,
+                time_arr=nd.time_arr)  # pylint: disable=protected-access
+        variable_idx = [
+            i for i, name in enumerate(nd.species_names)
+            if name not in nd._normalizer._constant_cols  # pylint: disable=protected-access
+        ]
+        np.testing.assert_allclose(
+            sim[:, variable_idx], mexp[:, variable_idx], rtol=1e-2, atol=1e-6,
+        )
+
+    @unittest.skipUnless(HAS_REAL_MODELS_DIR, "Real BioModels SBML directory not found")
+    def test_biomodel_1(self) -> None:
+        """_simulate and _simulateSimple agree on BIOMD0000000001 (non-constant species)."""
+        if IGNORE_TESTS:
+            return
+        self._compare("BIOMD0000000001")
+
+    @unittest.skipUnless(HAS_REAL_ZIP, "Real timecourse zip not found")
+    def test_biomodel_8(self) -> None:
+        """_simulate and _simulateSimple agree on BIOMD0000000008 (non-constant species)."""
+        if IGNORE_TESTS:
+            return
+        self._compare("BIOMD0000000008")
+
+    @unittest.skipUnless(HAS_REAL_ZIP, "Real timecourse zip not found")
+    def test_biomodel_45(self) -> None:
+        """_simulate and _simulateSimple agree on BIOMD0000000045."""
+        if IGNORE_TESTS:
+            return
+        self._compare("BIOMD0000000045")
 
 
 if __name__ == "__main__":
