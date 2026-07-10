@@ -44,7 +44,7 @@ class PlotOptions(object):
             self.ax.set_xlabel(self.xlabel)  # type: ignore
         if self.ylabel is not None:
             self.ax.set_ylabel(self.ylabel) # type: ignore
-        if isinstance(self.legend, bool) and self.legend:
+        if self.ax.get_legend_handles_labels()[0]:  # type: ignore
             self.ax.legend() # type: ignore
         if isinstance(self.legend, list):
             self.ax.legend(self.legend) # type: ignore

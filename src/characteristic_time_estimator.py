@@ -261,7 +261,9 @@ class CharacteristicTimeEstimator:
         )
         return float(10.0 ** opt.x) if opt.fun < 0 else None  # type: ignore
     
-    def plotStdNrml(self, end_time: float, **plt_kwargs: Any) -> List[PlotOptions]:
+    def plotStdNrml(self, end_time: float, 
+            ax_top=None, ax_mid=None, ax_bot=None, **plt_kwargs: Any
+            ) -> List[PlotOptions | None]:
         """Three-panel plot of the timecourse, its per-species normalization,
         and the cross-species standard deviation of the normalized values.
 
@@ -278,6 +280,12 @@ class CharacteristicTimeEstimator:
         ----------
         end_time : float
             End time for the simulation.
+        ax_top : matplotlib.axes.Axes, optional
+            Axes object for the top panel.
+        ax_mid : matplotlib.axes.Axes, optional
+            Axes object for the middle panel.
+        ax_bot : matplotlib.axes.Axes, optional
+            Axes object for the bottom panel.
         **plt_kwargs
             Forwarded to PlotOptions for every panel (xlabel, legend, xlim,
             ylim, model_name). ``ylabel`` is set per panel and is not
@@ -305,38 +313,46 @@ class CharacteristicTimeEstimator:
         plt_kwargs.setdefault("xlabel", "Time")
         model_name = plt_kwargs.get("model_name", "")
 
-        fig, (ax_top, ax_mid, ax_bot) = plt.subplots(3, 1, figsize=figsize, sharex=True)
+        fig = None
+        if ax_top is None and ax_mid is None and ax_bot is None:
+            fig, (ax_top, ax_mid, ax_bot) = plt.subplots(3, 1, figsize=figsize, sharex=True)
 
         # Top panel: raw timecourse.
-        top_po = PlotOptions(fig=fig, ax=ax_top, **plt_kwargs)
-        top_po.ylabel = "Concentration"
-        for idx, name in enumerate(species_names):
-            ax_top.plot(timecourse_df.index, timecourse_df[name],  # type: ignore
-                    color=f"C{idx}", label=name)
-        ax_top.set_title("Timecourse")  # type: ignore
-        top_po.apply()
+        top_po = None
+        if ax_top is not None:
+            top_po = PlotOptions(fig=fig, ax=ax_top, **plt_kwargs)
+            top_po.ylabel = "Concentration"
+            for idx, name in enumerate(species_names):
+                ax_top.plot(timecourse_df.index, timecourse_df[name],  # type: ignore
+                        color=f"C{idx}", label=name)
+            ax_top.set_title("Timecourse")  # type: ignore
+            top_po.apply()
 
         # Middle panel: per-species normalized timecourse.
-        mid_po = PlotOptions(fig=fig, ax=ax_mid, **plt_kwargs)
-        mid_po.ylabel = "Normalized Value"
-        for idx, name in enumerate(species_names):
-            ax_mid.plot(normalized_df.index, normalized_df[name],  # type: ignore
-                    color=f"C{idx}", label=name)
-        ax_mid.set_title("Standardized Timecourse")  # type: ignore
-        mid_po.apply()
+        mid_po = None
+        if ax_mid is not None:
+            mid_po = PlotOptions(fig=fig, ax=ax_mid, **plt_kwargs)
+            mid_po.ylabel = "Normalized Value"
+            for idx, name in enumerate(species_names):
+                ax_mid.plot(normalized_df.index, normalized_df[name],  # type: ignore
+                        color=f"C{idx}", label=name)
+            ax_mid.set_title("Standardized Timecourse")  # type: ignore
+            mid_po.apply()
 
         # Bottom panel: cross-species std of normalized values (single, unlabeled line).
-        plt_kwargs.setdefault("legend", False)
-        bot_po = PlotOptions(fig=fig, ax=ax_bot, **plt_kwargs)
-        bot_po.ylabel = "Standard Deviation of Normalized Values"
-        ax_bot.plot(timecourse_df.index, metric_arr)  # type: ignore
-        ax_bot.set_title("Standard Deviation Across Species")  # type: ignore
-        bot_po.apply()
+        bot_po = None
+        if ax_bot is not None:
+            bot_po = PlotOptions(fig=fig, ax=ax_bot, **plt_kwargs)
+            plt_kwargs.setdefault("legend", False)
+            bot_po.ylabel = "Standard Deviation of Normalized Values"
+            ax_bot.plot(timecourse_df.index, metric_arr)  # type: ignore
+            ax_bot.set_title("Standard Deviation Across Species (stdS)")  # type: ignore
+            bot_po.apply()
 
-        if suptitle is not None:
+        if suptitle is not None and fig is not None:
             full_title = f"{model_name}: {suptitle}" if model_name else suptitle
             fig.suptitle(full_title, fontsize=13, fontweight="bold")
-        fig.tight_layout()
+            fig.tight_layout()
 
         return [top_po, mid_po, bot_po]
 

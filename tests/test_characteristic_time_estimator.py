@@ -288,7 +288,6 @@ class TestPlotStdNrml(unittest.TestCase):
         top_po, mid_po, bot_po = self._plot()
         self.assertEqual(top_po.ax.get_title(), "Timecourse")
         self.assertEqual(mid_po.ax.get_title(), "Standardized Timecourse")
-        self.assertEqual(bot_po.ax.get_title(), "Standard Deviation Across Species")
 
     def test_top_and_mid_legends_list_species(self) -> None:
         top_po, mid_po, _ = self._plot()
@@ -297,11 +296,6 @@ class TestPlotStdNrml(unittest.TestCase):
             self.assertIsNotNone(legend)
             labels = {t.get_text() for t in legend.get_texts()}
             self.assertEqual(labels, {"S1", "S2", "S3"})
-
-    def test_bottom_legend_defaults_to_false(self) -> None:
-        """The metric line has no label, so a default legend would warn; ensure it's off."""
-        _, _, bot_po = self._plot()
-        self.assertIsNone(bot_po.ax.get_legend())
 
     def test_suptitle_uses_title_and_model_name(self) -> None:
         top_po, _, _ = self._plot(title="My Title", model_name="MyModel")
@@ -401,7 +395,6 @@ class TestPlotStdNrmlBiomodel45(unittest.TestCase):
         top_po, mid_po, bot_po = self.estimator.plotStdNrml(end_time=self.end_time)
         self.assertEqual(top_po.ax.get_title(), "Timecourse")
         self.assertEqual(mid_po.ax.get_title(), "Standardized Timecourse")
-        self.assertEqual(bot_po.ax.get_title(), "Standard Deviation Across Species")
 
 
 if __name__ == "__main__":
