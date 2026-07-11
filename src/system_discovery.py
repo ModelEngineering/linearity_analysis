@@ -56,6 +56,8 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
 NULL_DF = pd.DataFrame()
+# max allowed deviation in time step size for spectral derivative
+MAX_TIME_FRACTIONAL_DEVIATION = 0.01
 
 
 # ---------------------------------------------------------------------------
@@ -917,8 +919,15 @@ class SystemDiscovery:
             x0 = self.X[0, :]
         if time_arr is None:
             time_arr = self.time_arr
-
-        if self.poly_degree != 1 or not self.include_bias:
+        # Check time step uniformity for matrix exponential simulation
+        diff_arr = np.diff(time_arr)
+        diff_min = np.min(diff_arr)
+        diff_max = np.max(diff_arr)
+        max_deviation = (diff_max - diff_min) / np.mean(diff_arr)
+        # Determine if we can use matrix exponential
+        #   simulation (linear system with uniform time steps) 
+        if self.poly_degree != 1 or not self.include_bias  \
+                or max_deviation > MAX_TIME_FRACTIONAL_DEVIATION:
             return self._simulateGeneral(x0=x0, time_arr=time_arr)
         else:
             return self._simulateSimple(x0=x0, time_arr=time_arr)

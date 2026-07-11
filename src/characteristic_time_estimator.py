@@ -21,6 +21,8 @@ from src.simulator import Simulator, SimulationResult  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
 
 import matplotlib.pyplot as plt  # type: ignore
+import multiprocessing as mp
+from multiprocessing.connection import Connection
 import numpy as np  # type: ignore
 from scipy.optimize import minimize_scalar  # type: ignore
 from typing import Optional, Tuple, Any, List
@@ -32,6 +34,94 @@ from typing import Optional, Tuple, Any, List
 
 CharacteristicTimeResult = Tuple[float, str]
 """A pair of ``(end_time, end_time_source)``."""
+
+
+# ---------------------------------------------------------------------------
+# SteadyStateEstimator
+# ---------------------------------------------------------------------------
+
+class SteadystateEstimator:
+
+    def __init__(self, model: Model, target, start_time: float,
+            num_point: int) -> None:
+        """
+        Args:
+            model (Model): Model being analyzed.
+            target: Module-level callable run in the child process, with
+                signature (model, start_time, num_point, conn) -> None. It
+                must send its result via conn.send(...) and then conn.close().
+            start_time (float)
+            num_point (int)
+        """
+        self.model = model
+        self.start_time = start_time
+        self.num_point = num_point
+        self.target = target
+
+    def estimate(self, timeout: float = 10.0) -> float | None:
+        """Runs `self.target` in a subprocess so it can be killed at the OS
+        level if it hangs.
+
+        `target` (here, `_run_calculate_steadystate`) calls into RoadRunner's
+        compiled integrator; a single call can run for an unbounded time for
+        models that never settle (e.g. oscillators), and CPython cannot
+        preempt time spent inside a C extension call via `signal.alarm` --
+        pending signals are only delivered once control returns to the
+        bytecode loop. Running the work in a separate OS process sidesteps
+        this: `terminate()`/`kill()` act on the process itself, independent
+        of what code it is currently executing.
+
+        Returns
+        -------
+        float or None
+            Whatever `target` sent back over the connection, or -1 if it did
+            not finish within `timeout` seconds.
+        """
+        ctx = mp.get_context("spawn")
+        parent_conn, child_conn = ctx.Pipe(duplex=False)
+        process = ctx.Process(
+            target=self.target,
+            args=(self.model, self.start_time, self.num_point, child_conn),
+            daemon=True,
+        )
+        process.start()
+        child_conn.close()  # parent only reads; drop its copy of the write end
+
+        if parent_conn.poll(timeout):
+            result = parent_conn.recv()
+        else:
+            result = -1
+
+        process.terminate()
+        process.join(1)
+        if process.is_alive():
+            process.kill()
+            process.join()
+        parent_conn.close()
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Subprocess worker for steady-state detection
+# ---------------------------------------------------------------------------
+
+def _run_calculate_steadystate(
+        model: Model, start_time: float, num_point: int, conn: Connection) -> None:
+    """Runs in a child process: computes the steady-state end time and sends
+    it back over `conn`.
+
+    Defined at module level (not as a method) so it can be pickled and
+    re-imported by the 'spawn' multiprocessing start method -- a bound method
+    would instead require pickling the enclosing instance.
+    """
+    try:
+        estimator = CharacteristicTimeEstimator(
+            model=model, start_time=start_time, num_point=num_point)
+        result = estimator._calculate_steadystate()
+    except Exception:
+        result = None
+    conn.send(result)
+    conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +235,38 @@ class CharacteristicTimeEstimator:
     # Detection methods (public for testing)
     # ------------------------------------------------------------------
 
-    def detect_steadystate(self) -> Optional[float]:
+    def detect_steadystate(self, timeout: float = 10.0) -> float | None:
+        """Runs steady-state detection in a subprocess so it can be killed at
+        the OS level if it hangs.
+
+        `_calculate_steadystate` calls into RoadRunner's compiled integrator;
+        a single call can run for an unbounded time for models that never
+        settle (e.g. oscillators), and CPython cannot preempt time spent
+        inside a C extension call via `signal.alarm` -- pending signals are
+        only delivered once control returns to the bytecode loop. Running
+        the work in a separate OS process sidesteps this: `terminate()`/
+        `kill()` act on the process itself, independent of what code it is
+        currently executing.
+
+        The default of 10s (rather than a tighter value) accounts for the
+        ~1.2s of unavoidable overhead the child process pays re-importing
+        this module's dependencies (numpy, scipy, matplotlib, roadrunner)
+        under the 'spawn' start method, on top of actual computation time.
+
+        Returns
+        -------
+        float or None
+            The detected end time, `None` if steady state could not be
+            determined, or -1 if detection did not finish within `timeout`
+            seconds.
+        """
+        ss_estimator = SteadystateEstimator(
+            self.model, _run_calculate_steadystate,
+            start_time=self.start_time, num_point=self.num_point,
+        )
+        return ss_estimator.estimate(timeout=timeout)
+
+    def _calculate_steadystate(self) -> Optional[float]:
         """Find the shortest end time at which the model reaches steady state.
 
         Uses :class:`Simulator` to obtain reference steady-state values, then

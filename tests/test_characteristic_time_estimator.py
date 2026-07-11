@@ -131,14 +131,21 @@ class TestDetectSteadyState(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_returns_none_on_runtime_error(self) -> None:
-        """If Simulator.getSteadyState() fails to find steady state, return None."""
+        """If Simulator.getSteadyState() fails to find steady state, return None.
+
+        Calls _calculate_steadystate() directly rather than detect_steadystate():
+        the latter runs the computation in a subprocess (see detect_steadystate's
+        docstring), and unittest.mock.patch only affects the current process --
+        a 'spawn'-started child re-imports this module fresh and would use the
+        real Simulator regardless of any patch applied here.
+        """
         model = _makeModel()
         estimator = CharacteristicTimeEstimator(model=model)
 
         mock_sim_instance = MagicMock()
         mock_sim_instance.getSteadyState.return_value = None
         with patch('characteristic_time_estimator.Simulator', return_value=mock_sim_instance):
-            result = estimator.detect_steadystate()
+            result = estimator._calculate_steadystate()
         self.assertIsNone(result)
 
 
