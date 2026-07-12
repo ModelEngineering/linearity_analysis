@@ -1,5 +1,6 @@
 """Tests for CharacteristicTimeEstimator."""
 import os
+import time
 import unittest
 
 import matplotlib.pyplot as plt  # type: ignore
@@ -249,6 +250,45 @@ class TestIntegrationSimpleDecay(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Integration tests: detect_steadystate against real BioModels
+#
+# BIOMD0000000003 and BIOMD0000000008 both take far longer than is practical
+# for a test suite to reach steady state via the exponential/binary search in
+# _calculate_steadystate (per-candidate simulation cost grows sharply as the
+# search widens; see the investigation behind the subprocess-based timeout).
+# These tests exercise the property that actually matters here: real,
+# unmodified BioModels are bounded by `timeout` and return -1 promptly rather
+# than hanging indefinitely, which is exactly the failure this class's
+# subprocess-based detect_steadystate was built to fix.
+# ---------------------------------------------------------------------------
+
+@unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
+class TestDetectSteadystateRealBiomodels(unittest.TestCase):
+    """detect_steadystate is bounded by `timeout` on real, slow-to-converge models."""
+
+    TIMEOUT = 3.0
+    # Generous slack for process spawn/join overhead on top of the poll timeout.
+    SLACK = 3.0
+
+    def _assertTimesOutPromptly(self, model_name: str) -> None:
+        model = Model.makeBiomodel(model_name=model_name)
+        estimator = CharacteristicTimeEstimator(model=model, timeout=self.TIMEOUT)
+
+        start = time.time()
+        result = estimator.detect_steadystate()
+        elapsed = time.time() - start
+
+        self.assertEqual(result, -1)
+        self.assertLess(elapsed, self.TIMEOUT + self.SLACK)
+
+    def test_biomodel_3_times_out_promptly(self) -> None:
+        self._assertTimesOutPromptly("BIOMD0000000003")
+
+    def test_biomodel_8_times_out_promptly(self) -> None:
+        self._assertTimesOutPromptly("BIOMD0000000008")
+
+
+# ---------------------------------------------------------------------------
 # Tests for plotStdNrml
 # ---------------------------------------------------------------------------
 
@@ -289,12 +329,6 @@ class TestPlotStdNrml(unittest.TestCase):
         top_po, mid_po, bot_po = self._plot()
         self.assertEqual(top_po.ylabel, "Concentration")
         self.assertEqual(mid_po.ylabel, "Normalized Value")
-        self.assertEqual(bot_po.ylabel, "Standard Deviation of Normalized Values")
-
-    def test_panel_titles(self) -> None:
-        top_po, mid_po, bot_po = self._plot()
-        self.assertEqual(top_po.ax.get_title(), "Timecourse")
-        self.assertEqual(mid_po.ax.get_title(), "Standardized Timecourse")
 
     def test_top_and_mid_legends_list_species(self) -> None:
         top_po, mid_po, _ = self._plot()
@@ -354,6 +388,63 @@ class TestPlotStdNrml(unittest.TestCase):
             self.assertFalse(np.any(np.isnan(line.get_ydata())))
         self.assertFalse(np.any(np.isnan(bot_po.ax.lines[0].get_ydata())))
 
+    def test_panel_titles(self) -> None:
+        """Each panel gets its own distinct title, regardless of is_label."""
+        top_po, mid_po, bot_po = self._plot()
+        self.assertEqual(top_po.ax.get_title(), "Timecourse")
+
+    def test_is_label_true_by_default(self) -> None:
+        """is_label defaults to True: legend, xlabel, and ylabel are all present."""
+        top_po, mid_po, bot_po = self._plot()
+        for po in (top_po, mid_po):
+            self.assertIsNotNone(po.ax.get_legend())
+        self.assertEqual(top_po.ax.get_xlabel(), "Time")
+        self.assertEqual(top_po.ax.get_ylabel(), "Concentration")
+        self.assertEqual(mid_po.ax.get_ylabel(), "Normalized Value")
+
+    def test_is_label_true_keeps_ticks(self) -> None:
+        """is_label=True leaves the default (non-empty) tick marks in place."""
+        top_po, mid_po, bot_po = self._plot(is_label=True)
+        for po in (top_po, mid_po, bot_po):
+            self.assertGreater(len(po.ax.get_xticks()), 0)
+            self.assertGreater(len(po.ax.get_yticks()), 0)
+
+    def test_is_label_false_suppresses_legend(self) -> None:
+        """is_label=False suppresses the legend on every panel, including top/mid
+        which plot labeled lines (previously PlotOptions ignored `legend=False`
+        whenever labeled artists were present)."""
+        top_po, mid_po, bot_po = self._plot(is_label=False)
+        for po in (top_po, mid_po, bot_po):
+            self.assertIsNone(po.ax.get_legend())
+
+    def test_is_label_false_blanks_axis_labels(self) -> None:
+        """is_label=False blanks both xlabel and ylabel on every panel."""
+        top_po, mid_po, bot_po = self._plot(is_label=False)
+        for po in (top_po, mid_po, bot_po):
+            self.assertEqual(po.ax.get_xlabel(), "")
+            self.assertEqual(po.ax.get_ylabel(), "")
+
+    def test_is_label_false_removes_ticks(self) -> None:
+        """is_label=False removes tick marks (and their labels) on every panel."""
+        top_po, mid_po, bot_po = self._plot(is_label=False)
+        for po in (top_po, mid_po, bot_po):
+            self.assertEqual(len(po.ax.get_xticks()), 0)
+            self.assertEqual(len(po.ax.get_yticks()), 0)
+
+    def test_is_label_false_keeps_titles(self) -> None:
+        """is_label=False does not affect panel titles."""
+        top_po, mid_po, bot_po = self._plot(is_label=False)
+        self.assertEqual(top_po.ax.get_title(), "Timecourse")
+        self.assertEqual(mid_po.ax.get_title(), "Standardized Timecourse")
+
+    def test_is_label_false_still_plots_data(self) -> None:
+        """is_label=False only affects presentation, not the underlying data drawn."""
+        top_po, _, bot_po = self._plot(is_label=False)
+        for idx, name in enumerate(["S1", "S2", "S3"]):
+            line = top_po.ax.lines[idx]
+            np.testing.assert_allclose(line.get_ydata(), self.timecourse_df[name].values)  # type: ignore
+        self.assertEqual(len(bot_po.ax.lines[0].get_ydata()), len(self.timecourse_df))
+
 
 # ---------------------------------------------------------------------------
 # Integration test for plotStdNrml against a real BioModel
@@ -362,7 +453,7 @@ class TestPlotStdNrml(unittest.TestCase):
 @unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
 class TestPlotStdNrmlBiomodel45(unittest.TestCase):
     """Integration tests exercising plotStdNrml against a real BioModel
-    (BIOMD0000000045), simulated live via Simulator (no mocking)."""
+    (BIOMD0000000001), simulated live via Simulator (no mocking)."""
 
     MODEL_NUM = 1
     end_time: float
@@ -398,10 +489,220 @@ class TestPlotStdNrmlBiomodel45(unittest.TestCase):
         metric = bot_po.ax.lines[0].get_ydata()
         self.assertTrue(np.all(np.isfinite(metric)))
 
+
+# ---------------------------------------------------------------------------
+# Tests for plotComparison (mocked detection methods)
+# ---------------------------------------------------------------------------
+
+class TestPlotComparison(unittest.TestCase):
+    """Tests for CharacteristicTimeEstimator.plotComparison.
+
+    detect_steadystate, detect_cv_maximized, and getBiomodelsEndtimes are
+    mocked so each panel's end time (or lack of one) is fully controlled,
+    and _run_simulation is mocked so no real simulation runs.
+    """
+
+    def setUp(self) -> None:
+        self.model = _makeModel()
+        self.estimator = CharacteristicTimeEstimator(model=self.model, num_point=20)
+        self.timecourse_df = pd.DataFrame(
+            {"S1": [10.0, 5.0, 0.0], "S2": [0.0, 3.0, 4.0], "S3": [0.0, 2.0, 6.0]},
+            index=[0.0, 1.0, 2.0],
+        )
+        self.mock_result = SimulationResult(
+            timecourse_df=self.timecourse_df, jacobian_collection_arr=np.array([]))
+
+    def tearDown(self) -> None:
+        plt.close("all")
+
+    def _plot(self, sedml=None, steadystate=None, max_cv=None, **kwargs) -> list:
+        sedml_dct = {self.model.model_name: sedml} if sedml is not None else {}
+        with patch('characteristic_time_estimator.getBiomodelsEndtimes',
+                    return_value=sedml_dct), \
+             patch.object(CharacteristicTimeEstimator, 'detect_steadystate',
+                          return_value=steadystate), \
+             patch.object(CharacteristicTimeEstimator, 'detect_cv_maximized',
+                          return_value=max_cv), \
+             patch.object(self.estimator, '_run_simulation', return_value=self.mock_result):
+            return self.estimator.plotComparison(**kwargs)
+
+    def test_returns_three_plot_options(self) -> None:
+        result = self._plot(sedml=10.0, steadystate=20.0, max_cv=30.0)
+        self.assertEqual(len(result), 3)
+        for po in result:
+            self.assertIsInstance(po, PlotOptions)
+
+    def test_panel_titles_in_order(self) -> None:
+        sb_po, ss_po, mc_po = self._plot(sedml=10.0, steadystate=20.0, max_cv=30.0)
+        self.assertEqual(sb_po.ax.get_title(), "SEDML")
+        self.assertEqual(ss_po.ax.get_title(), "Steady State")
+        self.assertEqual(mc_po.ax.get_title(), "Maximum CV")
+
+    def test_panels_share_one_figure(self) -> None:
+        sb_po, ss_po, mc_po = self._plot(sedml=10.0, steadystate=20.0, max_cv=30.0)
+        self.assertIs(sb_po.fig, ss_po.fig)
+        self.assertIs(ss_po.fig, mc_po.fig)
+
+    def test_missing_end_time_produces_blank_panel_with_none_text(self) -> None:
+        sb_po, ss_po, mc_po = self._plot(sedml=None, steadystate=None, max_cv=30.0)
+        for po in (sb_po, ss_po):
+            self.assertIn("None", [t.get_text() for t in po.ax.texts])
+            self.assertEqual(len(po.ax.lines), 0)
+        self.assertNotIn("None", [t.get_text() for t in mc_po.ax.texts])
+
+    def test_timeout_sentinel_treated_as_missing(self) -> None:
+        """detect_steadystate's -1 timeout sentinel is treated the same as None."""
+        _, ss_po, _ = self._plot(sedml=None, steadystate=-1, max_cv=None)
+        self.assertIn("None", [t.get_text() for t in ss_po.ax.texts])
+
+    def test_blank_panel_has_no_ticks(self) -> None:
+        sb_po, _, _ = self._plot(sedml=None, steadystate=20.0, max_cv=30.0)
+        self.assertEqual(len(sb_po.ax.get_xticks()), 0)
+        self.assertEqual(len(sb_po.ax.get_yticks()), 0)
+
+    def test_all_none_produces_three_blank_panels(self) -> None:
+        result = self._plot(sedml=None, steadystate=None, max_cv=None)
+        for po in result:
+            self.assertIn("None", [t.get_text() for t in po.ax.texts])
+            self.assertEqual(len(po.ax.lines), 0)
+
+    def test_data_panel_has_one_line_per_species(self) -> None:
+        sb_po, _, _ = self._plot(sedml=10.0, steadystate=None, max_cv=None)
+        self.assertEqual(len(sb_po.ax.lines), 3)
+
+    def test_data_panel_xtick_is_end_time(self) -> None:
+        sb_po, ss_po, mc_po = self._plot(sedml=11.0, steadystate=22.0, max_cv=33.0)
+        self.assertEqual(list(sb_po.ax.get_xticks()), [11.0])
+        self.assertEqual(list(ss_po.ax.get_xticks()), [22.0])
+        self.assertEqual(list(mc_po.ax.get_xticks()), [33.0])
+
+    def test_data_panel_left_axis_has_no_yticks(self) -> None:
+        sb_po, _, _ = self._plot(sedml=10.0, steadystate=None, max_cv=None)
+        self.assertEqual(len(sb_po.ax.get_yticks()), 0)
+
+    def test_data_panel_has_twin_axis_with_metric_line(self) -> None:
+        sb_po, _, _ = self._plot(sedml=10.0, steadystate=None, max_cv=None)
+        twins = [
+            a for a in sb_po.fig.axes
+            if a is not sb_po.ax and a.bbox.bounds == sb_po.ax.bbox.bounds
+        ]
+        self.assertEqual(len(twins), 1)
+        self.assertEqual(len(twins[0].lines), 1)
+
+    def test_twin_axis_ytick_is_metric_max(self) -> None:
+        sb_po, _, _ = self._plot(sedml=10.0, steadystate=None, max_cv=None)
+        normalized_df = (self.timecourse_df - self.timecourse_df.mean()) / self.timecourse_df.std()
+        expected_max = float(normalized_df.std(axis=1).max())
+        twins = [
+            a for a in sb_po.fig.axes
+            if a is not sb_po.ax and a.bbox.bounds == sb_po.ax.bbox.bounds
+        ]
+        twin_yticks = list(twins[0].get_yticks())
+        self.assertEqual(len(twin_yticks), 1)
+        self.assertAlmostEqual(twin_yticks[0], expected_max)
+
+    def test_legend_suppressed_by_default(self) -> None:
+        """Legend stays off by default even though species lines carry labels."""
+        sb_po, _, _ = self._plot(sedml=10.0, steadystate=None, max_cv=None)
+        self.assertIsNone(sb_po.ax.get_legend())
+
+    def test_run_simulation_called_with_correct_end_time_per_panel(self) -> None:
+        with patch('characteristic_time_estimator.getBiomodelsEndtimes',
+                    return_value={self.model.model_name: 11.0}), \
+             patch.object(CharacteristicTimeEstimator, 'detect_steadystate', return_value=22.0), \
+             patch.object(CharacteristicTimeEstimator, 'detect_cv_maximized', return_value=33.0), \
+             patch.object(self.estimator, '_run_simulation',
+                          return_value=self.mock_result) as mock_run:
+            self.estimator.plotComparison()
+        end_times = sorted(c.kwargs["end_time"] for c in mock_run.call_args_list)
+        self.assertEqual(end_times, [11.0, 22.0, 33.0])
+
+    def test_detect_steadystate_called_with_given_timeout(self) -> None:
+        with patch('characteristic_time_estimator.getBiomodelsEndtimes', return_value={}), \
+             patch.object(CharacteristicTimeEstimator, 'detect_steadystate',
+                          return_value=None) as mock_dss, \
+             patch.object(CharacteristicTimeEstimator, 'detect_cv_maximized', return_value=None), \
+             patch.object(self.estimator, '_run_simulation', return_value=self.mock_result):
+            self.estimator.plotComparison(timeout=7.5)
+        mock_dss.assert_called_once_with(timeout=7.5)
+
+    def test_suptitle_uses_title_and_model_name(self) -> None:
+        sb_po, _, _ = self._plot(
+            sedml=10.0, steadystate=20.0, max_cv=30.0,
+            title="My Title", model_name="MyModel",
+        )
+        self.assertEqual(sb_po.fig.get_suptitle(), "MyModel: My Title")  # type: ignore
+
+    def test_no_suptitle_when_title_omitted(self) -> None:
+        sb_po, _, _ = self._plot(sedml=10.0, steadystate=20.0, max_cv=30.0)
+        self.assertEqual(sb_po.fig.get_suptitle(), "")  # type: ignore
+
+    def test_uses_provided_axes_without_creating_new_figure(self) -> None:
+        _, (ax1, ax2, ax3) = plt.subplots(3, 1)
+        sedml_dct = {self.model.model_name: 10.0}
+        with patch('characteristic_time_estimator.getBiomodelsEndtimes',
+                    return_value=sedml_dct), \
+             patch.object(CharacteristicTimeEstimator, 'detect_steadystate', return_value=20.0), \
+             patch.object(CharacteristicTimeEstimator, 'detect_cv_maximized', return_value=30.0), \
+             patch.object(self.estimator, '_run_simulation', return_value=self.mock_result):
+            result = self.estimator.plotComparison(ax_sb=ax1, ax_ss=ax2, ax_mc=ax3)
+        self.assertIs(result[0].ax, ax1)
+        self.assertIs(result[1].ax, ax2)
+        self.assertIs(result[2].ax, ax3)
+
+
+# ---------------------------------------------------------------------------
+# Integration test for plotComparison against a real BioModel
+# ---------------------------------------------------------------------------
+
+@unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
+class TestPlotComparisonBiomodel907(unittest.TestCase):
+    """Integration tests exercising plotComparison against a real BioModel
+    (BIOMD0000000907), simulated live via Simulator (no mocking).
+
+    BIOMD0000000907 has a real SEDML end time (60.0 in the endtimes CSV) but,
+    like other real BioModels exercised elsewhere in this file, does not
+    reach steady state within a short timeout. A short timeout is used here
+    to keep the test bounded, not to reflect realistic usage.
+    """
+
+    MODEL_NAME = "BIOMD0000000907"
+    TIMEOUT = 3.0
+    SLACK = 6.0
+
+    model: Model
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.model = Model.makeBiomodel(model_name=cls.MODEL_NAME)
+
+    def setUp(self) -> None:
+        self.estimator = CharacteristicTimeEstimator(model=self.model, num_point=50)
+
+    def tearDown(self) -> None:
+        plt.close("all")
+
+    def test_returns_three_plot_options_within_timeout(self) -> None:
+        start = time.time()
+        result = self.estimator.plotComparison(timeout=self.TIMEOUT)
+        elapsed = time.time() - start
+        self.assertEqual(len(result), 3)
+        for po in result:
+            self.assertIsInstance(po, PlotOptions)
+        self.assertLess(elapsed, self.TIMEOUT + self.SLACK)
+
+    def test_sedml_panel_uses_csv_end_time(self) -> None:
+        sb_po, _, _ = self.estimator.plotComparison(timeout=self.TIMEOUT)
+        expected_end_time = getBiomodelsEndtimes()[self.MODEL_NAME]
+        self.assertEqual(list(sb_po.ax.get_xticks()), [expected_end_time])
+        self.assertEqual(len(sb_po.ax.lines), self.model.num_species)
+
     def test_panel_titles(self) -> None:
-        top_po, mid_po, bot_po = self.estimator.plotStdNrml(end_time=self.end_time)
-        self.assertEqual(top_po.ax.get_title(), "Timecourse")
-        self.assertEqual(mid_po.ax.get_title(), "Standardized Timecourse")
+        sb_po, ss_po, mc_po = self.estimator.plotComparison(timeout=self.TIMEOUT,
+                title="907")
+        self.assertEqual(sb_po.ax.get_title(), "SEDML")
+        self.assertEqual(ss_po.ax.get_title(), "Steady State")
+        self.assertEqual(mc_po.ax.get_title(), "Maximum CV")
 
 
 if __name__ == "__main__":

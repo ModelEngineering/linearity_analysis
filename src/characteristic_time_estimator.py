@@ -27,6 +27,9 @@ import numpy as np  # type: ignore
 from scipy.optimize import minimize_scalar  # type: ignore
 from typing import Optional, Tuple, Any, List
 
+# Timeout for running steady state estimation
+TIMEOUT = 30.0
+
 
 # ---------------------------------------------------------------------------
 # Result type
@@ -43,7 +46,7 @@ CharacteristicTimeResult = Tuple[float, str]
 class SteadystateEstimator:
 
     def __init__(self, model: Model, target, start_time: float,
-            num_point: int) -> None:
+            num_point: int, timeout: float = TIMEOUT) -> None:
         """
         Args:
             model (Model): Model being analyzed.
@@ -52,13 +55,15 @@ class SteadystateEstimator:
                 must send its result via conn.send(...) and then conn.close().
             start_time (float)
             num_point (int)
+            timeout (float): Timeout for the steady-state estimation.
         """
         self.model = model
         self.start_time = start_time
         self.num_point = num_point
+        self.timeout = timeout
         self.target = target
 
-    def estimate(self, timeout: float = 10.0) -> float | None:
+    def estimate(self, timeout: float = -1.0) -> float | None:
         """Runs `self.target` in a subprocess so it can be killed at the OS
         level if it hangs.
 
@@ -77,6 +82,8 @@ class SteadystateEstimator:
             Whatever `target` sent back over the connection, or -1 if it did
             not finish within `timeout` seconds.
         """
+        if timeout < 0:
+            timeout = self.timeout
         ctx = mp.get_context("spawn")
         parent_conn, child_conn = ctx.Pipe(duplex=False)
         process = ctx.Process(
@@ -158,10 +165,12 @@ class CharacteristicTimeEstimator:
             model: Model,
             start_time: float = cn.START_TIME,
             num_point: int = cn.NUM_POINT,
+            timeout: float = TIMEOUT,
     ) -> None:
         self.model = model
         self.start_time = start_time
         self.num_point = num_point
+        self.timeout = timeout
 
     # ------------------------------------------------------------------
     # Public API
@@ -172,7 +181,8 @@ class CharacteristicTimeEstimator:
             model: Model,
             end_time: Optional[float] = None,
             start_time: float = cn.START_TIME,
-            num_point: int = cn.NUM_POINT) -> CharacteristicTimeResult:
+            num_point: int = cn.NUM_POINT,
+            timeout: float = TIMEOUT) -> CharacteristicTimeResult:
         """Estimate the characteristic time using priority-based strategy selection.
 
         Parameters
@@ -211,6 +221,7 @@ class CharacteristicTimeEstimator:
             model=model,
             start_time=start_time,
             num_point=num_point,
+            timeout=timeout,
         )
         end_time = estimator.detect_steadystate()
         if end_time is not None:
@@ -221,6 +232,7 @@ class CharacteristicTimeEstimator:
             model=model,
             start_time=start_time,
             num_point=num_point,
+            timeout=timeout,
         )
         end_time = estimator.detect_cv_maximized()
         if end_time is not None:
@@ -235,7 +247,7 @@ class CharacteristicTimeEstimator:
     # Detection methods (public for testing)
     # ------------------------------------------------------------------
 
-    def detect_steadystate(self, timeout: float = 10.0) -> float | None:
+    def detect_steadystate(self, timeout: float = -1.0) -> float | None:
         """Runs steady-state detection in a subprocess so it can be killed at
         the OS level if it hangs.
 
@@ -248,9 +260,10 @@ class CharacteristicTimeEstimator:
         `kill()` act on the process itself, independent of what code it is
         currently executing.
 
-        The default of 10s (rather than a tighter value) accounts for the
-        ~1.2s of unavoidable overhead the child process pays re-importing
-        this module's dependencies (numpy, scipy, matplotlib, roadrunner)
+        The timeout should be set to a value that is long enough for 
+        the model to reach steady state. Note that there is an overhead
+        of ~1.2s that is unavoidable becausethe child process re-imports
+        the module's dependencies (numpy, scipy, matplotlib, roadrunner)
         under the 'spawn' start method, on top of actual computation time.
 
         Returns
@@ -260,11 +273,14 @@ class CharacteristicTimeEstimator:
             determined, or -1 if detection did not finish within `timeout`
             seconds.
         """
+        if timeout < 0:
+            timeout = self.timeout
         ss_estimator = SteadystateEstimator(
             self.model, _run_calculate_steadystate,
             start_time=self.start_time, num_point=self.num_point,
         )
-        return ss_estimator.estimate(timeout=timeout)
+        result = ss_estimator.estimate(timeout=timeout)
+        return result
 
     def _calculate_steadystate(self) -> Optional[float]:
         """Find the shortest end time at which the model reaches steady state.
@@ -383,7 +399,9 @@ class CharacteristicTimeEstimator:
         return float(10.0 ** opt.x) if opt.fun < 0 else None  # type: ignore
     
     def plotStdNrml(self, end_time: float, 
-            ax_top=None, ax_mid=None, ax_bot=None, **plt_kwargs: Any
+            ax_top=None, ax_mid=None, ax_bot=None,
+            is_label: bool = True,
+            **plt_kwargs: Any
             ) -> List[PlotOptions | None]:
         """Three-panel plot of the timecourse, its per-species normalization,
         and the cross-species standard deviation of the normalized values.
@@ -407,6 +425,8 @@ class CharacteristicTimeEstimator:
             Axes object for the middle panel.
         ax_bot : matplotlib.axes.Axes, optional
             Axes object for the bottom panel.
+        is_label : bool, default=True
+            Whether to include labels on the plots.
         **plt_kwargs
             Forwarded to PlotOptions for every panel (xlabel, legend, xlim,
             ylim, model_name). ``ylabel`` is set per panel and is not
@@ -422,6 +442,7 @@ class CharacteristicTimeEstimator:
             One PlotOptions per panel, in order [timecourse, standardized,
             metric].
         """
+        plt_kwargs = dict(plt_kwargs)  # copy so we can pop without side effects
         timecourse_df = self._run_simulation(end_time=end_time).timecourse_df
         normalized_df = (timecourse_df - timecourse_df.mean()) / timecourse_df.std()
         normalized_df = normalized_df.fillna(0)  # Handle any NaN values resulting from std=0
@@ -431,44 +452,63 @@ class CharacteristicTimeEstimator:
         figsize = plt_kwargs.pop("figsize", (10, 12))
         suptitle = plt_kwargs.pop("title", None)
         plt_kwargs.pop("ylabel", None)
-        plt_kwargs.setdefault("xlabel", "Time")
         model_name = plt_kwargs.get("model_name", "")
 
         fig = None
         if ax_top is None and ax_mid is None and ax_bot is None:
             fig, (ax_top, ax_mid, ax_bot) = plt.subplots(3, 1, figsize=figsize, sharex=True)
+        if is_label:
+            plt_kwargs.setdefault("legend", True)
+            plt_kwargs.setdefault("xlabel", "Time")
+        else:
+            plt_kwargs.setdefault("legend", False)
+            plt_kwargs.setdefault("xlabel", "")
+            plt_kwargs.setdefault("ylabel", "")
+            plt_kwargs.setdefault("legend", False)
 
         # Top panel: raw timecourse.
         top_po = None
         if ax_top is not None:
-            top_po = PlotOptions(fig=fig, ax=ax_top, **plt_kwargs)
-            top_po.ylabel = "Concentration"
+            top_po = PlotOptions(fig=fig, ax=ax_top, title="Timecourse", **plt_kwargs)
+            if is_label:
+                top_po.ylabel = "Concentration"
             for idx, name in enumerate(species_names):
                 ax_top.plot(timecourse_df.index, timecourse_df[name],  # type: ignore
                         color=f"C{idx}", label=name)
-            ax_top.set_title("Timecourse")  # type: ignore
             top_po.apply()
+            if not is_label:
+                ax_top.set_xticks([])
+                ax_top.set_yticks([])
 
         # Middle panel: per-species normalized timecourse.
         mid_po = None
         if ax_mid is not None:
-            mid_po = PlotOptions(fig=fig, ax=ax_mid, **plt_kwargs)
-            mid_po.ylabel = "Normalized Value"
+            mid_po = PlotOptions(fig=fig, ax=ax_mid, title="Standardized Timecourse", **plt_kwargs)
+            if is_label:
+                mid_po.ylabel = "Normalized Value"
             for idx, name in enumerate(species_names):
                 ax_mid.plot(normalized_df.index, normalized_df[name],  # type: ignore
                         color=f"C{idx}", label=name)
-            ax_mid.set_title("Standardized Timecourse")  # type: ignore
             mid_po.apply()
+            if not is_label:
+                ax_mid.set_xticks([])
+                ax_mid.set_yticks([])
 
         # Bottom panel: cross-species std of normalized values (single, unlabeled line).
         bot_po = None
         if ax_bot is not None:
-            bot_po = PlotOptions(fig=fig, ax=ax_bot, **plt_kwargs)
-            plt_kwargs.setdefault("legend", False)
-            bot_po.ylabel = "Standard Deviation of Normalized Values"
+            if is_label:
+                title = "Cross-Species Std of Normalized Values"
+            else:
+                title = ""
+            plt_kwargs.update(title=title)
+            bot_po = PlotOptions(
+                fig=fig, ax=ax_bot, **plt_kwargs)
             ax_bot.plot(timecourse_df.index, metric_arr)  # type: ignore
-            ax_bot.set_title("Standard Deviation Across Species (stdS)")  # type: ignore
             bot_po.apply()
+            if not is_label:
+                ax_bot.set_xticks([])
+                ax_bot.set_yticks([])
 
         if suptitle is not None and fig is not None:
             full_title = f"{model_name}: {suptitle}" if model_name else suptitle
@@ -503,3 +543,108 @@ class CharacteristicTimeEstimator:
             num_point=self.num_point,
         )
         return simulator.simulate()
+    
+    def plotComparison(self,
+            ax_sb=None,
+            ax_ss=None,
+            ax_mc=None,
+            timeout: float = TIMEOUT,
+            **plt_kwargs: Any
+            ) -> List[PlotOptions]:
+        """Compare the three ways an end time can be calculated: SEDML lookup,
+        steady-state detection, and maximum-median-CV optimisation.
+
+        Each panel plots the normalized timecourse (one line per species) on
+        its own end time -- computed by the corresponding method in this
+        class -- against the left vertical axis, and the cross-species
+        normalized standard deviation ("the metric", see
+        :meth:`plotStdNrml`) against a twin right vertical axis. If a method
+        fails to produce an end time, its panel is left blank with the text
+        "None" centered in it.
+
+        Parameters
+        ----------
+        ax_sb : matplotlib.axes.Axes, optional
+            Axes object for the SEDML subplot panel.
+        ax_ss : matplotlib.axes.Axes, optional
+            Axes object for the steady-state panel.
+        ax_mc : matplotlib.axes.Axes, optional
+            Axes object for the model maximum cv panel.
+        timeout : float
+            Timeout for the steady-state estimation.
+        **plt_kwargs
+            Forwarded to PlotOptions for every panel (xlabel, legend, xlim,
+            ylim, model_name). ``ylabel`` is set per panel and is not
+            forwarded. ``title`` (if given) becomes the overall figure
+            title, prefixed with ``model_name`` as in
+            :meth:`PlotOptions.apply`. ``figsize`` is consumed here
+            (default ``(10, 12)``). ``fig``/``ax`` are managed internally
+            (one figure with three panels) and must not be passed.
+
+        Returns
+        -------
+        List[PlotOptions]
+            One PlotOptions per panel, in order [SEDML, steady-state,
+            model maximum cv].
+        """
+        plt_kwargs = dict(plt_kwargs)  # copy so we can pop without side effects
+        figsize = plt_kwargs.pop("figsize", (10, 12))
+        suptitle = plt_kwargs.pop("title", None)
+        plt_kwargs.pop("ylabel", None)
+        plt_kwargs.setdefault("legend", False)
+        plt_kwargs.setdefault("xlabel", "")
+        plt_kwargs.setdefault("ylabel", "")
+        model_name = plt_kwargs.get("model_name", "")
+
+        fig = None
+        if ax_sb is None and ax_ss is None and ax_mc is None:
+            fig, (ax_sb, ax_ss, ax_mc) = plt.subplots(3, 1, figsize=figsize)
+
+        sedml_end_time = getBiomodelsEndtimes().get(self.model.model_name, None)
+        if sedml_end_time is not None:
+            sedml_end_time = float(sedml_end_time)
+
+        steadystate_end_time = self.detect_steadystate(timeout=timeout)
+        if steadystate_end_time is not None and steadystate_end_time < 0:
+            steadystate_end_time = None  # -1 sentinel means detection timed out
+
+        max_cv_end_time = self.detect_cv_maximized()
+
+        panels = [
+            (ax_sb, sedml_end_time, "SEDML"),
+            (ax_ss, steadystate_end_time, "Steady State"),
+            (ax_mc, max_cv_end_time, "Maximum CV"),
+        ]
+
+        plot_options_list: List[PlotOptions] = []
+        for ax, end_time, title in panels:
+            po = PlotOptions(fig=fig, ax=ax, title=title, **plt_kwargs)
+            if end_time is None:
+                po.apply()
+                ax.set_xticks([])  # type: ignore
+                ax.set_yticks([])  # type: ignore
+                ax.text(0.5, 0.5, "None", ha="center", va="center",  # type: ignore
+                        transform=ax.transAxes)  # type: ignore
+            else:
+                timecourse_df = self._run_simulation(end_time=end_time).timecourse_df
+                normalized_df = (timecourse_df - timecourse_df.mean()) / timecourse_df.std()
+                normalized_df = normalized_df.fillna(0)
+                metric_arr = normalized_df.std(axis=1).values
+                for idx, name in enumerate(timecourse_df.columns):
+                    ax.plot(normalized_df.index, normalized_df[name],  # type: ignore
+                            color=f"C{idx}", label=name)
+                po.apply()
+                ax_twin = ax.twinx() # type: ignore
+                ax_twin.plot(timecourse_df.index, metric_arr, color="black", linestyle="--")  # type: ignore
+                ax.set_xticks([end_time])  # type: ignore
+                ax.set_yticks([])  # type: ignore
+                metric_max = float(np.max(metric_arr)) if len(metric_arr) else 0.0
+                ax_twin.set_yticks([metric_max])
+            plot_options_list.append(po)
+
+        if suptitle is not None and fig is not None:
+            full_title = f"{model_name}: {suptitle}" if model_name else suptitle
+            fig.suptitle(full_title, fontsize=13, fontweight="bold")
+            fig.tight_layout()
+
+        return plot_options_list
