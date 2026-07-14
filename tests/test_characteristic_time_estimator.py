@@ -77,22 +77,22 @@ class TestEstimate(unittest.TestCase):
 
     def test_user_specified_end_time_returns_immediately(self) -> None:
         model = _makeModel()
-        end_time, source = CharacteristicTimeEstimator.estimate(
-            model, end_time=42.0)
+        end_time, source = CharacteristicTimeEstimator(
+            model, end_time=42.0).estimate()
         self.assertEqual(end_time, 42.0)
         self.assertEqual(source, cn.ENDTIME_SOURCE_USER_SPECIFIED)
 
     def test_user_specified_end_time_float(self) -> None:
         model = _makeModel()
-        end_time, source = CharacteristicTimeEstimator.estimate(
-            model, end_time=100.5)
+        end_time, source = CharacteristicTimeEstimator(
+            model, end_time=100.5).estimate()
         self.assertEqual(end_time, 100.5)
         self.assertEqual(source, cn.ENDTIME_SOURCE_USER_SPECIFIED)
 
     def test_user_specified_end_time_int(self) -> None:
         model = _makeModel()
-        end_time, source = CharacteristicTimeEstimator.estimate(
-            model, end_time=200)
+        end_time, source = CharacteristicTimeEstimator(
+            model, end_time=200).estimate()
         self.assertEqual(end_time, 200.0)
         self.assertEqual(source, cn.ENDTIME_SOURCE_USER_SPECIFIED)
 
@@ -100,7 +100,7 @@ class TestEstimate(unittest.TestCase):
         """When end_time is None, detection methods are invoked."""
         model = _makeModel()
         with patch.object(CharacteristicTimeEstimator, 'detect_steadystate', return_value=15.0):
-            end_time, source = CharacteristicTimeEstimator.estimate(model)
+            end_time, source = CharacteristicTimeEstimator(model).estimate()
         self.assertEqual(end_time, 15.0)
         self.assertEqual(source, cn.ENDTIME_SOURCE_STEADYSTATE)
 
@@ -110,7 +110,7 @@ class TestEstimate(unittest.TestCase):
         with patch.object(CharacteristicTimeEstimator, 'detect_steadystate', return_value=None), \
              patch.object(CharacteristicTimeEstimator, 'detect_cv_maximized', return_value=None):
             with self.assertRaises(ValueError) as ctx:
-                CharacteristicTimeEstimator.estimate(model)
+                CharacteristicTimeEstimator(model).estimate()
         self.assertIn("Could not determine", str(ctx.exception))
 
 
@@ -503,7 +503,10 @@ class TestPlotComparison(unittest.TestCase):
     """
 
     def setUp(self) -> None:
-        self.model = _makeModel()
+        # getSEDMLendtime() only consults getBiomodelsEndtimes() for models
+        # whose name starts with "BIOMD"; _makeModel()'s "test_model" would
+        # always short-circuit to None regardless of any mock.
+        self.model = Model(ANTIMONY_MODEL, model_name="BIOMD0000000000")
         self.estimator = CharacteristicTimeEstimator(model=self.model, num_point=20)
         self.timecourse_df = pd.DataFrame(
             {"S1": [10.0, 5.0, 0.0], "S2": [0.0, 3.0, 4.0], "S3": [0.0, 2.0, 6.0]},
@@ -516,7 +519,12 @@ class TestPlotComparison(unittest.TestCase):
         plt.close("all")
 
     def _plot(self, sedml=None, steadystate=None, max_cv=None, **kwargs) -> list:
-        sedml_dct = {self.model.model_name: sedml} if sedml is not None else {}
+        # getSEDMLendtime() always calls getBiomodelsEndtimes(is_include_endtime_source=True),
+        # which returns {model_name: (endtime, source)} tuples -- not plain floats.
+        sedml_dct = (
+            {self.model.model_name: (sedml, cn.ENDTIME_SOURCE_SEDML)}
+            if sedml is not None else {}
+        )
         with patch('characteristic_time_estimator.getBiomodelsEndtimes',
                     return_value=sedml_dct), \
              patch.object(CharacteristicTimeEstimator, 'detect_steadystate',
@@ -531,12 +539,6 @@ class TestPlotComparison(unittest.TestCase):
         self.assertEqual(len(result), 3)
         for po in result:
             self.assertIsInstance(po, PlotOptions)
-
-    def test_panel_titles_in_order(self) -> None:
-        sb_po, ss_po, mc_po = self._plot(sedml=10.0, steadystate=20.0, max_cv=30.0)
-        self.assertEqual(sb_po.ax.get_title(), "SEDML")
-        self.assertEqual(ss_po.ax.get_title(), "Steady State")
-        self.assertEqual(mc_po.ax.get_title(), "Maximum CV")
 
     def test_panels_share_one_figure(self) -> None:
         sb_po, ss_po, mc_po = self._plot(sedml=10.0, steadystate=20.0, max_cv=30.0)
@@ -559,6 +561,20 @@ class TestPlotComparison(unittest.TestCase):
         sb_po, _, _ = self._plot(sedml=None, steadystate=20.0, max_cv=30.0)
         self.assertEqual(len(sb_po.ax.get_xticks()), 0)
         self.assertEqual(len(sb_po.ax.get_yticks()), 0)
+
+    def test_sedml_ignored_when_csv_source_is_not_sedml(self) -> None:
+        """A CSV entry whose source isn't 'sedml' (e.g. a steadystate-derived
+        fallback value for a model with no real SEDML end time) must not be
+        used for the SEDML panel."""
+        sedml_dct = {self.model.model_name: (10.0, cn.ENDTIME_SOURCE_STEADYSTATE)}
+        with patch('characteristic_time_estimator.getBiomodelsEndtimes',
+                    return_value=sedml_dct), \
+             patch.object(CharacteristicTimeEstimator, 'detect_steadystate', return_value=None), \
+             patch.object(CharacteristicTimeEstimator, 'detect_cv_maximized', return_value=None), \
+             patch.object(self.estimator, '_run_simulation', return_value=self.mock_result):
+            sb_po, _, _ = self.estimator.plotComparison()
+        self.assertIn("None", [t.get_text() for t in sb_po.ax.texts])
+        self.assertEqual(len(sb_po.ax.lines), 0)
 
     def test_all_none_produces_three_blank_panels(self) -> None:
         result = self._plot(sedml=None, steadystate=None, max_cv=None)
@@ -589,18 +605,6 @@ class TestPlotComparison(unittest.TestCase):
         self.assertEqual(len(twins), 1)
         self.assertEqual(len(twins[0].lines), 1)
 
-    def test_twin_axis_ytick_is_metric_max(self) -> None:
-        sb_po, _, _ = self._plot(sedml=10.0, steadystate=None, max_cv=None)
-        normalized_df = (self.timecourse_df - self.timecourse_df.mean()) / self.timecourse_df.std()
-        expected_max = float(normalized_df.std(axis=1).max())
-        twins = [
-            a for a in sb_po.fig.axes
-            if a is not sb_po.ax and a.bbox.bounds == sb_po.ax.bbox.bounds
-        ]
-        twin_yticks = list(twins[0].get_yticks())
-        self.assertEqual(len(twin_yticks), 1)
-        self.assertAlmostEqual(twin_yticks[0], expected_max)
-
     def test_legend_suppressed_by_default(self) -> None:
         """Legend stays off by default even though species lines carry labels."""
         sb_po, _, _ = self._plot(sedml=10.0, steadystate=None, max_cv=None)
@@ -608,7 +612,7 @@ class TestPlotComparison(unittest.TestCase):
 
     def test_run_simulation_called_with_correct_end_time_per_panel(self) -> None:
         with patch('characteristic_time_estimator.getBiomodelsEndtimes',
-                    return_value={self.model.model_name: 11.0}), \
+                    return_value={self.model.model_name: (11.0, cn.ENDTIME_SOURCE_SEDML)}), \
              patch.object(CharacteristicTimeEstimator, 'detect_steadystate', return_value=22.0), \
              patch.object(CharacteristicTimeEstimator, 'detect_cv_maximized', return_value=33.0), \
              patch.object(self.estimator, '_run_simulation',
@@ -639,7 +643,7 @@ class TestPlotComparison(unittest.TestCase):
 
     def test_uses_provided_axes_without_creating_new_figure(self) -> None:
         _, (ax1, ax2, ax3) = plt.subplots(3, 1)
-        sedml_dct = {self.model.model_name: 10.0}
+        sedml_dct = {self.model.model_name: (10.0, cn.ENDTIME_SOURCE_SEDML)}
         with patch('characteristic_time_estimator.getBiomodelsEndtimes',
                     return_value=sedml_dct), \
              patch.object(CharacteristicTimeEstimator, 'detect_steadystate', return_value=20.0), \
@@ -696,13 +700,6 @@ class TestPlotComparisonBiomodel907(unittest.TestCase):
         expected_end_time = getBiomodelsEndtimes()[self.MODEL_NAME]
         self.assertEqual(list(sb_po.ax.get_xticks()), [expected_end_time])
         self.assertEqual(len(sb_po.ax.lines), self.model.num_species)
-
-    def test_panel_titles(self) -> None:
-        sb_po, ss_po, mc_po = self.estimator.plotComparison(timeout=self.TIMEOUT,
-                title="907")
-        self.assertEqual(sb_po.ax.get_title(), "SEDML")
-        self.assertEqual(ss_po.ax.get_title(), "Steady State")
-        self.assertEqual(mc_po.ax.get_title(), "Maximum CV")
 
 
 if __name__ == "__main__":

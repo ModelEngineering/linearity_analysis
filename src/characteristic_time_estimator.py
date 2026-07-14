@@ -63,7 +63,7 @@ class SteadystateEstimator:
         self.timeout = timeout
         self.target = target
 
-    def estimate(self, timeout: float = -1.0) -> float | None:
+    def runCalculation(self, timeout: float = -1.0) -> float | None:
         """Runs `self.target` in a subprocess so it can be killed at the OS
         level if it hangs.
 
@@ -148,6 +148,8 @@ class CharacteristicTimeEstimator:
         The model to estimate for.
     start_time : float
         Start time of the simulation.
+    end_time : float, optional
+        End time of the simulation.
     num_point : int
         Number of time points for simulations.
     perturbation_value_fraction : float
@@ -164,11 +166,13 @@ class CharacteristicTimeEstimator:
     def __init__(self,
             model: Model,
             start_time: float = cn.START_TIME,
+            end_time: Optional[float] = None,
             num_point: int = cn.NUM_POINT,
             timeout: float = TIMEOUT,
     ) -> None:
         self.model = model
         self.start_time = start_time
+        self.end_time = end_time
         self.num_point = num_point
         self.timeout = timeout
 
@@ -176,13 +180,7 @@ class CharacteristicTimeEstimator:
     # Public API
     # ------------------------------------------------------------------
 
-    @classmethod
-    def estimate(cls,
-            model: Model,
-            end_time: Optional[float] = None,
-            start_time: float = cn.START_TIME,
-            num_point: int = cn.NUM_POINT,
-            timeout: float = TIMEOUT) -> CharacteristicTimeResult:
+    def estimate(self) -> CharacteristicTimeResult:
         """Estimate the characteristic time using priority-based strategy selection.
 
         Parameters
@@ -207,34 +205,21 @@ class CharacteristicTimeEstimator:
             If no strategy can determine a characteristic time.
         """
         # 1. User-specified
-        if end_time is not None:
-            return float(end_time), cn.ENDTIME_SOURCE_USER_SPECIFIED
+        if self.end_time is not None:
+            return float(self.end_time), cn.ENDTIME_SOURCE_USER_SPECIFIED
 
         # 2. BioModels SEDML lookup
-        if model.model_name.startswith("BIOMD"):
-            csv_end_time = getBiomodelsEndtimes().get(model.model_name, None)
-            if csv_end_time is not None:
-                return float(csv_end_time), cn.ENDTIME_SOURCE_SEDML
+        end_time = self.getSEDMLendtime()
+        if end_time is not None:
+            return float(end_time), cn.ENDTIME_SOURCE_SEDML
 
         # 3. Steady-state detection
-        estimator = cls(
-            model=model,
-            start_time=start_time,
-            num_point=num_point,
-            timeout=timeout,
-        )
-        end_time = estimator.detect_steadystate()
+        end_time = self.detect_steadystate()
         if end_time is not None:
             return float(end_time), cn.ENDTIME_SOURCE_STEADYSTATE
 
         # 4. Maximum median CV optimisation
-        estimator = cls(
-            model=model,
-            start_time=start_time,
-            num_point=num_point,
-            timeout=timeout,
-        )
-        end_time = estimator.detect_cv_maximized()
+        end_time = self.detect_cv_maximized()
         if end_time is not None:
             return float(end_time), cn.ENDTIME_SOURCE_MAX_MEDIAN_CV
 
@@ -279,7 +264,7 @@ class CharacteristicTimeEstimator:
             self.model, _run_calculate_steadystate,
             start_time=self.start_time, num_point=self.num_point,
         )
-        result = ss_estimator.estimate(timeout=timeout)
+        result = ss_estimator.runCalculation(timeout=timeout)
         return result
 
     def _calculate_steadystate(self) -> Optional[float]:
@@ -521,6 +506,23 @@ class CharacteristicTimeEstimator:
     # Private helpers
     # ------------------------------------------------------------------
 
+    def getSEDMLendtime(self) -> Optional[float]:
+        """Get the end time from the BioModels SEDML lookup.
+
+        Returns
+        -------
+        float or None
+            The SEDML end time, or ``None`` if not found.
+        """
+        if self.model.model_name.startswith("BIOMD"):
+            result = getBiomodelsEndtimes(is_include_endtime_source=True).get(
+                    self.model.model_name, None)
+            if result is not None:
+                endtime, source = result
+                if source == cn.ENDTIME_SOURCE_SEDML:
+                    return float(endtime)
+        return None
+
     def _run_simulation(self, end_time: float) -> "SimulationResult":  # type: ignore 
         """Run a single simulation via :class:`Simulator`.
 
@@ -545,7 +547,7 @@ class CharacteristicTimeEstimator:
         return simulator.simulate()
     
     def plotComparison(self,
-            ax_sb=None,
+            ax_sd=None,
             ax_ss=None,
             ax_mc=None,
             timeout: float = TIMEOUT,
@@ -564,7 +566,7 @@ class CharacteristicTimeEstimator:
 
         Parameters
         ----------
-        ax_sb : matplotlib.axes.Axes, optional
+        ax_sd : matplotlib.axes.Axes, optional
             Axes object for the SEDML subplot panel.
         ax_ss : matplotlib.axes.Axes, optional
             Axes object for the steady-state panel.
@@ -595,30 +597,25 @@ class CharacteristicTimeEstimator:
         plt_kwargs.setdefault("xlabel", "")
         plt_kwargs.setdefault("ylabel", "")
         model_name = plt_kwargs.get("model_name", "")
-
         fig = None
-        if ax_sb is None and ax_ss is None and ax_mc is None:
-            fig, (ax_sb, ax_ss, ax_mc) = plt.subplots(3, 1, figsize=figsize)
-
-        sedml_end_time = getBiomodelsEndtimes().get(self.model.model_name, None)
-        if sedml_end_time is not None:
-            sedml_end_time = float(sedml_end_time)
-
+        if ax_sd is None and ax_ss is None and ax_mc is None:
+            fig, (ax_sd, ax_ss, ax_mc) = plt.subplots(3, 1, figsize=figsize)
+        # Calculate end times
+        sedml_end_time = self.getSEDMLendtime()
         steadystate_end_time = self.detect_steadystate(timeout=timeout)
         if steadystate_end_time is not None and steadystate_end_time < 0:
             steadystate_end_time = None  # -1 sentinel means detection timed out
-
         max_cv_end_time = self.detect_cv_maximized()
-
+        # Construct plots
         panels = [
-            (ax_sb, sedml_end_time, "SEDML"),
-            (ax_ss, steadystate_end_time, "Steady State"),
-            (ax_mc, max_cv_end_time, "Maximum CV"),
+            (ax_sd, sedml_end_time, "SD"),
+            (ax_ss, steadystate_end_time, "SS"),
+            (ax_mc, max_cv_end_time, "MC"),
         ]
 
         plot_options_list: List[PlotOptions] = []
-        for ax, end_time, title in panels:
-            po = PlotOptions(fig=fig, ax=ax, title=title, **plt_kwargs)
+        for ax, end_time, endtime_source in panels:
+            po = PlotOptions(fig=fig, ax=ax, title="", **plt_kwargs)
             if end_time is None:
                 po.apply()
                 ax.set_xticks([])  # type: ignore
@@ -637,9 +634,12 @@ class CharacteristicTimeEstimator:
                 ax_twin = ax.twinx() # type: ignore
                 ax_twin.plot(timecourse_df.index, metric_arr, color="black", linestyle="--")  # type: ignore
                 ax.set_xticks([end_time])  # type: ignore
-                ax.set_yticks([])  # type: ignore
+                max_nrml = normalized_df.max().max() if not normalized_df.empty else 0.0
+                ax.set_yticks([max_nrml])  # type: ignore
+                # Set max tick label
                 metric_max = float(np.max(metric_arr)) if len(metric_arr) else 0.0
                 ax_twin.set_yticks([metric_max])
+                ax.text(end_time*0.7, max_nrml*0.7, endtime_source) # type: ignore
             plot_options_list.append(po)
 
         if suptitle is not None and fig is not None:

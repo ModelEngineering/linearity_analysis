@@ -27,6 +27,8 @@ class Model(object):
             raise ValueError("model_str must be a string.")
         self.model_name = model_name
         self.sbml_str = self._toSBML(model_str)
+        if self.sbml_str == "":
+            raise ValueError("this is not a model.")
         self._species_names: List[str] = []
         #
         rr = te.loadSBMLModel(self.sbml_str)
@@ -99,11 +101,15 @@ class Model(object):
     def _toSBML(self, model_str: str) -> str:
         """Return an SBML string, converting from Antimony if necessary."""
         stripped = model_str.strip()
-        if "<?xml" in stripped or "<sbml" in stripped:
-            te.loadSBMLModel(model_str)  # validate
-            return model_str
         try:
-            rr = te.loada(model_str)
-            return rr.getSBML()
+            if "<?xml" in stripped or "<sbml" in stripped:
+                te.loadSBMLModel(model_str)  # validate
+                return model_str
+            try:
+                rr = te.loada(model_str)
+                return rr.getSBML()
+            except Exception as e:
+                raise ValueError(f"Could not load model: {e}")
         except Exception as e:
-            raise ValueError(f"Could not load model: {e}")
+            print(f"{self.model_name} failed to load: {e}")
+            return ""

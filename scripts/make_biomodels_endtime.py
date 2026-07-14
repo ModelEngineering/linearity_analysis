@@ -35,8 +35,8 @@ def main(output_path: str = cn.CALCULATED_ENTIMES_PATH, is_report: bool = True) 
         model = Model.makeBiomodel(item.model_name)
         #
         try:
-            end_time, end_time_source= CharacteristicTimeEstimator.estimate(
-                    model, num_point=NUM_POINT)
+            end_time, end_time_source= CharacteristicTimeEstimator(
+                    model, num_point=NUM_POINT).estimate()
         except Exception as e:
             print(f"Error occurred while processing model {item.model_name}: {e}")
             continue
