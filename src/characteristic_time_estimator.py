@@ -5,7 +5,7 @@ strategy selection:
 
 1. User-specified end time (source: ``user_specified``)
 2. BioModels SEDML lookup (source: ``sedml``)
-3. Steady-state detection (source: ``steadystate``)
+3. Steady-state estimation (source: ``steadystate``)
 4. Maximum median coefficient of variation (source: ``max_median_cv``)
 
 This module is the simulation-driven counterpart to the analysis logic in
@@ -24,6 +24,7 @@ import matplotlib.pyplot as plt  # type: ignore
 import multiprocessing as mp
 from multiprocessing.connection import Connection
 import numpy as np  # type: ignore
+import pandas as pd  # type: ignore
 from scipy.optimize import minimize_scalar  # type: ignore
 from typing import Optional, Tuple, Any, List
 
@@ -109,7 +110,7 @@ class SteadystateEstimator:
 
 
 # ---------------------------------------------------------------------------
-# Subprocess worker for steady-state detection
+# Subprocess worker for steady-state estimation
 # ---------------------------------------------------------------------------
 
 def _run_calculate_steadystate(
@@ -138,7 +139,7 @@ def _run_calculate_steadystate(
 class CharacteristicTimeEstimator:
     """Estimates the characteristic time of a model using multiple strategies.
 
-    All simulation work is delegated to :class:`Simulator`.  Detection methods
+    All simulation work is delegated to :class:`Simulator`.  Estimation methods
     are tried in priority order; the first successful method determines the
     result.
 
@@ -180,6 +181,32 @@ class CharacteristicTimeEstimator:
     # Public API
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def getCharacterizationMetric(timecourse_df: pd.DataFrame) -> np.ndarray:
+        """
+        Calculates the metric used to determine characteristic time.
+        This is an array that converts the multi-species timecourse into a single timecourse that can be used to determine the characteristic time.
+        by normalizing each species to zero mean and unit standard deviation,
+        then taking the standard deviation across species at each time point. 
+
+        Args:
+            timecourse_df (pd.DataFrame):
+                index: time points
+                columns: species
+                values: concentrations
+
+        Returns:
+            np.array: characterization metric
+        """
+        # Normalize each species to zero mean and unit standard deviation
+        normalized_df = (timecourse_df - timecourse_df.mean()) / timecourse_df.std()
+        # Take the standard deviation across species at each time point
+        normalized_df = normalized_df.fillna(0)  # Handle any NaN values resulting from std=0
+        metric_arr = normalized_df.std(axis=1).values
+        #
+        return metric_arr  # type: ignore
+
+
     def estimate(self) -> CharacteristicTimeResult:
         """Estimate the characteristic time using priority-based strategy selection.
 
@@ -213,13 +240,13 @@ class CharacteristicTimeEstimator:
         if end_time is not None:
             return float(end_time), cn.ENDTIME_SOURCE_SEDML
 
-        # 3. Steady-state detection
-        end_time = self.detect_steadystate()
+        # 3. Steady-state estimation
+        end_time = self.estimate_steadystate()
         if end_time is not None:
             return float(end_time), cn.ENDTIME_SOURCE_STEADYSTATE
 
         # 4. Maximum median CV optimisation
-        end_time = self.detect_cv_maximized()
+        end_time = self.estimate_cv_maximized()
         if end_time is not None:
             return float(end_time), cn.ENDTIME_SOURCE_MAX_MEDIAN_CV
 
@@ -229,11 +256,11 @@ class CharacteristicTimeEstimator:
         )
 
     # ------------------------------------------------------------------
-    # Detection methods (public for testing)
+    # Estimation methods (public for testing)
     # ------------------------------------------------------------------
 
-    def detect_steadystate(self, timeout: float = -1.0) -> float | None:
-        """Runs steady-state detection in a subprocess so it can be killed at
+    def estimate_steadystate(self, timeout: float = -1.0) -> float | None:
+        """Runs steady-state estimation in a subprocess so it can be killed at
         the OS level if it hangs.
 
         `_calculate_steadystate` calls into RoadRunner's compiled integrator;
@@ -254,8 +281,8 @@ class CharacteristicTimeEstimator:
         Returns
         -------
         float or None
-            The detected end time, `None` if steady state could not be
-            determined, or -1 if detection did not finish within `timeout`
+            The estimated end time, `None` if steady state could not be
+            determined, or -1 if estimation did not finish within `timeout`
             seconds.
         """
         if timeout < 0:
@@ -277,7 +304,7 @@ class CharacteristicTimeEstimator:
         Returns
         -------
         float or None
-            The detected end time, or ``None`` if steady state cannot be found.
+            The estimated end time, or ``None`` if steady state cannot be found.
         """
         # --- Step 1: obtain reference steady-state values via Simulator ---
         steadystate_simulator = Simulator(
@@ -340,7 +367,7 @@ class CharacteristicTimeEstimator:
 
         return float(candidate)
 
-    def detect_cv_maximized(self) -> Optional[float]:
+    def estimate_cv_maximized(self) -> Optional[float]:
         """Find the end time that maximises the median coefficient of variation.
 
         Uses :class:`Simulator` to run each candidate simulation and computes
@@ -349,7 +376,7 @@ class CharacteristicTimeEstimator:
         Returns
         -------
         float or None
-            The detected end time, or ``None`` if optimisation fails.
+            The estimated end time, or ``None`` if optimisation fails.
         """
         if self.model.num_species == 0:
             return None
@@ -431,7 +458,7 @@ class CharacteristicTimeEstimator:
         timecourse_df = self._run_simulation(end_time=end_time).timecourse_df
         normalized_df = (timecourse_df - timecourse_df.mean()) / timecourse_df.std()
         normalized_df = normalized_df.fillna(0)  # Handle any NaN values resulting from std=0
-        metric_arr = normalized_df.std(axis=1).values
+        metric_arr = self.getCharacterizationMetric(timecourse_df)
         species_names = list(timecourse_df.columns)
 
         figsize = plt_kwargs.pop("figsize", (10, 12))
@@ -532,7 +559,7 @@ class CharacteristicTimeEstimator:
             End time for the simulation.
         perturbation : bool
             If ``True``, use default perturbation settings.  If ``False``, run
-            with zero perturbation (useful for steady-state detection).
+            with zero perturbation (useful for steady-state estimation).
 
         Returns
         -------
@@ -554,7 +581,7 @@ class CharacteristicTimeEstimator:
             **plt_kwargs: Any
             ) -> List[PlotOptions]:
         """Compare the three ways an end time can be calculated: SEDML lookup,
-        steady-state detection, and maximum-median-CV optimisation.
+        steady-state estimation, and maximum-median-CV optimisation.
 
         Each panel plots the normalized timecourse (one line per species) on
         its own end time -- computed by the corresponding method in this
@@ -602,10 +629,10 @@ class CharacteristicTimeEstimator:
             fig, (ax_sd, ax_ss, ax_mc) = plt.subplots(3, 1, figsize=figsize)
         # Calculate end times
         sedml_end_time = self.getSEDMLendtime()
-        steadystate_end_time = self.detect_steadystate(timeout=timeout)
+        steadystate_end_time = self.estimate_steadystate(timeout=timeout)
         if steadystate_end_time is not None and steadystate_end_time < 0:
-            steadystate_end_time = None  # -1 sentinel means detection timed out
-        max_cv_end_time = self.detect_cv_maximized()
+            steadystate_end_time = None  # -1 sentinel means estimation timed out
+        max_cv_end_time = self.estimate_cv_maximized()
         # Construct plots
         panels = [
             (ax_sd, sedml_end_time, "SD"),
@@ -616,14 +643,16 @@ class CharacteristicTimeEstimator:
         plot_options_list: List[PlotOptions] = []
         for ax, end_time, endtime_source in panels:
             po = PlotOptions(fig=fig, ax=ax, title="", **plt_kwargs)
-            if end_time is None:
+            is_bad_endtime = (end_time is None) or np.isnan(end_time) or np.isinf(end_time)  \
+                    or (end_time < 0)
+            if is_bad_endtime:
                 po.apply()
                 ax.set_xticks([])  # type: ignore
                 ax.set_yticks([])  # type: ignore
                 ax.text(0.5, 0.5, "None", ha="center", va="center",  # type: ignore
                         transform=ax.transAxes)  # type: ignore
             else:
-                timecourse_df = self._run_simulation(end_time=end_time).timecourse_df
+                timecourse_df = self._run_simulation(end_time=end_time).timecourse_df  # type: ignore
                 normalized_df = (timecourse_df - timecourse_df.mean()) / timecourse_df.std()
                 normalized_df = normalized_df.fillna(0)
                 metric_arr = normalized_df.std(axis=1).values
@@ -635,9 +664,17 @@ class CharacteristicTimeEstimator:
                 ax_twin.plot(timecourse_df.index, metric_arr, color="black", linestyle="--")  # type: ignore
                 ax.set_xticks([end_time])  # type: ignore
                 max_nrml = normalized_df.max().max() if not normalized_df.empty else 0.0
+                if np.isfinite(max_nrml) and max_nrml > 0:
+                    ax.set_ylim(0, max_nrml * 1.1)  # type: ignore
+                else:
+                    ax.set_yticks([]) # type: ignore
                 ax.set_yticks([max_nrml])  # type: ignore
                 # Set max tick label
                 metric_max = float(np.max(metric_arr)) if len(metric_arr) else 0.0
+                if np.isfinite(metric_max):
+                    ax_twin.set_ylim(0, metric_max * 1.1)  # type: ignore
+                else:
+                    ax_twin.set_yticks([]) # type: ignore
                 ax_twin.set_yticks([metric_max])
                 ax.text(end_time*0.7, max_nrml*0.7, endtime_source) # type: ignore
             plot_options_list.append(po)

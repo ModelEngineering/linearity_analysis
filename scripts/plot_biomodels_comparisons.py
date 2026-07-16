@@ -26,7 +26,7 @@ def _flush_page(fig, page_idx: int) -> None:
         print(f"Error occurred while saving page {page_idx}: {e}")
 
 
-def main(first_model_num: int = 84, last_model_num: int = -1) -> None:
+def main(first_model_num: int = 409, last_model_num: int = -1) -> None:
     '''
     Does comparison plots for models. A comparison plot has 3 panels.
 
@@ -35,7 +35,7 @@ def main(first_model_num: int = 84, last_model_num: int = -1) -> None:
         last_model_num (int): The number of the last model to plot. If -1, plot all models.
     '''
     os.makedirs(PLOT_DIR, exist_ok=True)
-    page_idx = 8
+    page_idx = 38
     page_models: list[Model] = []
     model_idx = 0  # index of the model on the current page
     num_per_page = NUM_ROW * NUM_COL

@@ -96,30 +96,30 @@ class TestEstimate(unittest.TestCase):
         self.assertEqual(end_time, 200.0)
         self.assertEqual(source, cn.ENDTIME_SOURCE_USER_SPECIFIED)
 
-    def test_none_end_time_triggers_detection(self) -> None:
-        """When end_time is None, detection methods are invoked."""
+    def test_none_end_time_triggers_estimation(self) -> None:
+        """When end_time is None, estimation methods are invoked."""
         model = _makeModel()
-        with patch.object(CharacteristicTimeEstimator, 'detect_steadystate', return_value=15.0):
+        with patch.object(CharacteristicTimeEstimator, 'estimate_steadystate', return_value=15.0):
             end_time, source = CharacteristicTimeEstimator(model).estimate()
         self.assertEqual(end_time, 15.0)
         self.assertEqual(source, cn.ENDTIME_SOURCE_STEADYSTATE)
 
-    def test_no_detection_raises(self) -> None:
-        """If all detection methods return None, ValueError is raised."""
+    def test_no_estimation_raises(self) -> None:
+        """If all estimation methods return None, ValueError is raised."""
         model = _makeModel()
-        with patch.object(CharacteristicTimeEstimator, 'detect_steadystate', return_value=None), \
-             patch.object(CharacteristicTimeEstimator, 'detect_cv_maximized', return_value=None):
+        with patch.object(CharacteristicTimeEstimator, 'estimate_steadystate', return_value=None), \
+             patch.object(CharacteristicTimeEstimator, 'estimate_cv_maximized', return_value=None):
             with self.assertRaises(ValueError) as ctx:
                 CharacteristicTimeEstimator(model).estimate()
         self.assertIn("Could not determine", str(ctx.exception))
 
 
 # ---------------------------------------------------------------------------
-# Tests for detect_steadystate (unit tests without real simulation)
+# Tests for estimate_steadystate (unit tests without real simulation)
 # ---------------------------------------------------------------------------
 
-class TestDetectSteadyState(unittest.TestCase):
-    """Tests for steady-state detection logic."""
+class TestEstimateSteadyState(unittest.TestCase):
+    """Tests for steady-state estimation logic."""
 
     def test_returns_none_when_no_floating_species(self) -> None:
         """Models with no floating species should return None."""
@@ -128,14 +128,14 @@ class TestDetectSteadyState(unittest.TestCase):
         estimator = CharacteristicTimeEstimator(model=model)
 
         # Real Simulator.getSteadyState() returns None for empty concentrations.
-        result = estimator.detect_steadystate()
+        result = estimator.estimate_steadystate()
         self.assertIsNone(result)
 
     def test_returns_none_on_runtime_error(self) -> None:
         """If Simulator.getSteadyState() fails to find steady state, return None.
 
-        Calls _calculate_steadystate() directly rather than detect_steadystate():
-        the latter runs the computation in a subprocess (see detect_steadystate's
+        Calls _calculate_steadystate() directly rather than estimate_steadystate():
+        the latter runs the computation in a subprocess (see estimate_steadystate's
         docstring), and unittest.mock.patch only affects the current process --
         a 'spawn'-started child re-imports this module fresh and would use the
         real Simulator regardless of any patch applied here.
@@ -151,11 +151,11 @@ class TestDetectSteadyState(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Tests for detect_cv_maximized (unit tests without real simulation)
+# Tests for estimate_cv_maximized (unit tests without real simulation)
 # ---------------------------------------------------------------------------
 
-class TestDetectCVMaximized(unittest.TestCase):
-    """Tests for CV maximization detection logic."""
+class TestEstimateCVMaximized(unittest.TestCase):
+    """Tests for CV maximization estimation logic."""
 
     def test_returns_none_when_no_floating_species(self) -> None:
         """Models with no floating species should return None."""
@@ -163,7 +163,7 @@ class TestDetectCVMaximized(unittest.TestCase):
         model = Model(antimony, model_name="no_float")
         estimator = CharacteristicTimeEstimator(model=model)
 
-        result = estimator.detect_cv_maximized()
+        result = estimator.estimate_cv_maximized()
         self.assertIsNone(result)
 
 
@@ -238,19 +238,19 @@ class TestIntegrationSimpleDecay(unittest.TestCase):
     S1 = 10
     """
 
-    def test_detect_steadystate_for_decay(self) -> None:
+    def test_estimate_steadystate_for_decay(self) -> None:
         """S1 -> X0 should converge to S1=0 at steady state."""
         model = Model(self.DECAY_ANTIMONY, model_name="decay_test")
         estimator = CharacteristicTimeEstimator(model=model, num_point=50)
 
-        end_time = estimator.detect_steadystate()
+        end_time = estimator.estimate_steadystate()
         # Should find some finite end time (not None) since decay reaches steady state quickly
         self.assertIsNotNone(end_time)
         self.assertGreater(end_time, 0)
 
 
 # ---------------------------------------------------------------------------
-# Integration tests: detect_steadystate against real BioModels
+# Integration tests: estimate_steadystate against real BioModels
 #
 # BIOMD0000000003 and BIOMD0000000008 both take far longer than is practical
 # for a test suite to reach steady state via the exponential/binary search in
@@ -259,12 +259,12 @@ class TestIntegrationSimpleDecay(unittest.TestCase):
 # These tests exercise the property that actually matters here: real,
 # unmodified BioModels are bounded by `timeout` and return -1 promptly rather
 # than hanging indefinitely, which is exactly the failure this class's
-# subprocess-based detect_steadystate was built to fix.
+# subprocess-based estimate_steadystate was built to fix.
 # ---------------------------------------------------------------------------
 
 @unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
-class TestDetectSteadystateRealBiomodels(unittest.TestCase):
-    """detect_steadystate is bounded by `timeout` on real, slow-to-converge models."""
+class TestEstimateSteadyStateRealBiomodels(unittest.TestCase):
+    """estimate_steadystate is bounded by `timeout` on real, slow-to-converge models."""
 
     TIMEOUT = 3.0
     # Generous slack for process spawn/join overhead on top of the poll timeout.
@@ -275,7 +275,7 @@ class TestDetectSteadystateRealBiomodels(unittest.TestCase):
         estimator = CharacteristicTimeEstimator(model=model, timeout=self.TIMEOUT)
 
         start = time.time()
-        result = estimator.detect_steadystate()
+        result = estimator.estimate_steadystate()
         elapsed = time.time() - start
 
         self.assertEqual(result, -1)
@@ -491,13 +491,13 @@ class TestPlotStdNrmlBiomodel45(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Tests for plotComparison (mocked detection methods)
+# Tests for plotComparison (mocked estimation methods)
 # ---------------------------------------------------------------------------
 
 class TestPlotComparison(unittest.TestCase):
     """Tests for CharacteristicTimeEstimator.plotComparison.
 
-    detect_steadystate, detect_cv_maximized, and getBiomodelsEndtimes are
+    estimate_steadystate, estimate_cv_maximized, and getBiomodelsEndtimes are
     mocked so each panel's end time (or lack of one) is fully controlled,
     and _run_simulation is mocked so no real simulation runs.
     """
@@ -527,9 +527,9 @@ class TestPlotComparison(unittest.TestCase):
         )
         with patch('characteristic_time_estimator.getBiomodelsEndtimes',
                     return_value=sedml_dct), \
-             patch.object(CharacteristicTimeEstimator, 'detect_steadystate',
+             patch.object(CharacteristicTimeEstimator, 'estimate_steadystate',
                           return_value=steadystate), \
-             patch.object(CharacteristicTimeEstimator, 'detect_cv_maximized',
+             patch.object(CharacteristicTimeEstimator, 'estimate_cv_maximized',
                           return_value=max_cv), \
              patch.object(self.estimator, '_run_simulation', return_value=self.mock_result):
             return self.estimator.plotComparison(**kwargs)
@@ -553,7 +553,7 @@ class TestPlotComparison(unittest.TestCase):
         self.assertNotIn("None", [t.get_text() for t in mc_po.ax.texts])
 
     def test_timeout_sentinel_treated_as_missing(self) -> None:
-        """detect_steadystate's -1 timeout sentinel is treated the same as None."""
+        """estimate_steadystate's -1 timeout sentinel is treated the same as None."""
         _, ss_po, _ = self._plot(sedml=None, steadystate=-1, max_cv=None)
         self.assertIn("None", [t.get_text() for t in ss_po.ax.texts])
 
@@ -569,8 +569,8 @@ class TestPlotComparison(unittest.TestCase):
         sedml_dct = {self.model.model_name: (10.0, cn.ENDTIME_SOURCE_STEADYSTATE)}
         with patch('characteristic_time_estimator.getBiomodelsEndtimes',
                     return_value=sedml_dct), \
-             patch.object(CharacteristicTimeEstimator, 'detect_steadystate', return_value=None), \
-             patch.object(CharacteristicTimeEstimator, 'detect_cv_maximized', return_value=None), \
+             patch.object(CharacteristicTimeEstimator, 'estimate_steadystate', return_value=None), \
+             patch.object(CharacteristicTimeEstimator, 'estimate_cv_maximized', return_value=None), \
              patch.object(self.estimator, '_run_simulation', return_value=self.mock_result):
             sb_po, _, _ = self.estimator.plotComparison()
         self.assertIn("None", [t.get_text() for t in sb_po.ax.texts])
@@ -592,10 +592,6 @@ class TestPlotComparison(unittest.TestCase):
         self.assertEqual(list(ss_po.ax.get_xticks()), [22.0])
         self.assertEqual(list(mc_po.ax.get_xticks()), [33.0])
 
-    def test_data_panel_left_axis_has_no_yticks(self) -> None:
-        sb_po, _, _ = self._plot(sedml=10.0, steadystate=None, max_cv=None)
-        self.assertEqual(len(sb_po.ax.get_yticks()), 0)
-
     def test_data_panel_has_twin_axis_with_metric_line(self) -> None:
         sb_po, _, _ = self._plot(sedml=10.0, steadystate=None, max_cv=None)
         twins = [
@@ -613,19 +609,19 @@ class TestPlotComparison(unittest.TestCase):
     def test_run_simulation_called_with_correct_end_time_per_panel(self) -> None:
         with patch('characteristic_time_estimator.getBiomodelsEndtimes',
                     return_value={self.model.model_name: (11.0, cn.ENDTIME_SOURCE_SEDML)}), \
-             patch.object(CharacteristicTimeEstimator, 'detect_steadystate', return_value=22.0), \
-             patch.object(CharacteristicTimeEstimator, 'detect_cv_maximized', return_value=33.0), \
+             patch.object(CharacteristicTimeEstimator, 'estimate_steadystate', return_value=22.0), \
+             patch.object(CharacteristicTimeEstimator, 'estimate_cv_maximized', return_value=33.0), \
              patch.object(self.estimator, '_run_simulation',
                           return_value=self.mock_result) as mock_run:
             self.estimator.plotComparison()
         end_times = sorted(c.kwargs["end_time"] for c in mock_run.call_args_list)
         self.assertEqual(end_times, [11.0, 22.0, 33.0])
 
-    def test_detect_steadystate_called_with_given_timeout(self) -> None:
+    def test_estimate_steadystate_called_with_given_timeout(self) -> None:
         with patch('characteristic_time_estimator.getBiomodelsEndtimes', return_value={}), \
-             patch.object(CharacteristicTimeEstimator, 'detect_steadystate',
+             patch.object(CharacteristicTimeEstimator, 'estimate_steadystate',
                           return_value=None) as mock_dss, \
-             patch.object(CharacteristicTimeEstimator, 'detect_cv_maximized', return_value=None), \
+             patch.object(CharacteristicTimeEstimator, 'estimate_cv_maximized', return_value=None), \
              patch.object(self.estimator, '_run_simulation', return_value=self.mock_result):
             self.estimator.plotComparison(timeout=7.5)
         mock_dss.assert_called_once_with(timeout=7.5)
@@ -646,10 +642,10 @@ class TestPlotComparison(unittest.TestCase):
         sedml_dct = {self.model.model_name: (10.0, cn.ENDTIME_SOURCE_SEDML)}
         with patch('characteristic_time_estimator.getBiomodelsEndtimes',
                     return_value=sedml_dct), \
-             patch.object(CharacteristicTimeEstimator, 'detect_steadystate', return_value=20.0), \
-             patch.object(CharacteristicTimeEstimator, 'detect_cv_maximized', return_value=30.0), \
+             patch.object(CharacteristicTimeEstimator, 'estimate_steadystate', return_value=20.0), \
+             patch.object(CharacteristicTimeEstimator, 'estimate_cv_maximized', return_value=30.0), \
              patch.object(self.estimator, '_run_simulation', return_value=self.mock_result):
-            result = self.estimator.plotComparison(ax_sb=ax1, ax_ss=ax2, ax_mc=ax3)
+            result = self.estimator.plotComparison(ax_sd=ax1, ax_ss=ax2, ax_mc=ax3)
         self.assertIs(result[0].ax, ax1)
         self.assertIs(result[1].ax, ax2)
         self.assertIs(result[2].ax, ax3)

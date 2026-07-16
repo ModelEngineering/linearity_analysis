@@ -62,3 +62,35 @@ def findFloatIndex(arr: np.ndarray, value: float) -> int:
     arr1 = (arr - value)**2
     idx = np.argmin(arr1)
     return int(idx)
+
+def findFirstLocalMinima(signal_arr: np.ndarray) -> int:
+    """Find the index of the first local minima in a signal array.
+
+    Parameters
+    ----------
+    signal_arr : np.ndarray
+        The signal array to search.
+
+    Returns
+    -------
+    int
+        The index of the first local minima in the array.
+        None found if -1
+
+    Raises
+    ------
+    ValueError
+        If no local minima is found.
+    """
+    diff_arr = np.diff(signal_arr)
+    first_negative_idx = np.where(diff_arr < 0)[0]
+    if first_negative_idx.size == 0:
+        return -1
+    # Find the first local minima after the first negative slope
+    first_negative_idx = first_negative_idx[0]
+    first_positive_idx = np.where(diff_arr[first_negative_idx:] > 0)[0]
+    if first_positive_idx.size == 0:
+        return -1
+    # Find the index of the first local minima
+    first_positive_idx = first_positive_idx[0] + first_negative_idx
+    return first_positive_idx[0] + 1  # +1 to account for the diff offset
