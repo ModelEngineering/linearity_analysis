@@ -63,6 +63,7 @@ def findFloatIndex(arr: np.ndarray, value: float) -> int:
     idx = np.argmin(arr1)
     return int(idx)
 
+# FIXME: Add tests
 def findFirstLocalMinima(signal_arr: np.ndarray) -> int:
     """Find the index of the first local minima in a signal array.
 

@@ -162,7 +162,7 @@ class TestProcessModels(unittest.TestCase):
         path = self._csvPath()
         if os.path.exists(path):
             os.remove(path)
-        processModels(8, 8, self._TEST_PROCESS_INDEX, 1)
+        processModels(5, 5, self._TEST_PROCESS_INDEX, 1)
         self.assertTrue(os.path.exists(path))
 
     def test_csv_has_model_row(self) -> None:

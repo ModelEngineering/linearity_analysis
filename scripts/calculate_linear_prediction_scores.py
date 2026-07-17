@@ -13,7 +13,7 @@ results to a per-instance CSV (linear_predictor_scores2_<process_index>.csv).
 import src.constants as cn # type: ignore
 from src.system_discovery import SystemDiscovery # type: ignore
 from src.score import Score # type: ignore
-from src.biomodels_iterator import BiomodelsIterator # type: ignore
+from src.biomodels_iterator import BiomodelsIterator, getBiomodelsEndtimes # type: ignore
 from src.timecourse_iterator import TimecourseIterator # type: ignore
 
 import argparse
@@ -96,6 +96,7 @@ def processModels(first_model_num: int, last_model_num: int, process_index: int,
     """ print(f"Process {process_index}/{num_processes}: "
         f"models {first_model_num}–{last_model_num} "
         f"({last_model_num - first_model_num + 1} in range)") """
+    endtime_dct = getBiomodelsEndtimes(is_include_endtime_source=True)
     serialization_path = os.path.join(
             cn.DATA_DIR, f"linear_predictor_scores_{process_index}.csv")
 
@@ -113,6 +114,10 @@ def processModels(first_model_num: int, last_model_num: int, process_index: int,
     #
     for item in iterator:
         model_name = item.model_name
+        if (model_name not in endtime_dct)  \
+                or (endtime_dct[model_name][1] != cn.ENDTIME_SOURCE_SEDML):
+            print(f"Not a model with a SEDML endtime: {model_name} — skipping.")
+            continue
         try:
             timecourse = timecourse_iterator.getTimecourse(model_name)
             discovery = SystemDiscovery.makeBiomodel(
