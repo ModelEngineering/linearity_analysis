@@ -15,6 +15,8 @@ from src.system_discovery import SystemDiscovery # type: ignore
 from src.score import Score # type: ignore
 from src.biomodels_iterator import BiomodelsIterator, getBiomodelsEndtimes # type: ignore
 from src.timecourse_iterator import TimecourseIterator # type: ignore
+from src.timecourse import Timecourse # type: ignore
+from src.model import Model # type: ignore
 
 import argparse
 import math
@@ -30,6 +32,8 @@ EXCLUDED_MODELS: list[str] = [
     "BIOMD0000000088",  # Errors "too much work"
 
     "BIOMD0000000072", 
+    "BIOMD0000000566", 
+    "BIOMD0000000567", 
     "BIOMD0000000666", 
     "BIOMD0000000794", 
     "BIOMD0000000866", 
@@ -88,10 +92,10 @@ def processModels(first_model_num: int, last_model_num: int, process_index: int,
     """Processes all the models in the range of first to last.
 
     Args:
-        first_model_num (int): _description_
-        last_model_num (int): _description_
-        process_index (int): _description_
-        num_processes (int): _description_
+        first_model_num (int):
+        last_model_num (int):
+        process_index (int):
+        num_processes (int):
     """
     """ print(f"Process {process_index}/{num_processes}: "
         f"models {first_model_num}–{last_model_num} "
@@ -118,6 +122,24 @@ def processModels(first_model_num: int, last_model_num: int, process_index: int,
                 or (endtime_dct[model_name][1] != cn.ENDTIME_SOURCE_SEDML):
             print(f"Not a model with a SEDML endtime: {model_name} — skipping.")
             continue
+        # Get the timecourse or created it if not present
+        found_timecourse = False
+        try:
+            timecourse = timecourse_iterator.getTimecourse(model_name)
+            found_timecourse = True
+        except Exception as e:
+            print(f"Timecourse not found. Creating it.")
+        # Construct Timecourse if not found
+        if not found_timecourse:
+            try:
+                model = Model.makeBiomodel(model_name=model_name)
+                timecourse = Timecourse(model, num_point=100)
+                _ = timecourse.timecourse_df  # Force creation of the timecourse_df
+                _ = timecourse.jacobian_collection_arr  # Force creation of the jacobian_collection_arr
+                timecourse.serialize()
+            except Exception as e:
+                print(f"Error occurred while creating timecourse for model {model_name}: {e}")
+                continue
         try:
             timecourse = timecourse_iterator.getTimecourse(model_name)
             discovery = SystemDiscovery.makeBiomodel(

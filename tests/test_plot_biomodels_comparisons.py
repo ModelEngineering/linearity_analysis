@@ -99,11 +99,11 @@ class TestMain(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_each_model_gets_three_distinct_axes(self) -> None:
-        """Each model's (ax_sb, ax_ss, ax_mc) triple contains three distinct axes."""
+        """Each model's (ax_sd, ax_ss, ax_mc) triple contains three distinct axes."""
         _, _, _, mock_estimator_class, _ = self._run_main(4)
         calls = mock_estimator_class.return_value.plotComparison.call_args_list
         for call in calls:
-            axes_used = {call.kwargs["ax_sb"], call.kwargs["ax_ss"], call.kwargs["ax_mc"]}
+            axes_used = {call.kwargs["ax_sd"], call.kwargs["ax_ss"], call.kwargs["ax_mc"]}
             self.assertEqual(len(axes_used), 3)
 
     def test_no_two_models_share_an_axes_within_a_page(self) -> None:
@@ -112,7 +112,7 @@ class TestMain(unittest.TestCase):
         calls = mock_estimator_class.return_value.plotComparison.call_args_list
         all_axes = []
         for call in calls:
-            all_axes.extend([call.kwargs["ax_sb"], call.kwargs["ax_ss"], call.kwargs["ax_mc"]])
+            all_axes.extend([call.kwargs["ax_sd"], call.kwargs["ax_ss"], call.kwargs["ax_mc"]])
         self.assertEqual(len(all_axes), len(set(all_axes)))
 
     def test_row_stride_is_three_per_model(self) -> None:
@@ -122,10 +122,10 @@ class TestMain(unittest.TestCase):
         created_grids, _, _, mock_estimator_class, _ = self._run_main(2)
         _, axes = created_grids[0]
         calls = mock_estimator_class.return_value.plotComparison.call_args_list
-        self.assertIs(calls[0].kwargs["ax_sb"], axes[0, 0])
+        self.assertIs(calls[0].kwargs["ax_sd"], axes[0, 0])
         self.assertIs(calls[0].kwargs["ax_ss"], axes[1, 0])
         self.assertIs(calls[0].kwargs["ax_mc"], axes[2, 0])
-        self.assertIs(calls[1].kwargs["ax_sb"], axes[0, 1])
+        self.assertIs(calls[1].kwargs["ax_sd"], axes[0, 1])
         self.assertIs(calls[1].kwargs["ax_ss"], axes[1, 1])
         self.assertIs(calls[1].kwargs["ax_mc"], axes[2, 1])
 
@@ -135,7 +135,7 @@ class TestMain(unittest.TestCase):
         created_grids, _, _, mock_estimator_class, _ = self._run_main(NUM_COL + 1)
         _, axes = created_grids[0]
         calls = mock_estimator_class.return_value.plotComparison.call_args_list
-        self.assertIs(calls[NUM_COL].kwargs["ax_sb"], axes[3, 0])
+        self.assertIs(calls[NUM_COL].kwargs["ax_sd"], axes[3, 0])
         self.assertIs(calls[NUM_COL].kwargs["ax_ss"], axes[4, 0])
         self.assertIs(calls[NUM_COL].kwargs["ax_mc"], axes[5, 0])
 
