@@ -3,6 +3,7 @@
 import src.constants as cn  # type: ignore
 from src.timecourse import Timecourse  # type: ignore
 
+import numpy as np  # type: ignore
 import pickle
 import zipfile
 from typing import Iterator
@@ -64,6 +65,8 @@ class TimecourseIterator:
 
     @staticmethod
     def _timecourseFromDict(dct: dict) -> Timecourse:
+        if 'jacobian_collection_arr' not in dct:
+            dct['jacobian_collection_arr'] = np.array([])
         return Timecourse(
             model=dct['model'],
             start_time=dct['start_time'],

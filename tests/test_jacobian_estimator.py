@@ -564,6 +564,110 @@ class TestJacobianEstimatorVsSindypy(unittest.TestCase):
 
 
 # =============================================================================
+# R² Derivative Tests
+# =============================================================================
+
+class TestRSquaredDerivative(unittest.TestCase):
+    """Tests for JacobianEstimator.r_squared_derivative()."""
+
+    def test_raises_before_fit(self) -> None:
+        """r_squared_derivative() raises RuntimeError if fit() has not been called."""
+        from src.jacobian_estimator import JacobianEstimator
+        df = pd.DataFrame(
+            {"S1": [1.0, 2.0], "S2": [3.0, 4.0]},
+            index=[0.0, 1.0],
+        )
+        est = JacobianEstimator(df)
+        with self.assertRaises(RuntimeError):
+            est.r_squared_derivative()
+
+    def test_returns_dict_with_species_keys(self) -> None:
+        """r_squared_derivative() returns a dict keyed by species names."""
+        from src.jacobian_estimator import JacobianEstimator
+        df = pd.DataFrame(
+            {"Glucose": [1.0, 2.0, 3.0], "Product": [0.5, 0.8, 1.1]},
+            index=[0.0, 1.0, 2.0],
+        )
+        est = JacobianEstimator(df)
+        est.fit(alpha=0.01)
+        r2 = est.r_squared_derivative()
+        self.assertIsInstance(r2, dict)
+        self.assertEqual(set(r2.keys()), {"Glucose", "Product"})
+
+    def test_r_squared_one_species(self) -> None:
+        """r_squared_derivative() returns one entry per species."""
+        from src.jacobian_estimator import JacobianEstimator
+        df = pd.DataFrame(
+            {"S1": [1.0, 2.0, 3.0, 4.0]},
+            index=[0.0, 1.0, 2.0, 3.0],
+        )
+        est = JacobianEstimator(df)
+        est.fit(alpha=0.01)
+        r2 = est.r_squared_derivative()
+        self.assertEqual(len(r2), 1)
+
+    def test_r_squared_high_for_low_regularization(self) -> None:
+        """With low alpha, R² should be high for data generated from a linear model."""
+        from src.jacobian_estimator import JacobianEstimator
+        A_true = np.array([[-0.5, 0.1], [0.05, -0.3]])
+        u_true = np.array([0.02, -0.01])
+
+        def _make_linear_data(A_true, u_true, n_points=200, seed=42):
+            from scipy.integrate import solve_ivp  # type: ignore
+            def rhs(t, x):
+                return A_true @ x + u_true
+            sol = solve_ivp(rhs, (0.0, 10.0), np.ones(A_true.shape[0]),
+                            t_eval=np.linspace(0.0, 10.0, n_points), method='RK45')
+            col_names = [f"S{i+1}" for i in range(A_true.shape[0])]
+            return pd.DataFrame(sol.y.T, columns=col_names, index=sol.t)
+
+        df = _make_linear_data(A_true, u_true, n_points=200, seed=42)
+        est = JacobianEstimator(df)
+        est.fit(alpha=0.001)  # Low regularization for good fit
+        r2 = est.r_squared_derivative()
+
+        # R² should be high (model fits the data well since it generated from a linear model)
+        for species, value in r2.items():
+            self.assertGreater(value, 0.9, f"R² for {species} should be > 0.9, got {value}")
+
+    def test_r_squared_matches_manual_computation(self) -> None:
+        """r_squared_derivative() matches manually computed R²."""
+        from src.jacobian_estimator import JacobianEstimator
+        # Use ODE-generated data so derivatives have variance (avoid ss_tot=0 → NaN)
+        A_true = np.array([[-0.5, 0.1], [0.05, -0.3]])
+        u_true = np.array([0.02, -0.01])
+
+        def _make_linear_data(A_true, u_true, n_points=200, seed=42):
+            from scipy.integrate import solve_ivp  # type: ignore
+            def rhs(t, x):
+                return A_true @ x + u_true
+            sol = solve_ivp(rhs, (0.0, 10.0), np.ones(A_true.shape[0]),
+                            t_eval=np.linspace(0.0, 10.0, n_points), method='RK45')
+            col_names = [f"S{i+1}" for i in range(A_true.shape[0])]
+            return pd.DataFrame(sol.y.T, columns=col_names, index=sol.t)
+
+        df = _make_linear_data(A_true, u_true, n_points=200, seed=42)
+        est = JacobianEstimator(df)
+        est.fit(alpha=0.01)
+
+        r2 = est.r_squared_derivative()
+
+        # Manually compute R² for S1
+        y_true = np.asarray(est.dtimecourse_df.iloc[:, 0], dtype=float)
+        X = df.values[:-1].copy()
+        intercept_col = np.ones((X.shape[0], 1))
+        X_design = np.hstack([X, intercept_col])
+        coefs = np.concatenate([est.A_[0, :], [est.u_[0]]])
+        y_pred = X_design @ coefs
+
+        ss_res = float(np.sum((y_true - y_pred) ** 2))
+        ss_tot = float(np.sum((y_true - np.mean(y_true)) ** 2))
+        expected_r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+
+        self.assertAlmostEqual(r2["S1"], expected_r2)
+
+
+# =============================================================================
 # Integration Tests
 # =============================================================================
 

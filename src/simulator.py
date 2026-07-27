@@ -31,7 +31,8 @@ class Simulator(object):
         end_time: Optional[float] = None,
         num_point: int = cn.NUM_POINT,
         perturbation_value_fraction: float = cn.PERTURBATION_VALUE_FRACTION,
-        perturbation_species_fraction: float = cn.PERTURBATION_SPECIES_FRACTION
+        perturbation_species_fraction: float = cn.PERTURBATION_SPECIES_FRACTION,
+        is_jacobian_collection: bool = False
         ) -> None:
         """
         Parameters
@@ -50,6 +51,8 @@ class Simulator(object):
             May be positive or negative.
         perturbation_species_fraction : float
             Fraction of non-zero initial values that are perturbed.
+        is_jacobian_collection : bool
+            Whether to collect Jacobians at each time point.
         """
         self.model = model
         self.start_time = start_time
@@ -57,6 +60,7 @@ class Simulator(object):
         self.num_point = num_point
         self.perturbation_value_fraction = perturbation_value_fraction
         self.perturbation_species_fraction = perturbation_species_fraction
+        self.is_jacobian_collection = is_jacobian_collection
 
     @classmethod
     def simulateBiomodel(cls, model_num: int, end_time: float=-1.0,
@@ -84,6 +88,7 @@ class Simulator(object):
             start_time=start_time,
             end_time=end_time,
             num_point=num_point,
+            is_jacobian_collection=is_jacobian_collection,
         )
         return simulator.simulate(is_jacobian_collection=is_jacobian_collection)
 
@@ -91,6 +96,7 @@ class Simulator(object):
         """Run a simulation and optionally collect Jacobians.
 
         This is the only method that uses RoadRunner for time-course integration.
+        Note that the columns returned are not necessarily those in the species list.
 
         Parameters
         ----------
@@ -115,19 +121,13 @@ class Simulator(object):
         except Exception as e:
             raise ValueError(f"Simulation failed: {e}")
 
-        # Check column order before converting to ndarray (colnames lost after np.array).
-        # Skip the leading 'time' column and strip brackets from species names.
-        result_species = [
-                c[1:-1] if c.startswith("[") and c.endswith("]") else c
-                for c in rr_result.colnames[1:]  # type: ignore
-        ]
-        self._checkSpeciesNames(result_species)
         result_arr = np.array(rr_result)
         timepoint_arr = result_arr[:, 0]
+        column_names = [c[1:-1] if c[0] == "[" else c for c in rr_result.colnames[1:]]
         timecourse_df = pd.DataFrame(
                 result_arr[:, 1:],
                 index=timepoint_arr,
-                columns=self.model.species_names,
+                columns=column_names,
         )
         timecourse_df.index.name = "time"
 
@@ -143,13 +143,14 @@ class Simulator(object):
                     rr.simulate(self.start_time, self.start_time + 1e-10, 2)
                 else:
                     rr.simulate(timepoint_arr[i - 1], t, 2)
-                jacobian_arr = rr.getFullJacobian()
-                self._checkSpeciesNames(jacobian_arr.rownames)
-                self._checkSpeciesNames(jacobian_arr.colnames)
-                jacobian_arr = np.array(jacobian_arr).copy()
-                if np.all(np.isclose(jacobian_arr, 0.0)):
-                    raise ValueError(
-                            f"Jacobian at t={t} is all zeros; model may be degenerate.")
+                if self.is_jacobian_collection:
+                    jacobian_arr = rr.getFullJacobian()
+                    jacobian_arr = np.array(jacobian_arr).copy()
+                    if np.all(np.isclose(jacobian_arr, 0.0)):
+                        raise ValueError(
+                                f"Jacobian at t={t} is all zeros; model may be degenerate.")
+                else:
+                    jacobian_arr = np.array([])
                 jacobian_collection.append(jacobian_arr)
         else:
             jacobian_collection = []
@@ -209,14 +210,6 @@ class Simulator(object):
         initial_dct = self._getPerturbedInitialValues()
         self._setInitialValues(rr, initial_dct)
         return rr, initial_dct
-
-    def _checkSpeciesNames(self, names: List[str]) -> None:
-        """Check that the species names in the simulation result match the model."""
-        result_species = list(names)
-        if result_species != self.model.species_names:
-            raise ValueError(
-                    f"Simulation species {result_species} do not match "
-                    f"model species {self.model.species_names}.")
 
     def _setInitialValues(self, rr, initial_dct: Dict[str, float]) -> None:
         """Set initial values of floating species in the RoadRunner model."""

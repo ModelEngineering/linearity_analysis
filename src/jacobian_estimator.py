@@ -226,3 +226,49 @@ class JacobianEstimator:
             lines.append(f"d{col_names[i]}/dt = {' '.join(terms)}")
 
         return "\n".join(lines)
+
+    def r_squared_derivative(self) -> dict[str, float]:
+        """Compute R² for each species between predicted and numerical derivatives.
+
+        For each species, the R² is computed as::
+
+            R² = 1 - SS_res / SS_tot
+
+        where ``SS_res`` is the sum of squared residuals (numerical derivative
+        minus predicted derivative) and ``SS_tot`` is the total sum of squares
+        (numerical derivative minus its mean).
+
+        Returns
+        -------
+        dict[str, float]
+            Mapping from species name to R² value. Values may be negative if
+            the model fits worse than the mean of the derivatives.
+
+        Raises
+        ------
+        RuntimeError
+            If ``fit()`` has not been called.
+        """
+        self._require_fitted()
+
+        # Build design matrix (same as in fit)
+        X = self.timecourse_df.values[:-1].copy()
+        n_rows = X.shape[0]
+        intercept_col = np.ones((n_rows, 1))
+        X_design = np.hstack([X, intercept_col])
+
+        col_names = list(self.timecourse_df.columns)
+        n_species = len(col_names)
+        r2: dict[str, float] = {}
+
+        for i in range(n_species):
+            y_true = np.asarray(self.dtimecourse_df.iloc[:, i], dtype=float)
+            # Predicted derivative from fitted model
+            coefs = np.concatenate([self.A_[i, :], [self.u_[i]]])
+            y_pred = X_design @ coefs
+
+            ss_res = float(np.sum((y_true - y_pred) ** 2))
+            ss_tot = float(np.sum((y_true - np.mean(y_true)) ** 2))
+            r2[col_names[i]] = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+
+        return r2

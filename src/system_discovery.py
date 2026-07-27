@@ -67,21 +67,46 @@ MAX_TIME_FRACTIONAL_DEVIATION = 0.01
 MAX_SPECIES = 200
 DifferentiationMethod = Literal["smooth", "finite", "spectral"]
 
-
+# FIXME: (a) ScoreInfo has both derivative rsq and simulation ARE
+#          (b) ScoreInfo is used in SystemDiscovery and Score, but ScoreInfo is defined in SystemDiscovery.  Should be refactored to a common location. 
 # ---------------------------------------------------------------------------
-# ScoreInfo
-# ---------------------------------------------------------------------------
-
+# ScoreInfo - Score information for a SystemDiscovery instance
+# -----------------------------------------------------------------------
 class ScoreInfo:
-    def __init__(self, min: float, median: float, max: float, values: list[float], num_nonzero_term: int):
+    def __init__(self, system_discovery: "SystemDiscovery"):
+        self.derivative_rsq_info = RsqScoreInfo(
+            min=system_discovery._derivative_rsq.min,
+            median=system_discovery._derivative_rsq.median,
+            max=system_discovery._derivative_rsq.max,
+            values=system_discovery._derivative_rsq.values,
+            num_nonzero_term=system_discovery._derivative_rsq.num_nonzero_term,
+            coefficient_density=system_discovery._derivative_rsq.coefficient_density
+        )
+
+class RsqScoreInfo:
+    def __init__(self, min: float, median: float, max: float,
+            values: list[float], num_nonzero_term: int,
+            coefficient_density: float | None = None) -> None:
+        self.min = min
+
+
+# ---------------------------------------------------------------------------
+# RsqScoreInfo - Score information for a collection of R² values
+# -----------------------------------------------------------------------
+
+class RsqScoreInfo:
+    def __init__(self, min: float, median: float, max: float,
+            values: list[float], num_nonzero_term: int,
+            coefficient_density: float | None = None) -> None:
         self.min = min
         self.median = median
         self.max = max
         self.values = values
         self.num_nonzero_term = num_nonzero_term
+        self.coefficient_density = coefficient_density
 
     @classmethod
-    def sum(cls, scores: List['ScoreInfo']) -> 'ScoreInfo':
+    def sum(cls, scores: List['RsqScoreInfo']) -> 'RsqScoreInfo':
         total_values = []
         total_nonzero_terms = 0
         for score in scores:
@@ -93,6 +118,7 @@ class ScoreInfo:
             max=max(score.max for score in scores),
             values=total_values,
             num_nonzero_term=total_nonzero_terms,
+            coefficient_density=None
         )
 
 
@@ -457,12 +483,22 @@ class SystemDiscovery:
     def plot_coefficient_heatmap(
         self,
         figsize: tuple[float, float] | None = None,
-        show: bool = True,
+        xlim: tuple[float, float] | None = None,
+        is_plot: bool = True,
     ) -> plt.Figure:  # type: ignore
         """Visualise the coefficient matrix as a heatmap.
 
         Each row is a library feature; each column is a species.
         Non-zero entries (active terms) are highlighted.
+
+        Parameters
+        ----------
+        figsize : tuple, optional
+            Figure size ``(width, height)`` in inches.  Auto-sized if *None*.
+        xlim : tuple, optional
+            X-axis limits ``(left, right)``.  Auto-sized if *None*. 
+        is_plot: bool
+            Show the figure when True.  Set to False when embedding in a larger
 
         Returns
         -------
@@ -502,7 +538,7 @@ class SystemDiscovery:
                     )
 
         fig.tight_layout()
-        if show:
+        if is_plot:
             plt.show()
             plt.close(fig)
         return fig
@@ -511,7 +547,8 @@ class SystemDiscovery:
         self,
         test_df: pd.DataFrame = NULL_DF,
         figsize: tuple[float, float] | None = None,
-        show: bool = True,
+        xlim: tuple[float, float] | None = None,
+        is_plot: bool = True,
         num_true_point: int = 20,
     ) -> plt.Figure:  # type: ignore
         """Plot observed vs. model-simulated trajectories for each species.
@@ -520,9 +557,11 @@ class SystemDiscovery:
         ----------
         figsize : tuple, optional
             Figure size ``(width, height)`` in inches.  Auto-sized if *None*.
-        show : bool
-            Call ``plt.show()`` at the end.  Set to ``False`` when embedding
-            in a larger figure or saving manually.
+        xlim : tuple, optional
+            X-axis limits ``(left, right)``.  Auto-sized if *None*.
+        is_plot: bool
+            Show the figure when True.  Set to False when embedding in a larger
+            figure or saving manually.
         num_true_point : int
             Number of true points to plot.
 
@@ -565,6 +604,10 @@ class SystemDiscovery:
         r2_vals = self.calculateRsq(method="derivative", test_df=test_df)
 
         num_skip_point = max(1, len(time_arr) // num_true_point)
+        ymax = max(X.max().max(), pred_df.max().max() if pred_df is not None else 0)
+        ymin = min(X.min().min(), pred_df.min().min() if pred_df is not None else 0)
+        ymax = ymax if not np.isfinite(ymax) else None
+        ymin = ymin if not np.isfinite(ymin) else None
         for idx, name in enumerate(self.species_names):
             row, col = divmod(idx, ncols)
             ax = axes[row][col]
@@ -581,7 +624,10 @@ class SystemDiscovery:
             if np.isclose(low_y, high_y):
                 low_y -= 0.1*low_y
                 high_y += 0.1*high_y
-            ax.set_ylim(low_y - 0.1 * abs(high_y - low_y), high_y + 0.1 * abs(high_y - low_y))
+            if xlim is not None:
+                ax.set_xlim(xlim)
+            ax.set_ylim(ymin, ymax)
+            #ax.set_ylim(low_y - 0.1 * abs(high_y - low_y), high_y + 0.1 * abs(high_y - low_y))
             ax.set_title(title, fontsize=11)
             ax.set_xlabel("Time")
             ax.set_ylabel("Concentration")
@@ -594,7 +640,7 @@ class SystemDiscovery:
             axes[row][col].set_visible(False)
 
         fig.tight_layout()
-        if show:
+        if is_plot:
             plt.show()
             plt.close(fig)
         return fig
@@ -736,16 +782,17 @@ class SystemDiscovery:
         r2_raw = self.calculateRsq(method="derivative", test_df=test_df)
         return self._normalize_rsq(float(np.min(list(r2_raw.values()))))
 
-    def score(self) -> ScoreInfo:
+    def score(self) -> RsqScoreInfo:
         """Return a ScoreInfo with the min, median, and max of r_squared values."""
-        values = list(self.calculateRsq().values())
+        derivative_rsq_arr = list(self.calculateRsq().values())
         num_nonzero_term = sum(self.getNonzeroTerms().values())
-        return ScoreInfo(
-            min=self._normalize_rsq(float(np.min(values))),
-            median=self._normalize_rsq(float(np.median(values))),
-            max=self._normalize_rsq(float(np.max(values))),
-            values=[self._normalize_rsq(x) for x in values],
+        return RsqScoreInfo(
+            min=self._normalize_rsq(float(np.min(derivative_rsq_arr))),
+            median=self._normalize_rsq(float(np.median(derivative_rsq_arr))),
+            max=self._normalize_rsq(float(np.max(derivative_rsq_arr))),
+            values=[self._normalize_rsq(x) for x in derivative_rsq_arr],
             num_nonzero_term=num_nonzero_term,
+            coefficient_density=num_nonzero_term / (self.num_species **2)
         )
 
     def summary(self, entry_threshold: float = 0) -> pd.DataFrame:
@@ -1055,8 +1102,11 @@ def discoverNetwork(
     poly_degree: int = 1,
     include_bias: bool = True,
     species_names: list[str] | None = None,
-    plot: bool = True,
-    heatmap: bool = True,
+    is_plot_comparisons: bool = True,
+    is_plot_heatmap: bool = True,
+    xlim: tuple[float, float] | None = None,
+    is_print_equations: bool = True,
+    is_print_r_squared: bool = True,
 ) -> SystemDiscovery:
     """One-shot helper: construct, fit, print, and optionally plot.
 
@@ -1076,10 +1126,14 @@ def discoverNetwork(
         Include a constant term in the library.
     species_names : list[str] | None
         Human-readable species labels.
-    plot : bool
+    is_plot_comparisons : bool
         Show trajectory comparison plots.
-    heatmap : bool
+    is_plot_heatmap : bool
         Show coefficient heatmap.
+    is_print_equations : bool
+        Print the discovered equations.
+    is_print_r_squared : bool
+        Print R² values for each species.
 
     Returns
     -------
@@ -1103,26 +1157,28 @@ def discoverNetwork(
         is_normalize=True,
     )
     disc.fit()
-    disc.printEquations()
+    if is_print_equations:
+        print("Discovered equations:")
+        disc.printEquations()
 
-    r2 = disc.calculateRsq()
-    print("R² on time derivatives per species:")
-    for name, val in r2.items():
-        print(f"  {name}: {val:.6f}")
-    print()
-
-    try:
-        r2_sim = disc.calculateRsq(method="derivative", test_df=test_df)
-        print("R² on simulated trajectories per species:")
-        for name, val in r2_sim.items():
+    if is_print_r_squared:
+        r2 = disc.calculateRsq()
+        print("R² on time derivatives per species:")
+        for name, val in r2.items():
             print(f"  {name}: {val:.6f}")
         print()
-    except Exception:
-        pass
+        try:
+            r2_sim = disc.calculateRsq(method="derivative", test_df=test_df)
+            print("R² on simulated trajectories per species:")
+            for name, val in r2_sim.items():
+                print(f"  {name}: {val:.6f}")
+            print()
+        except Exception:
+            pass
 
-    if plot:
-        disc.plotResult(test_df)
-    if heatmap:
+    if is_plot_comparisons:
+        disc.plotResult(test_df, xlim=xlim)
+    if is_plot_heatmap:
         disc.plot_coefficient_heatmap()
 
     return disc
@@ -1179,8 +1235,8 @@ if __name__ == "__main__":
         differentiation="smooth",
         poly_degree=3,
         include_bias=True,
-        plot=True,
-        heatmap=True,
+        is_plot_comparisons=True,
+        is_plot_heatmap=True,
     )
 
     print("\nCoefficient summary:")

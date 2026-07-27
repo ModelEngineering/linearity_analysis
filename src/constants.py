@@ -23,6 +23,7 @@ NULL_ROADRUNNER = te.loada("")
 START_TIME = 0.0
 END_TIME = 10.0
 NUM_POINT = 1000
+SYSTEM_DISCOVERY_THRESHOLD = 0.01
 
 # Diameter metrics
 DIAMETER_IVP = "weighted_eigenvectors"

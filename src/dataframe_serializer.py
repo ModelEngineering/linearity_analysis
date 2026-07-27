@@ -15,7 +15,7 @@ class DataframeSerializer:
     an instance from an existing file.
     """
 
-    def __init__(self, path: str, is_initialize: bool = False) -> None:
+    def __init__(self, serialization_path: str, is_initialize: bool = False) -> None:
         """
         Parameters
         ----------
@@ -24,11 +24,11 @@ class DataframeSerializer:
         is_initialize : bool
             Whether to initialize the CSV file by writing an empty DataFrame with the appropriate columns.
         """
-        self._path = path
+        self.serialization_path = serialization_path
         if is_initialize:
             self.dataframe: pd.DataFrame = pd.DataFrame()
-        elif os.path.exists(path):
-            self.dataframe = pd.read_csv(path)
+        elif os.path.exists(serialization_path):
+            self.dataframe = pd.read_csv(serialization_path)
         else:
             self.dataframe = pd.DataFrame()
 
@@ -60,5 +60,5 @@ class DataframeSerializer:
                         f"Dict keys {new_cols} do not match existing columns "
                         f"{existing_cols}.")
         self.dataframe = pd.concat([self.dataframe, new_df], ignore_index=True)
-        self.dataframe.to_csv(self._path, index=False)
+        self.dataframe.to_csv(self.serialization_path, index=False)
 

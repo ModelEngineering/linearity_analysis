@@ -88,14 +88,13 @@ def _getChunk(all_model_nums: list[int], num_processes: int,
     return chunk[0], chunk[-1]
 
 def processModels(first_model_num: int, last_model_num: int, process_index: int,
-        num_processes: int) -> None:
+        threshold: float=cn.SYSTEM_DISCOVERY_THRESHOLD) -> None:
     """Processes all the models in the range of first to last.
 
     Args:
         first_model_num (int):
         last_model_num (int):
         process_index (int):
-        num_processes (int):
     """
     """ print(f"Process {process_index}/{num_processes}: "
         f"models {first_model_num}–{last_model_num} "
@@ -105,7 +104,7 @@ def processModels(first_model_num: int, last_model_num: int, process_index: int,
             cn.DATA_DIR, f"linear_predictor_scores_{process_index}.csv")
 
     score = Score(serialization_path=serialization_path)
-    if os.path.exists(score._serialization_path):
+    if os.path.exists(score.serialization_path):
         existing_models = set(score.score_df["description"].unique())
     else:
         existing_models = set()
@@ -133,9 +132,9 @@ def processModels(first_model_num: int, last_model_num: int, process_index: int,
         if not found_timecourse:
             try:
                 model = Model.makeBiomodel(model_name=model_name)
-                timecourse = Timecourse(model, num_point=100)
+                timecourse = Timecourse(model, num_point=1000)
                 _ = timecourse.timecourse_df  # Force creation of the timecourse_df
-                _ = timecourse.jacobian_collection_arr  # Force creation of the jacobian_collection_arr
+                #_ = timecourse.jacobian_collection_arr  # Force creation of the jacobian_collection_arr
                 timecourse.serialize()
             except Exception as e:
                 print(f"Error occurred while creating timecourse for model {model_name}: {e}")
@@ -143,7 +142,8 @@ def processModels(first_model_num: int, last_model_num: int, process_index: int,
         try:
             timecourse = timecourse_iterator.getTimecourse(model_name)
             discovery = SystemDiscovery.makeBiomodel(
-                    model_name=model_name, timecourse=timecourse)
+                    model_name=model_name, timecourse=timecourse,
+                    threshold=threshold)
             discovery.fit()
             prediction_df = discovery.predict()
             score.addTestResult(
@@ -174,5 +174,6 @@ if __name__ == "__main__":
     first_model_num, last_model_num = _getChunk(all_model_nums, num_processes, process_index)
     if last_model_num < first_model_num:
         print(f"No models assigned to process {process_index} — exiting.")
-    processModels(first_model_num, last_model_num, process_index, num_processes)
+    processModels(first_model_num, last_model_num, process_index,
+            threshold=0.001)
     raise SystemExit(0)

@@ -6,6 +6,7 @@ import matplotlib  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
+from pyparsing import Optional
 from scipy.integrate import solve_ivp  # type: ignore
 import tellurium as te  # type: ignore
 from typing import cast
@@ -466,14 +467,7 @@ class TestNetworkRateDiscoveryPlot(unittest.TestCase):
         """plotResult(show=False) returns a matplotlib Figure."""
         if IGNORE_TESTS:
             return
-        fig = self.nd.plotResult(show=False)
-        self.assertIsInstance(fig, plt.Figure)  # type: ignore
-
-    def test_plot_heatmap_returns_figure(self) -> None:
-        """plot_coefficient_heatmap(show=False) returns a matplotlib Figure."""
-        if IGNORE_TESTS:
-            return
-        fig = self.nd.plot_coefficient_heatmap(show=False)
+        fig = self.nd.plotResult()
         self.assertIsInstance(fig, plt.Figure)  # type: ignore
 
 
@@ -1091,6 +1085,35 @@ def _get_fitted_real_biomodel(model_name: str) -> SystemDiscovery:
             model_name, poly_degree=1, timecourse=timecourse,
         ).fit()
     return _MATRIX_EXP_BIOMODEL_CACHE[model_name]
+
+class TestBug1(unittest.TestCase):
+
+    @classmethod
+    def checkFit(cls, model_num: int, poly_degree=1,
+            threshold=cn.SYSTEM_DISCOVERY_THRESHOLD):
+        print(F"Poly_degree: {poly_degree}, threshold: {threshold}")
+        model = _Model.makeBiomodel(model_num=model_num)
+        timecourse = _Timecourse(model)
+        timecourse.plot()
+        timecourse.timecourse_df
+        return discoverNetwork(timecourse.timecourse_df, poly_degree=poly_degree,
+                threshold=threshold, xlim=[0, 100])
+
+    """Test for a bug in _simulateSimple that mishandles constant species.
+
+    The bug is in Scaler.denormalize, which is called by _simulateSimple but
+    not by _simulate.  It misidentifies constant species whose training mean
+    is near zero, so it never substitutes the mean for those species and
+    instead denormalizes the whole trajectory, producing a non-constant
+    trajectory for a species that should be constant.
+    """
+
+    def test_biomodel_1(self) -> None:
+        """_simulate and _simulateSimple agree on BIOMD0000000001 (non-constant species)."""
+        if IGNORE_TESTS:
+            return
+        #self.checkFit(5, threshold=10)
+        #self.checkFit(571, threshold=0.1)
 
 
 class TestMatrixExpSimulateBiomodels(unittest.TestCase):

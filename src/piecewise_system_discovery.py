@@ -10,7 +10,7 @@ from scipy.integrate import solve_ivp  # type: ignore
 
 from src.change_point_detector import ChangePointDetector  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
-from src.system_discovery import ScoreInfo, SystemDiscovery  # type: ignore
+from src.system_discovery import RsqScoreInfo, SystemDiscovery  # type: ignore
 from src.timecourse import Timecourse  # type: ignore
 from src.timecourse_iterator import TimecourseIterator  # type: ignore
 from src.jacobian_signal import JacobianSignal  # type: ignore
@@ -124,19 +124,19 @@ class PiecewiseSystemDiscovery(object):
         species_names = self._subsequence_models[0].species_names
         return pd.DataFrame(sol.y.T, index=time_arr, columns=species_names)
 
-    def score(self) -> ScoreInfo:
+    def score(self) -> RsqScoreInfo:
         """Length-weighted aggregation of per-subsequence ScoreInfo. See
         docs/piecewise_system_discovery.md `score()` section."""
         self._require_fitted()
         weighted_values: List[float] = []
         num_nonzero_term = 0
-        score_infos: List[ScoreInfo] = []
+        score_infos: List[RsqScoreInfo] = []
         for model, length in zip(self._subsequence_models, self._subsequence_lengths):
             info = model.score()
             weighted_values.extend(info.values * length)
             num_nonzero_term += info.num_nonzero_term
             score_infos.append(info)
-        return ScoreInfo.sum(score_infos)
+        return RsqScoreInfo.sum(score_infos)
 
     def __str__(self) -> str:
         block_list: List[str] = []

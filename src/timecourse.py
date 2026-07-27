@@ -155,7 +155,8 @@ class Timecourse(object):
             "end_time": self.end_time,
             "num_point": self.num_point,
             "timecourse_df": self.timecourse_df,
-            "jacobian_collection_arr": self.jacobian_collection_arr,}
+            #"jacobian_collection_arr": self.jacobian_collection_arr,
+            }
         with open(path, 'wb') as f:
             pickle.dump(dct, f)
         return path
@@ -194,12 +195,16 @@ class Timecourse(object):
         # Deserialize
         with open(path, 'rb') as f:
             dct = pickle.load(f)
+        # Make sure that columns don't have square brackets (e.g., "[species]") which can happen due to RoadRunner's output formatting
+        df = dct['timecourse_df']
+        new_column_names = [c[1:-1] if c[0] == "[" else c for c in df.columns]
+        df.columns = new_column_names
         return cls(
             model=dct['model'],
             start_time=dct['start_time'],
             end_time=dct['end_time'],
             num_point=dct['num_point'],
-            timecourse_df=dct['timecourse_df'],
+            timecourse_df=df,
             jacobian_collection_arr=dct['jacobian_collection_arr']
         )
     
@@ -218,7 +223,7 @@ class Timecourse(object):
         """
         plot_options = PlotOptions(**kwargs)
         ax = plot_options.ax
-        for i, name in enumerate(self.model.species_names):
+        for i, name in enumerate(self.timecourse_df.columns):
             ax.plot(  # type: ignore
                     self.timecourse_df.index,
                     self.timecourse_df[name],
