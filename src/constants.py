@@ -66,5 +66,4 @@ ENDTIME_FRACTION_MAXMEDIAN = 0.1  # Fraction of endtime to use for timecourse an
 # Aggregations
 AGGREGATION_TYPE = "aggregation_type"  # model or species name
 AGGREGATION_TYPE_MODEL = "model"
-AGGREGATION_TYPE_SPECIES = "species"
 DESCRIPTION = "description"  # Description of the aggregation

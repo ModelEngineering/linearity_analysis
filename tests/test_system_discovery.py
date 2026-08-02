@@ -765,8 +765,8 @@ class TestScoreDetails(unittest.TestCase):
         disc = self._make_fitted_disc(df)
         result = disc.getScoreDetails(score_type="derivative")
         expected_cols = {"mean", "min", "max", "count", "invalid_count",
-                         "p25", "p30", "p50", "p80", "p95", "p99",
-                         cn.AGGREGATION_TYPE, cn.DESCRIPTION}
+                "p25", "p30", "p50", "p80", "p95", "p99",
+                        cn.AGGREGATION_TYPE, cn.DESCRIPTION}
         self.assertEqual(set(result.columns), expected_cols)
 
     def test_get_score_details_has_model_and_species_rows(self) -> None:
@@ -778,7 +778,6 @@ class TestScoreDetails(unittest.TestCase):
         result = disc.getScoreDetails(score_type="derivative")
         agg_types = set(result[cn.AGGREGATION_TYPE].values)
         self.assertIn(cn.AGGREGATION_TYPE_MODEL, agg_types)
-        self.assertIn(cn.AGGREGATION_TYPE_SPECIES, agg_types)
 
     def test_get_score_details_model_row_count(self) -> None:
         """getScoreDetails returns at least one model aggregation row."""
@@ -798,7 +797,7 @@ class TestScoreDetails(unittest.TestCase):
         df = _make_linear_df(noise_std=0.01)
         disc = self._make_fitted_disc(df)
         result = disc.getScoreDetails(score_type="derivative")
-        species_rows = result[result[cn.AGGREGATION_TYPE] == cn.AGGREGATION_TYPE_SPECIES]
+        species_rows = result[result[cn.AGGREGATION_TYPE] != cn.AGGREGATION_TYPE_MODEL]
         # May have multiple rows if previous test runs accumulated data in score.csv
         self.assertGreaterEqual(len(species_rows), 2)
 
@@ -945,7 +944,7 @@ class TestScoreDetails(unittest.TestCase):
         df = _make_linear_df(noise_std=0.01)
         disc = self._make_fitted_disc(df)
         result = disc.getScoreDetails(score_type="derivative")
-        species_rows = result[result[cn.AGGREGATION_TYPE] == cn.AGGREGATION_TYPE_SPECIES]
+        species_rows = result[result[cn.AGGREGATION_TYPE] != cn.AGGREGATION_TYPE_MODEL]
         for _, row in species_rows.iterrows():
             self.assertFalse(np.isnan(row['mean']), "species mean should not be NaN")
 

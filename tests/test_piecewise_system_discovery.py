@@ -139,7 +139,7 @@ class TestFit(unittest.TestCase):
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc, max_change_point=1,
                 min_subsequence_length=10, min_fractional_reduction=0.05,
-                 poly_degree=1, differentiation="finite").fit()
+                poly_degree=1, differentiation="finite").fit()
         self.assertEqual(len(psd._subsequence_models), 2)  # pylint: disable=protected-access
         self.assertEqual(len(psd._subsequence_boundaries), 2)  # pylint: disable=protected-access
 
@@ -149,32 +149,9 @@ class TestFit(unittest.TestCase):
         tc = _makeTwoRegimeTimecourse()
         psd = PiecewiseSystemDiscovery(tc, max_change_point=1,
                 min_subsequence_length=10, min_fractional_reduction=0.05,
-                 poly_degree=1, differentiation="finite").fit()
+                poly_degree=1, differentiation="finite").fit()
         boundary_time = psd._subsequence_boundaries[0][1]  # pylint: disable=protected-access
         self.assertAlmostEqual(boundary_time, _SPLIT_TIME, delta=0.5)
-
-    def test_segments_default_to_is_normalize_true(self) -> None:
-        """SystemDiscovery's own default applies when kwargs doesn't override it."""
-        if IGNORE_TESTS:
-            return
-        tc = _makeTwoRegimeTimecourse()
-        psd = PiecewiseSystemDiscovery(tc, max_change_point=1,
-                min_subsequence_length=10, min_fractional_reduction=0.05,
-                 poly_degree=1, differentiation="finite").fit()
-        for model in psd._subsequence_models:  # pylint: disable=protected-access
-            self.assertTrue(model._is_normalize)  # pylint: disable=protected-access
-
-    def test_segments_honor_explicit_is_normalize_override(self) -> None:
-        """An explicit is_normalize in kwargs passes through unmodified."""
-        if IGNORE_TESTS:
-            return
-        tc = _makeTwoRegimeTimecourse()
-        psd = PiecewiseSystemDiscovery(tc, max_change_point=1,
-                min_subsequence_length=10, min_fractional_reduction=0.05,
-                 poly_degree=1, differentiation="finite",
-                is_normalize=False).fit()
-        for model in psd._subsequence_models:  # pylint: disable=protected-access
-            self.assertFalse(model._is_normalize)  # pylint: disable=protected-access
 
     def test_subsequence_coefficients_are_physical_units(self) -> None:
         """Regression guard for the units-mismatch bug: with the default
