@@ -46,13 +46,7 @@ All library code lives in `src/`, all tests in `tests/`, batch pipeline scripts 
 
 - **[src/model.py](src/model.py)** — `Model`: static SBML properties (species names, initial values, reaction count). Accepts SBML XML or Antimony strings; Antimony is converted to SBML on construction. RoadRunner is used transiently and not stored. Factory: `Model.makeBiomodel(model_name)`.
 
-- **[src/trajectory.py](src/trajectory.py)** — `Trajectory`: simulation-derived data for a single run. Stores the timecourse DataFrame, per-timepoint Jacobians (`jacobian_collection_arr`, shape `[num_point, n, n]`), and forcing inputs (`forcing_input_collection_arr`). The forcing input `f` is defined so that `dx/dt = J @ x + f` at the initial state. Factory: `Trajectory.makeFromSimulation(model)` or `Trajectory.makeBiomodel(num)`. `makeSubmodel(start, end)` slices a sub-interval.
-
 - **[src/timecourse.py](src/timecourse.py)** — `Timecourse`: newer sibling of `Trajectory`. Simulates and stores `timecourse_df` + `jacobian_collection_arr` lazily (no forcing inputs). Supports perturbation of initial species values. Serializes/deserializes via pickle to `data/serialize/timecourse/`. The simulation runs only once; accessing either property triggers it.
-
-- **[src/linear_predictor.py](src/linear_predictor.py)** — `LinearPredictor`: predicts species concentrations via `dx/dt = J @ x + f`. Takes a `Trajectory`. Three Jacobian modes (`cn.JAC_MEDIAN`, `cn.JAC_FIRST`, `cn.JAC_FITTED`). Windowed ODE integration: the ODE restarts from the actual observed state every `num_step` timepoints. `JAC_FITTED` fits each Jacobian row independently using lmfit.
-
-- **[src/multiple_linear_predictor.py](src/multiple_linear_predictor.py)** — `MultipleLinearPredictor`: piecewise linear prediction across a `TrajectoryCollection`; each segment is predicted independently and results concatenated.
 
 - **[src/score.py](src/score.py)** — `Score`: scores predictions against true timecourses using Absolute Relative Error (ARE = |predicted − true| / |true|). Persists results to CSV via `DataframeSerializer`. One `ScoreInfo` row per model (aggregation_type="model") plus one per species.
 

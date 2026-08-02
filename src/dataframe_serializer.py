@@ -15,7 +15,8 @@ class DataframeSerializer:
     an instance from an existing file.
     """
 
-    def __init__(self, serialization_path: str, is_initialize: bool = False) -> None:
+    def __init__(self, serialization_path: str, is_initialize: bool = False,
+            is_persist: bool = True) -> None:
         """
         Parameters
         ----------
@@ -23,12 +24,18 @@ class DataframeSerializer:
             Path to the CSV serialization file.
         is_initialize : bool
             Whether to initialize the CSV file by writing an empty DataFrame with the appropriate columns.
+        is_persist : bool
+            Whether to persist the DataFrame to the CSV file.
         """
         self.serialization_path = serialization_path
-        if is_initialize:
-            self.dataframe: pd.DataFrame = pd.DataFrame()
-        elif os.path.exists(serialization_path):
-            self.dataframe = pd.read_csv(serialization_path)
+        self.is_persist = is_persist
+        if self.is_persist:
+            if is_initialize:
+                self.dataframe: pd.DataFrame = pd.DataFrame()
+            elif os.path.exists(serialization_path):
+                self.dataframe = pd.read_csv(serialization_path)
+            else:
+                self.dataframe = pd.DataFrame()
         else:
             self.dataframe = pd.DataFrame()
 
@@ -37,13 +44,16 @@ class DataframeSerializer:
             return NotImplemented
         return self.dataframe.equals(other.dataframe)
 
-    def serialize(self, dicts: Iterable[Dict]) -> None:
-        """Appends rows to self._df and writes the result to the CSV.
+    def serializeDct(self, dicts):
+        """Appends rows to self.dataframe and writes the result to the CSV.
+
+        Accepts either a dict-of-lists (e.g. {"mean": [0.25], "aggregation_type": ["model"]})
+        or an iterable of row dictionaries (e.g. [{"mean": 0.25, "aggregation_type": "model"}]).
 
         Parameters
         ----------
-        dicts : Iterable[Dict]
-            Collection of row dictionaries. When self._df is non-empty,
+        dicts : dict or Iterable[Dict]
+            Collection of data to serialize. When self._df is non-empty,
             every dict must have exactly the same keys as the existing columns.
 
         Raises
@@ -51,7 +61,24 @@ class DataframeSerializer:
         ValueError
             If self._df is non-empty and the dict keys do not match its columns.
         """
-        new_df = pd.DataFrame(list(dicts))
+        new_df = pd.DataFrame(dicts)
+        return self.serializeDf(new_df)
+
+    def serializeDf(self, new_df: pd.DataFrame) -> None:
+        """
+        Appends the dataframe to the same information.
+
+        Parameters
+        ----------
+        new_df : pd.DataFrame
+            DataFrame to append. When self._df is non-empty,
+            the columns must match the existing columns.
+
+        Raises
+        ------
+        ValueError
+            If self._df is non-empty and the dict keys do not match its columns.
+        """
         if not self.dataframe.empty:
             existing_cols = set(self.dataframe.columns)
             new_cols = set(new_df.columns)
@@ -60,5 +87,6 @@ class DataframeSerializer:
                         f"Dict keys {new_cols} do not match existing columns "
                         f"{existing_cols}.")
         self.dataframe = pd.concat([self.dataframe, new_df], ignore_index=True)
-        self.dataframe.to_csv(self.serialization_path, index=False)
+        if self.is_persist:
+            self.dataframe.to_csv(self.serialization_path, index=False)
 

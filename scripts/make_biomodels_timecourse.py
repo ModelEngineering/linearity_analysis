@@ -80,7 +80,7 @@ def main(
         try:
             timecourse = Timecourse(model=model, end_time=item.end_time,
                     num_point=1000)
-            _ = timecourse.jacobian_collection_arr  # Force calculations
+            _ = timecourse.timecourse_df  # Force calculations
             path = timecourse.serialize()
             serialized_timecourse = Timecourse.deserialize(path=path)
             if not serialized_timecourse == timecourse:

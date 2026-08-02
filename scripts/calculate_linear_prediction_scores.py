@@ -1,11 +1,11 @@
 """
-Analyze SystemDiscovery prediction accuracy across BioModels, parallelized across processes.
+Analyze SystemDiscovery prediction accuracy across BioModels for those with SEDML endtimes.
+This script is intended to be run in parallel across multiple processes,
+    each handling a distinct slice of the available models.
 
 Usage:
-    python analyze_linear_predictor.py <num_processes> <process_index>
+    python analyze_linear_predictor.py <first_model_num> <last_model_num> 
 
-    num_processes : total number of parallel instances
-    process_index : 1-based index of this instance
 
 Each instance processes a distinct slice of available BioModels and writes
 results to a per-instance CSV (linear_predictor_scores2_<process_index>.csv).
@@ -23,6 +23,8 @@ import math
 import matplotlib.pyplot as plt # type: ignore
 import numpy as np  # type: ignore
 import os
+
+SERIALIZATION_PATH = os.path.join(cn.DATA_DIR, "linear_predictor_scores.csv")
 
 EXCLUDED_MODELS: list[str] = [
     "BIOMD0000000014",  # Errors "too much work"
@@ -87,21 +89,20 @@ def _getChunk(all_model_nums: list[int], num_processes: int,
     chunk = all_model_nums[start_idx:end_idx]
     return chunk[0], chunk[-1]
 
-def processModels(first_model_num: int, last_model_num: int, process_index: int,
-        threshold: float=cn.SYSTEM_DISCOVERY_THRESHOLD) -> None:
+def processModels(first_model_num: int, last_model_num: int,
+        threshold: float=cn.SYSTEM_DISCOVERY_THRESHOLD,
+        serialization_path: str=SERIALIZATION_PATH) -> None:
     """Processes all the models in the range of first to last.
 
     Args:
         first_model_num (int):
         last_model_num (int):
-        process_index (int):
+        threshold (float): The threshold for the system discovery.
     """
     """ print(f"Process {process_index}/{num_processes}: "
         f"models {first_model_num}–{last_model_num} "
         f"({last_model_num - first_model_num + 1} in range)") """
     endtime_dct = getBiomodelsEndtimes(is_include_endtime_source=True)
-    serialization_path = os.path.join(
-            cn.DATA_DIR, f"linear_predictor_scores_{process_index}.csv")
 
     score = Score(serialization_path=serialization_path)
     if os.path.exists(score.serialization_path):
@@ -134,7 +135,6 @@ def processModels(first_model_num: int, last_model_num: int, process_index: int,
                 model = Model.makeBiomodel(model_name=model_name)
                 timecourse = Timecourse(model, num_point=1000)
                 _ = timecourse.timecourse_df  # Force creation of the timecourse_df
-                #_ = timecourse.jacobian_collection_arr  # Force creation of the jacobian_collection_arr
                 timecourse.serialize()
             except Exception as e:
                 print(f"Error occurred while creating timecourse for model {model_name}: {e}")
@@ -146,9 +146,7 @@ def processModels(first_model_num: int, last_model_num: int, process_index: int,
                     threshold=threshold)
             discovery.fit()
             prediction_df = discovery.predict()
-            score.addTestResult(
-                    timecourse.timecourse_df, prediction_df,
-                    description=model_name)
+            score.add(timecourse.timecourse_df, prediction_df, label=model_name)
         except Exception as e:
             print(f"Error occurred while processing model {model_name}: {e}")
             continue
@@ -157,23 +155,15 @@ def processModels(first_model_num: int, last_model_num: int, process_index: int,
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Analyze BioModels linear predictor (one shard of a parallel run).")
-    parser.add_argument("num_processes", type=int,
-            help="Total number of parallel process instances.")
-    parser.add_argument("process_index", type=int,
-            help="1-based index of this process instance.")
+    parser.add_argument("--first_model", type=int, default=1,
+            help="First model number to process.")
+    parser.add_argument("--last_model", type=int, default=-1,
+            help="Last model number to process.")
     args = parser.parse_args()
     #
-    num_processes: int = args.num_processes
-    process_index: int = args.process_index
-    #
-    if process_index > num_processes or process_index < 1:
-        raise ValueError(
-            f"process_index ({process_index}) must be in [1, num_processes={num_processes}].")
-
-    all_model_nums = _getModelNums()
-    first_model_num, last_model_num = _getChunk(all_model_nums, num_processes, process_index)
-    if last_model_num < first_model_num:
-        print(f"No models assigned to process {process_index} — exiting.")
-    processModels(first_model_num, last_model_num, process_index,
-            threshold=0.001)
+    first_model : int = args.first_model
+    last_model : int = args.last_model
+    if last_model < 0:
+        last_model = 2000
+    processModels(first_model, last_model, threshold=0.001)
     raise SystemExit(0)

@@ -46,11 +46,6 @@ def _subsequence_ode(rates):
     return f
 
 
-def _jacobian(rates) -> np.ndarray:
-    a, b = rates
-    return np.array([[-a, 0.0], [a, -b]])
-
-
 def _makeTwoRegimeTimecourse(min_subsequence_length: int = 10) -> Timecourse:
     t_a = np.linspace(0.0, _SPLIT_TIME, _NUM_POINT_PER_SEGMENT, endpoint=False)
     sol_a = solve_ivp(_subsequence_ode(_RATE_A), [0.0, _SPLIT_TIME], [10.0, 0.0],
@@ -67,15 +62,10 @@ def _makeTwoRegimeTimecourse(min_subsequence_length: int = 10) -> Timecourse:
     data_arr = np.concatenate([sol_a.y.T, sol_b.y.T], axis=0)
     timecourse_df = pd.DataFrame(data_arr, index=time_arr, columns=["S1", "S2"])
 
-    jac_a = np.tile(_jacobian(_RATE_A), (len(t_a), 1, 1))
-    jac_b = np.tile(_jacobian(_RATE_B), (len(t_b), 1, 1))
-    jacobian_collection_arr = np.concatenate([jac_a, jac_b], axis=0)
-
     model = Model(_TWO_SPECIES_ANTIMONY, model_name="test_model")
     return Timecourse(
         model=model,
         timecourse_df=timecourse_df,
-        jacobian_collection_arr=jacobian_collection_arr,
     )
 
 
@@ -545,6 +535,7 @@ class TestPlot(unittest.TestCase):
 @unittest.skipUnless(HAS_REAL_ZIP, "Real timecourse zip not found")
 class TestBug(unittest.TestCase):
 
+    @unittest.skip("Jacobian collection removed from Timecourse; JacobianSignal no longer compatible.")
     def test_bug_1(self) -> None:
         #if IGNORE_TESTS:
         #    return

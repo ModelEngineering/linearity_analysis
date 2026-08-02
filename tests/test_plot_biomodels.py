@@ -213,14 +213,14 @@ class TestPlotSingleModel(unittest.TestCase):
         self.assertEqual(len(lines), 3)
 
     @unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
-    def test_plots_real_biomodel_93(self) -> None:
+    def test_plots_real_biomodels(self) -> None:
         """_plot_single_model runs end-to-end against a real, simulated
-        BioModel (BIOMD0000000093) rather than a mocked Timecourse."""
+        BioModel (BIOMD0000000700) rather than a mocked Timecourse."""
         #if IGNORE_TESTS:
         #    return
         from src.model import Model  # type: ignore
 
-        model_name = "BIOMD0000000093"
+        model_name = "BIOMD0000000700"
         sbml_path = os.path.join(cn.BIOMODELS_DIR, model_name, f"{model_name}_url.xml")
         with open(sbml_path) as f:
             sbml_str = f.read()
@@ -230,7 +230,7 @@ class TestPlotSingleModel(unittest.TestCase):
 
         lines = self._ax.get_lines()
         self.assertEqual(len(lines), len(model.species_names))
-        self.assertEqual(self._ax.get_title(), "93")
+        self.assertEqual(self._ax.get_title(), "700")
         self.assertEqual(len(self._ax.get_xticks()), 0)
         self.assertEqual(len(self._ax.get_yticks()), 0)
 

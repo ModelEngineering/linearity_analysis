@@ -3,7 +3,6 @@ Plots comparisons of different estimates of characteristics times for
 BioModels models.
  """
 from src.biomodels_iterator import BiomodelsIterator
-from src.characteristic_time_estimator import CharacteristicTimeEstimator
 from src.model import Model # type: ignore
 
 import matplotlib.pyplot as plt  # type: ignore
@@ -60,14 +59,6 @@ def main(first_model_num: int = 409, last_model_num: int = -1) -> None:
             model = Model.makeBiomodel(item.model_name)
         except Exception as e:
             print(f"Error occurred while creating model {item.model_name}: {e}")
-            continue
-        estimator = CharacteristicTimeEstimator(model, num_point=1000)
-        try:
-            estimator.plotComparison(timeout=10, ax_sd=ax_sb,
-                    ax_ss=ax_ss, ax_mc=ax_mc,
-            )
-        except Exception as e:
-            print(f"Error occurred while plotting model {item.model_name}: {e}")
             continue
         ax_sb.set_title(f"{item.model_num}", fontsize=10, fontweight='bold')
         page_models.append(model)

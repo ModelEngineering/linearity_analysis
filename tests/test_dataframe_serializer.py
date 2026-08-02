@@ -32,7 +32,7 @@ class TestInit(unittest.TestCase):
         if IGNORE_TESTS:
             return
         dataframe_serializer = DataframeSerializer(self.tmp_path)
-        self.assertEqual(dataframe_serializer._path, self.tmp_path)
+        self.assertEqual(dataframe_serializer.serialization_path, self.tmp_path)
 
     def test_new_file_empty_df(self) -> None:
         """self._df is an empty DataFrame when the file does not exist."""
@@ -60,7 +60,7 @@ class TestInit(unittest.TestCase):
                 dataframe_serializer.dataframe['a'].values, [1, 3])  # type: ignore
 
 
-class TestSerialize(unittest.TestCase):
+class TestserializeDct(unittest.TestCase):
     """Tests for DataframeSerializer.serialize."""
 
     def setUp(self) -> None:
@@ -71,28 +71,28 @@ class TestSerialize(unittest.TestCase):
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     def test_creates_file(self) -> None:
-        """serialize() creates the CSV file."""
+        """serializeDct() creates the CSV file."""
         if IGNORE_TESTS:
             return
         dataframe_serializer = DataframeSerializer(self.tmp_path)
-        dataframe_serializer.serialize(ROWS)
+        dataframe_serializer.serializeDct(ROWS)
         self.assertTrue(os.path.exists(self.tmp_path))
 
     def test_updates_df(self) -> None:
-        """serialize() appends the new rows to self._df."""
+        """serializeDct() appends the new rows to self._df."""
         if IGNORE_TESTS:
             return
         dataframe_serializer = DataframeSerializer(self.tmp_path)
-        dataframe_serializer.serialize(ROWS)
+        dataframe_serializer.serializeDct(ROWS)
         self.assertEqual(len(dataframe_serializer.dataframe), 2)
 
     def test_multiple_calls_accumulate(self) -> None:
-        """Successive serialize() calls accumulate all rows in self._df."""
+        """Successive serializeDct() calls accumulate all rows in self._df."""
         if IGNORE_TESTS:
             return
         dataframe_serializer = DataframeSerializer(self.tmp_path)
-        dataframe_serializer.serialize(ROWS)
-        dataframe_serializer.serialize(ROWS)
+        dataframe_serializer.serializeDct(ROWS)
+        dataframe_serializer.serializeDct(ROWS)
         self.assertEqual(len(dataframe_serializer.dataframe), 4)
 
     def test_csv_content_matches_df(self) -> None:
@@ -100,44 +100,44 @@ class TestSerialize(unittest.TestCase):
         if IGNORE_TESTS:
             return
         dataframe_serializer = DataframeSerializer(self.tmp_path)
-        dataframe_serializer.serialize(ROWS)
+        dataframe_serializer.serializeDct(ROWS)
         reloaded_df = pd.read_csv(self.tmp_path)
         pd.testing.assert_frame_equal(dataframe_serializer.dataframe, reloaded_df)
 
     def test_column_mismatch_raises(self) -> None:
-        """serialize() raises ValueError when dict keys differ from existing columns."""
+        """serializeDct() raises ValueError when dict keys differ from existing columns."""
         if IGNORE_TESTS:
             return
         dataframe_serializer = DataframeSerializer(self.tmp_path)
-        dataframe_serializer.serialize(ROWS)
+        dataframe_serializer.serializeDct(ROWS)
         with self.assertRaises(ValueError):
-            dataframe_serializer.serialize([{'a': 5, 'c': 6}])
+            dataframe_serializer.serializeDct([{'a': 5, 'c': 6}])
 
     def test_empty_df_accepts_any_keys(self) -> None:
-        """serialize() imposes no column constraint when self._df is empty."""
+        """serializeDct() imposes no column constraint when self._df is empty."""
         if IGNORE_TESTS:
             return
         dataframe_serializer = DataframeSerializer(self.tmp_path)
-        dataframe_serializer.serialize([{'x': 1, 'y': 2}])
+        dataframe_serializer.serializeDct([{'x': 1, 'y': 2}])
         self.assertListEqual(list(dataframe_serializer.dataframe.columns), ['x', 'y'])
 
     def test_extra_key_raises(self) -> None:
-        """serialize() raises ValueError when new dicts have an extra key."""
+        """serializeDct() raises ValueError when new dicts have an extra key."""
         if IGNORE_TESTS:
             return
         dataframe_serializer = DataframeSerializer(self.tmp_path)
-        dataframe_serializer.serialize(ROWS)
+        dataframe_serializer.serializeDct(ROWS)
         with self.assertRaises(ValueError):
-            dataframe_serializer.serialize([{'a': 5, 'b': 6, 'c': 7}])
+            dataframe_serializer.serializeDct([{'a': 5, 'b': 6, 'c': 7}])
 
     def test_missing_key_raises(self) -> None:
-        """serialize() raises ValueError when new dicts are missing a key."""
+        """serializeDct() raises ValueError when new dicts are missing a key."""
         if IGNORE_TESTS:
             return
         dataframe_serializer = DataframeSerializer(self.tmp_path)
-        dataframe_serializer.serialize(ROWS)
+        dataframe_serializer.serializeDct(ROWS)
         with self.assertRaises(ValueError):
-            dataframe_serializer.serialize([{'a': 5}])
+            dataframe_serializer.serializeDct([{'a': 5}])
 
 
 class TestEq(unittest.TestCase):
@@ -156,7 +156,7 @@ class TestEq(unittest.TestCase):
         """Returns a DataframeSerializer, optionally with rows serialized."""
         ds = DataframeSerializer(path)
         if rows:
-            ds.serialize(rows)
+            ds.serializeDct(rows)
         return ds
 
     def test_equal_empty_instances(self) -> None:

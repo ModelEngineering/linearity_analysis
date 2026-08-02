@@ -7,7 +7,7 @@ import unittest
 import zipfile
 
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore
 
 import src.constants as cn
 from src.model import Model  # type: ignore
@@ -24,7 +24,7 @@ k1 = 0.1; k2 = 0.2; S1 = 10; S2 = 0
 NUM_POINT = 11
 NUM_SPECIES = 2
 MODEL_NAME = "test_model"
-FIRST_REAL_MODEL = "BIOMD0000000003"
+FIRST_REAL_MODEL = "BIOMD0000000005"
 HAS_REAL_ZIP = os.path.isfile(cn.TIMECOURSE_ZIP_PATH)
 
 
@@ -41,11 +41,9 @@ def _makeTimecourse(model_name: str = MODEL_NAME) -> Timecourse:
         columns=["S1", "S2"],
     )
     timecourse_df.index.name = "time"
-    jacobian_collection_arr = rng.standard_normal((NUM_POINT, NUM_SPECIES, NUM_SPECIES))
     return Timecourse(
         model=_makeModel(model_name=model_name),
         timecourse_df=timecourse_df,
-        jacobian_collection_arr=jacobian_collection_arr,
     )
 
 
@@ -59,7 +57,6 @@ def _makeZipWithTimecourses(zip_path: str, model_names: list) -> None:
                 "end_time": tc.end_time,
                 "num_point": tc.num_point,
                 "timecourse_df": tc._timecourse_df,
-                "jacobian_collection_arr": tc._jacobian_collection_arr,
             }
             zf.writestr(f"{name}_timecourse.pkl", pickle.dumps(dct))
 

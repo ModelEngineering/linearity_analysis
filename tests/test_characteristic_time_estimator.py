@@ -180,9 +180,7 @@ class TestRunSimulation(unittest.TestCase):
 
         mock_sim_instance = MagicMock()
         mock_result = SimulationResult(
-            timecourse_df=pd.DataFrame({"S1": [1.0], "S2": [2.0]}, index=[0.0]),
-            jacobian_collection_arr=np.array([]),
-        )
+            timecourse_df=pd.DataFrame({"S1": [1.0], "S2": [2.0]}, index=[0.0]))
         mock_sim_instance.simulate.return_value = mock_result
 
         with patch('characteristic_time_estimator.Simulator', return_value=mock_sim_instance):
@@ -196,9 +194,7 @@ class TestRunSimulation(unittest.TestCase):
 
         mock_sim_instance = MagicMock()
         mock_result = SimulationResult(
-            timecourse_df=pd.DataFrame({"S1": [1.0], "S2": [2.0]}, index=[0.0]),
-            jacobian_collection_arr=np.array([]),
-        )
+            timecourse_df=pd.DataFrame({"S1": [1.0], "S2": [2.0]}, index=[0.0]))
         mock_sim_instance.simulate.return_value = mock_result
 
         with patch('characteristic_time_estimator.Simulator', return_value=mock_sim_instance) as MockSim:
@@ -302,8 +298,7 @@ class TestPlotStdNrml(unittest.TestCase):
             {"S1": [10.0, 5.0, 0.0], "S2": [0.0, 3.0, 4.0], "S3": [0.0, 2.0, 6.0]},
             index=[0.0, 1.0, 2.0],
         )
-        self.mock_result = SimulationResult(
-            timecourse_df=self.timecourse_df, jacobian_collection_arr=np.array([]))
+        self.mock_result = SimulationResult(timecourse_df=self.timecourse_df)
 
     def tearDown(self) -> None:
         plt.close("all")
@@ -380,8 +375,7 @@ class TestPlotStdNrml(unittest.TestCase):
             {"S1": [10.0, 5.0, 0.0], "S2": [1.0, 1.0, 1.0]},
             index=[0.0, 1.0, 2.0],
         )
-        mock_result = SimulationResult(
-            timecourse_df=timecourse_df, jacobian_collection_arr=np.array([]))
+        mock_result = SimulationResult(timecourse_df=timecourse_df)
         with patch.object(self.estimator, '_run_simulation', return_value=mock_result):
             _, mid_po, bot_po = self.estimator.plotStdNrml(end_time=2.0)
         for line in mid_po.ax.lines:
@@ -512,8 +506,7 @@ class TestPlotComparison(unittest.TestCase):
             {"S1": [10.0, 5.0, 0.0], "S2": [0.0, 3.0, 4.0], "S3": [0.0, 2.0, 6.0]},
             index=[0.0, 1.0, 2.0],
         )
-        self.mock_result = SimulationResult(
-            timecourse_df=self.timecourse_df, jacobian_collection_arr=np.array([]))
+        self.mock_result = SimulationResult(timecourse_df=self.timecourse_df)
 
     def tearDown(self) -> None:
         plt.close("all")

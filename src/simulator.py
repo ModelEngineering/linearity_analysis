@@ -12,8 +12,19 @@ from typing import Dict, List, Optional
 
 MAX_ITERATOR_STEP = 50 * int(1e6)
 
-SimulationResult = namedtuple('SimulationResult',
-        ['timecourse_df', 'jacobian_collection_arr'])
+# Default empty Jacobian collection for simulations that don't collect them
+_EMPTY_JACOBIAN = np.array([])
+
+class SimulationResult:
+    """Result of a simulation, containing timecourse data and optionally collected Jacobians."""
+    
+    def __init__(self, timecourse_df: pd.DataFrame, jacobian_collection_arr: np.ndarray = _EMPTY_JACOBIAN):
+        self.timecourse_df = timecourse_df
+        self.jacobian_collection_arr = jacobian_collection_arr
+    
+    @property
+    def shape(self):
+        return (len(self.timecourse_df),)
 
 
 class Simulator(object):
@@ -32,7 +43,6 @@ class Simulator(object):
         num_point: int = cn.NUM_POINT,
         perturbation_value_fraction: float = cn.PERTURBATION_VALUE_FRACTION,
         perturbation_species_fraction: float = cn.PERTURBATION_SPECIES_FRACTION,
-        is_jacobian_collection: bool = False
         ) -> None:
         """
         Parameters
@@ -51,8 +61,6 @@ class Simulator(object):
             May be positive or negative.
         perturbation_species_fraction : float
             Fraction of non-zero initial values that are perturbed.
-        is_jacobian_collection : bool
-            Whether to collect Jacobians at each time point.
         """
         self.model = model
         self.start_time = start_time
@@ -60,19 +68,22 @@ class Simulator(object):
         self.num_point = num_point
         self.perturbation_value_fraction = perturbation_value_fraction
         self.perturbation_species_fraction = perturbation_species_fraction
-        self.is_jacobian_collection = is_jacobian_collection
 
     @classmethod
     def simulateBiomodel(cls, model_num: int, end_time: float=-1.0,
             start_time: float = cn.START_TIME,
             num_point: int = cn.NUM_POINT,
-            is_jacobian_collection: bool = True) -> SimulationResult:
+            is_jacobian_collection: bool = False,
+            ) -> SimulationResult:
         """
         Simulates the model.
 
         Args:
             model_num (int): number of the BioModel to simulate.
             end_time (float): end time of the simulation. If -1, use the model's default.
+            start_time (float): start time of the simulation.
+            num_point (int): number of time points to simulate.
+            is_jacobian_collection (bool): whether to collect Jacobians at each time point.
 
         Returns:
             SimulationResult: _description_
@@ -88,7 +99,6 @@ class Simulator(object):
             start_time=start_time,
             end_time=end_time,
             num_point=num_point,
-            is_jacobian_collection=is_jacobian_collection,
         )
         return simulator.simulate(is_jacobian_collection=is_jacobian_collection)
 
@@ -143,7 +153,7 @@ class Simulator(object):
                     rr.simulate(self.start_time, self.start_time + 1e-10, 2)
                 else:
                     rr.simulate(timepoint_arr[i - 1], t, 2)
-                if self.is_jacobian_collection:
+                if is_jacobian_collection:
                     jacobian_arr = rr.getFullJacobian()
                     jacobian_arr = np.array(jacobian_arr).copy()
                     if np.all(np.isclose(jacobian_arr, 0.0)):

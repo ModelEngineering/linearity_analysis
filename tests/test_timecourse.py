@@ -17,7 +17,7 @@ from timecourse import Timecourse  # type: ignore
 
 IGNORE_TESTS = False
 HAS_REAL_ZIP = os.path.isfile(cn.TIMECOURSE_ZIP_PATH)
-BIOMODEL_53 = "BIOMD0000000053"
+BIOMODEL_700 = "BIOMD0000000700"
 
 ANTIMONY_MODEL = """
 S1 -> S2; k1*S1
@@ -44,11 +44,9 @@ def _makeTimecourse() -> Timecourse:
             columns=["S1", "S2"],
     )
     timecourse_df.index.name = "time"
-    jacobian_collection_arr = rng.standard_normal((NUM_POINT, NUM_SPECIES, NUM_SPECIES))
     return Timecourse(
             model=_makeModel(),
             timecourse_df=timecourse_df,
-            jacobian_collection_arr=jacobian_collection_arr,
     )
 
 
@@ -77,52 +75,6 @@ class TestTimecourseInit(unittest.TestCase):
         if IGNORE_TESTS:
             return
         tc = _makeTimecourse()
-        self.assertFalse(tc._timecourse_df.empty)
-
-    def test_jacobian_collection_arr_stored(self) -> None:
-        if IGNORE_TESTS:
-            return
-        tc = _makeTimecourse()
-        self.assertGreater(tc._jacobian_collection_arr.size, 0)
-
-
-class TestTimecourseJacobianCollectionArr(unittest.TestCase):
-    """Tests for Timecourse.jacobian_collection_arr property."""
-
-    def test_returns_ndarray(self) -> None:
-        if IGNORE_TESTS:
-            return
-        tc = _makeTimecourse()
-        self.assertIsInstance(tc.jacobian_collection_arr, np.ndarray)
-
-    def test_shape(self) -> None:
-        if IGNORE_TESTS:
-            return
-        tc = _makeTimecourse()
-        self.assertEqual(tc.jacobian_collection_arr.shape,
-                (NUM_POINT, NUM_SPECIES, NUM_SPECIES))
-
-    def test_returns_prepopulated_array(self) -> None:
-        if IGNORE_TESTS:
-            return
-        tc = _makeTimecourse()
-        np.testing.assert_array_equal(
-                tc.jacobian_collection_arr, tc._jacobian_collection_arr)
-
-    def test_cached_on_second_access(self) -> None:
-        if IGNORE_TESTS:
-            return
-        tc = _makeTimecourse()
-        first = tc.jacobian_collection_arr
-        second = tc.jacobian_collection_arr
-        self.assertIs(first, second)
-
-    def test_simulation_populates_timecourse_df(self) -> None:
-        if IGNORE_TESTS:
-            return
-        tc = Timecourse(model=_makeModel(), end_time=10.0)
-        self.assertTrue(tc._timecourse_df.empty)
-        _ = tc.jacobian_collection_arr
         self.assertFalse(tc._timecourse_df.empty)
 
 
@@ -215,14 +167,6 @@ class TestTimecourseEq(unittest.TestCase):
         tc1 = _makeTimecourse()
         tc2 = _makeTimecourse()
         tc2._timecourse_df = tc2._timecourse_df * 2
-        self.assertNotEqual(tc1, tc2)
-
-    def test_different_jacobian_not_equal(self) -> None:
-        if IGNORE_TESTS:
-            return
-        tc1 = _makeTimecourse()
-        tc2 = _makeTimecourse()
-        tc2._jacobian_collection_arr = tc2._jacobian_collection_arr * 2
         self.assertNotEqual(tc1, tc2)
 
     def test_not_equal_to_non_timecourse(self) -> None:
@@ -502,16 +446,15 @@ class TestMakeTimecourses(unittest.TestCase):
         for ax in plt.gcf().axes:
             self.assertEqual(ax.get_ylabel(), "concentration")
 
-
 class TestTimecourseEqRealBiomodel(unittest.TestCase):
     """Verifies __eq__ with a real BioModel timecourse loaded from the zip archive."""
 
     @unittest.skipUnless(HAS_REAL_ZIP, "Real timecourse zip not found")
-    def test_biomodel53_equals_itself(self) -> None:
+    def test_biomodel700_equals_itself(self) -> None:
         if IGNORE_TESTS:
             return
         from timecourse_iterator import TimecourseIterator  # type: ignore
-        tc = TimecourseIterator().getTimecourse(BIOMODEL_53)
+        tc = TimecourseIterator().getTimecourse(BIOMODEL_700)
         self.assertEqual(tc, tc)
 
 

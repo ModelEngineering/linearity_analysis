@@ -30,6 +30,20 @@ def _make_model_dir(parent: str, model_name: str, xml_files: List[str],
     return model_dir
 
 
+def _write_endtimes_csv(parent: str, entries: List[tuple]) -> str:
+    """Write an endtimes CSV with sedml source for each (model_name, end_time) entry.
+
+    Returns the path to the written CSV file.
+    """
+    csv_path = os.path.join(parent, "endtimes.csv")
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([cn.COL_MODEL_NAME, cn.COL_ENDTIME, cn.COL_ENDTIME_SOURCE])
+        for model_name, end_time in entries:
+            writer.writerow([model_name, str(end_time), cn.ENDTIME_SOURCE_SEDML])
+    return csv_path
+
+
 class TestBiomodelsItem(unittest.TestCase):
     """Tests for BiomodelsItem."""
 
@@ -133,7 +147,8 @@ class TestBiomodelsItemModelNum(unittest.TestCase):
         tmpdir = tempfile.mkdtemp()
         try:
             _make_model_dir(tmpdir, "BIOMD0000000007", xml_files=["model.xml"], sedml_files=[])
-            it = BiomodelsIterator(biomodels_dir=tmpdir, is_report=False)
+            csv_path = _write_endtimes_csv(tmpdir, [("BIOMD0000000007", 10.0)])
+            it = BiomodelsIterator(biomodels_dir=tmpdir, is_report=False, endtimes_csv_path=csv_path)
             items = list(it)
             self.assertEqual(len(items), 1)
             self.assertEqual(items[0].model_num, 7)
@@ -307,7 +322,11 @@ class TestFindFilesWithExtension(unittest.TestCase):
 
 
 class TestBiomodelsIteratorIter(unittest.TestCase):
-    """Tests for BiomodelsIterator.__iter__ using a temp directory."""
+    """Tests for BiomodelsIterator.__iter__ using a temp directory.
+
+    Note: __iter__ now filters by ENDTIME_SOURCE_SEDML, so tests that expect
+    models to be yielded must provide an endtimes CSV with sedml source entries.
+    """
 
     def setUp(self) -> None:
         self._tmpdir = tempfile.mkdtemp()
@@ -325,7 +344,9 @@ class TestBiomodelsIteratorIter(unittest.TestCase):
             return
         _make_model_dir(self._tmpdir, "BIOMD0000000001",
                         xml_files=["BIOMD0000000001_url.xml"], sedml_files=[])
-        items = list(self._iterator())
+        csv_path = _write_endtimes_csv(self._tmpdir, [("BIOMD0000000001", 10.0)])
+        it = BiomodelsIterator(biomodels_dir=self._tmpdir, is_report=False, endtimes_csv_path=csv_path)
+        items = list(it)
         self.assertTrue(all(isinstance(item, BiomodelsItem) for item in items))
 
     def test_yields_one_item_per_biomd_dir(self) -> None:
@@ -336,7 +357,10 @@ class TestBiomodelsIteratorIter(unittest.TestCase):
                         xml_files=["BIOMD0000000001_url.xml"], sedml_files=[])
         _make_model_dir(self._tmpdir, "BIOMD0000000002",
                         xml_files=["BIOMD0000000002_url.xml"], sedml_files=[])
-        items = list(self._iterator())
+        csv_path = _write_endtimes_csv(self._tmpdir, [
+            ("BIOMD0000000001", 10.0), ("BIOMD0000000002", 20.0)])
+        it = BiomodelsIterator(biomodels_dir=self._tmpdir, is_report=False, endtimes_csv_path=csv_path)
+        items = list(it)
         self.assertEqual(len(items), 2)
 
     def test_skips_non_biomd_directories(self) -> None:
@@ -347,7 +371,9 @@ class TestBiomodelsIteratorIter(unittest.TestCase):
                         xml_files=["model.xml"], sedml_files=[])
         _make_model_dir(self._tmpdir, "other_dir",
                         xml_files=["model.xml"], sedml_files=[])
-        items = list(self._iterator())
+        csv_path = _write_endtimes_csv(self._tmpdir, [("BIOMD0000000001", 10.0)])
+        it = BiomodelsIterator(biomodels_dir=self._tmpdir, is_report=False, endtimes_csv_path=csv_path)
+        items = list(it)
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].model_name, "BIOMD0000000001")
 
@@ -361,7 +387,10 @@ class TestBiomodelsIteratorIter(unittest.TestCase):
                         xml_files=["model.xml"], sedml_files=[])
         _make_model_dir(self._tmpdir, "BIOMD0000000002",
                         xml_files=["model.xml"], sedml_files=[])
-        items = list(self._iterator())
+        csv_path = _write_endtimes_csv(self._tmpdir, [
+            ("BIOMD0000000001", 10.0), ("BIOMD0000000002", 20.0), ("BIOMD0000000003", 30.0)])
+        it = BiomodelsIterator(biomodels_dir=self._tmpdir, is_report=False, endtimes_csv_path=csv_path)
+        items = list(it)
         names = [item.model_name for item in items]
         self.assertEqual(names, sorted(names))
 
@@ -371,7 +400,9 @@ class TestBiomodelsIteratorIter(unittest.TestCase):
             return
         _make_model_dir(self._tmpdir, "BIOMD0000000001",
                         xml_files=["model.xml"], sedml_files=[])
-        items = list(self._iterator())
+        csv_path = _write_endtimes_csv(self._tmpdir, [("BIOMD0000000001", 10.0)])
+        it = BiomodelsIterator(biomodels_dir=self._tmpdir, is_report=False, endtimes_csv_path=csv_path)
+        items = list(it)
         self.assertEqual(items[0].model_name, "BIOMD0000000001")
 
     def test_item_sbml_paths_populated(self) -> None:
@@ -380,7 +411,9 @@ class TestBiomodelsIteratorIter(unittest.TestCase):
             return
         _make_model_dir(self._tmpdir, "BIOMD0000000001",
                         xml_files=["BIOMD0000000001_url.xml"], sedml_files=[])
-        items = list(self._iterator())
+        csv_path = _write_endtimes_csv(self._tmpdir, [("BIOMD0000000001", 10.0)])
+        it = BiomodelsIterator(biomodels_dir=self._tmpdir, is_report=False, endtimes_csv_path=csv_path)
+        items = list(it)
         self.assertEqual(len(items[0].sbml_paths), 1)
         self.assertTrue(items[0].sbml_paths[0].endswith("BIOMD0000000001_url.xml"))
 
@@ -390,7 +423,9 @@ class TestBiomodelsIteratorIter(unittest.TestCase):
             return
         _make_model_dir(self._tmpdir, "BIOMD0000000001",
                         xml_files=[], sedml_files=["model.sedml"])
-        items = list(self._iterator())
+        csv_path = _write_endtimes_csv(self._tmpdir, [("BIOMD0000000001", 10.0)])
+        it = BiomodelsIterator(biomodels_dir=self._tmpdir, is_report=False, endtimes_csv_path=csv_path)
+        items = list(it)
         self.assertEqual(len(items[0].sedml_paths), 1)
         self.assertTrue(items[0].sedml_paths[0].endswith("model.sedml"))
 
@@ -398,7 +433,7 @@ class TestBiomodelsIteratorIter(unittest.TestCase):
         """An empty biomodels_dir yields no items."""
         if IGNORE_TESTS:
             return
-        items = list(self._iterator())
+        items = list(BiomodelsIterator(biomodels_dir=self._tmpdir, is_report=False))
         self.assertEqual(items, [])
 
     def test_manifest_excluded_from_sbml_paths(self) -> None:
@@ -407,7 +442,9 @@ class TestBiomodelsIteratorIter(unittest.TestCase):
             return
         _make_model_dir(self._tmpdir, "BIOMD0000000001",
                         xml_files=["model.xml"], sedml_files=[], add_manifest=True)
-        items = list(self._iterator())
+        csv_path = _write_endtimes_csv(self._tmpdir, [("BIOMD0000000001", 10.0)])
+        it = BiomodelsIterator(biomodels_dir=self._tmpdir, is_report=False, endtimes_csv_path=csv_path)
+        items = list(it)
         self.assertFalse(any("manifest.xml" in p for p in items[0].sbml_paths))
 
     def test_skips_excluded_models(self) -> None:
@@ -418,8 +455,10 @@ class TestBiomodelsIteratorIter(unittest.TestCase):
                         xml_files=["model.xml"], sedml_files=[])
         _make_model_dir(self._tmpdir, "BIOMD0000000002",
                         xml_files=["model.xml"], sedml_files=[])
+        csv_path = _write_endtimes_csv(self._tmpdir, [
+            ("BIOMD0000000001", 10.0), ("BIOMD0000000002", 20.0)])
         it = BiomodelsIterator(biomodels_dir=self._tmpdir,
-                               excluded_models=["BIOMD0000000001"], is_report=False)
+                               excluded_models=["BIOMD0000000001"], is_report=False, endtimes_csv_path=csv_path)
         items = list(it)
         names = [item.model_name for item in items]
         self.assertNotIn("BIOMD0000000001", names)
@@ -438,8 +477,10 @@ class TestBiomodelsIteratorIter(unittest.TestCase):
             writer = csv.writer(f)
             writer.writerow([cn.COL_MODEL_NAME])
             writer.writerow(["BIOMD0000000001"])
+        endtimes_csv = _write_endtimes_csv(self._tmpdir, [
+            ("BIOMD0000000001", 10.0), ("BIOMD0000000002", 20.0)])
         it = BiomodelsIterator(biomodels_dir=self._tmpdir,
-                               existing_csv_path=csv_path, is_report=False)
+                               existing_csv_path=csv_path, is_report=False, endtimes_csv_path=endtimes_csv)
         items = list(it)
         names = [item.model_name for item in items]
         self.assertNotIn("BIOMD0000000001", names)
@@ -456,8 +497,9 @@ class TestBiomodelsIteratorIter(unittest.TestCase):
             writer = csv.writer(f)
             writer.writerow([cn.COL_MODEL_NAME])
             writer.writerow(["BIOMD0000000001"])
+        endtimes_csv = _write_endtimes_csv(self._tmpdir, [("BIOMD0000000002", 20.0)])
         it = BiomodelsIterator(biomodels_dir=self._tmpdir,
-                               existing_csv_path=csv_path, is_report=False)
+                               existing_csv_path=csv_path, is_report=False, endtimes_csv_path=endtimes_csv)
         items = list(it)
         self.assertEqual(len(items), 1)
         self.assertFalse(items[0].existing_df.empty)
@@ -469,8 +511,26 @@ class TestBiomodelsIteratorIter(unittest.TestCase):
             return
         _make_model_dir(self._tmpdir, "BIOMD0000000001",
                         xml_files=["model.xml"], sedml_files=[])
-        items = list(self._iterator())
+        csv_path = _write_endtimes_csv(self._tmpdir, [("BIOMD0000000001", 10.0)])
+        it = BiomodelsIterator(biomodels_dir=self._tmpdir, is_report=False, endtimes_csv_path=csv_path)
+        items = list(it)
         self.assertTrue(items[0].existing_df.empty)
+
+    def test_skips_models_without_sedml_source(self) -> None:
+        """Models without ENDTIME_SOURCE_SEDML in the endtimes CSV are skipped."""
+        if IGNORE_TESTS:
+            return
+        _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                        xml_files=["model.xml"], sedml_files=[])
+        # Write a CSV with steadystate source (not sedml) and pass it to the iterator
+        csv_path = os.path.join(self._tmpdir, "endtimes.csv")
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([cn.COL_MODEL_NAME, cn.COL_ENDTIME, cn.COL_ENDTIME_SOURCE])
+            writer.writerow(["BIOMD0000000001", "25.0", cn.ENDTIME_SOURCE_STEADYSTATE])
+        it = BiomodelsIterator(biomodels_dir=self._tmpdir, is_report=False, endtimes_csv_path=csv_path)
+        items = list(it)
+        self.assertEqual(len(items), 0)
 
 
 class TestExtractModelNum(unittest.TestCase):
@@ -520,7 +580,9 @@ class TestBiomodelsIteratorRange(unittest.TestCase):
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def _names(self, **kwargs) -> List[str]:
-        it = BiomodelsIterator(biomodels_dir=self._tmpdir, is_report=False, **kwargs)
+        csv_path = _write_endtimes_csv(self._tmpdir, [
+            ("BIOMD0000000001", 10.0), ("BIOMD0000000002", 20.0), ("BIOMD0000000003", 30.0)])
+        it = BiomodelsIterator(biomodels_dir=self._tmpdir, is_report=False, endtimes_csv_path=csv_path, **kwargs)
         return [item.model_name for item in it]
 
     def test_default_range_yields_all_models(self) -> None:
@@ -726,19 +788,14 @@ class TestBiomodelsItemEndTime(unittest.TestCase):
             os.makedirs(model_dir)
             open(os.path.join(model_dir, f"{model_name}_url.xml"), "w").close()
 
-            # Write a matching endtimes CSV
-            csv_path = os.path.join(tmpdir, "endtimes.csv")
-            with open(csv_path, "w", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow([cn.COL_MODEL_NAME, cn.COL_ENDTIME])
-                writer.writerow([model_name, "99.5"])
+            # Write a matching endtimes CSV with sedml source
+            csv_path = _write_endtimes_csv(tmpdir, [(model_name, 99.5)])
 
             iterator = BiomodelsIterator(
                 biomodels_dir=tmpdir,
                 is_report=False,
+                endtimes_csv_path=csv_path,
             )
-            # Patch the endtime dict directly
-            iterator._endtime_dct = getBiomodelsEndtimes(csv_path)
             items = list(iterator)
             self.assertEqual(len(items), 1)
             self.assertAlmostEqual(items[0].end_time, 99.5)
@@ -757,11 +814,13 @@ class TestBiomodelsItemEndTime(unittest.TestCase):
             os.makedirs(model_dir)
             open(os.path.join(model_dir, f"{model_name}_url.xml"), "w").close()
 
+            # Write an empty endtimes CSV (no models listed) so the iterator uses it
+            csv_path = _write_endtimes_csv(tmpdir, [])
             iterator = BiomodelsIterator(
                 biomodels_dir=tmpdir,
                 is_report=False,
+                endtimes_csv_path=csv_path,
             )
-            iterator._endtime_dct = {}  # empty — no CSV entries
             items = list(iterator)
             self.assertEqual(len(items), 1)
             self.assertIsNone(items[0].end_time)

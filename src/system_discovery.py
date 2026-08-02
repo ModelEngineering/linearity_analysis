@@ -36,11 +36,12 @@ Usage
 To Do:
 1. Integrate normalizer
 """
-from dataclasses import dataclass
+import constants as cn # type: ignore
 from src.model import Model  # type: ignore
 from src.scaler import Scaler  # type: ignore
 from src.timecourse import Timecourse  # type: ignore
 from src.timecourse_iterator import TimecourseIterator  # type: ignore
+from src.score import Score  # type: ignore
 
 import matplotlib.pyplot as plt # type: ignore
 import numpy as np # type: ignore
@@ -50,7 +51,7 @@ from scipy.linalg import expm  # type: ignore
 from pysindy.feature_library import PolynomialLibrary # type: ignore
 from scipy.integrate import solve_ivp # type: ignore
 import sys
-from typing import Literal, cast, List
+from typing import Literal
 import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -67,68 +68,11 @@ MAX_TIME_FRACTIONAL_DEVIATION = 0.01
 MAX_SPECIES = 200
 DifferentiationMethod = Literal["smooth", "finite", "spectral"]
 
-# FIXME: (a) ScoreInfo has both derivative rsq and simulation ARE
-#          (b) ScoreInfo is used in SystemDiscovery and Score, but ScoreInfo is defined in SystemDiscovery.  Should be refactored to a common location. 
-# ---------------------------------------------------------------------------
-# ScoreInfo - Score information for a SystemDiscovery instance
-# -----------------------------------------------------------------------
-class ScoreInfo:
-    def __init__(self, system_discovery: "SystemDiscovery"):
-        self.derivative_rsq_info = RsqScoreInfo(
-            min=system_discovery._derivative_rsq.min,
-            median=system_discovery._derivative_rsq.median,
-            max=system_discovery._derivative_rsq.max,
-            values=system_discovery._derivative_rsq.values,
-            num_nonzero_term=system_discovery._derivative_rsq.num_nonzero_term,
-            coefficient_density=system_discovery._derivative_rsq.coefficient_density
-        )
-
-class RsqScoreInfo:
-    def __init__(self, min: float, median: float, max: float,
-            values: list[float], num_nonzero_term: int,
-            coefficient_density: float | None = None) -> None:
-        self.min = min
-
-
-# ---------------------------------------------------------------------------
-# RsqScoreInfo - Score information for a collection of R² values
-# -----------------------------------------------------------------------
-
-class RsqScoreInfo:
-    def __init__(self, min: float, median: float, max: float,
-            values: list[float], num_nonzero_term: int,
-            coefficient_density: float | None = None) -> None:
-        self.min = min
-        self.median = median
-        self.max = max
-        self.values = values
-        self.num_nonzero_term = num_nonzero_term
-        self.coefficient_density = coefficient_density
-
-    @classmethod
-    def sum(cls, scores: List['RsqScoreInfo']) -> 'RsqScoreInfo':
-        total_values = []
-        total_nonzero_terms = 0
-        for score in scores:
-            total_values.extend(score.values)
-            total_nonzero_terms += score.num_nonzero_term
-        return cls(
-            min=min(score.min for score in scores),
-            median=np.median(total_values) if total_values else float("nan"),
-            max=max(score.max for score in scores),
-            values=total_values,
-            num_nonzero_term=total_nonzero_terms,
-            coefficient_density=None
-        )
-
-
-
 
 
 # ---------------------------------------------------------------------------
 # Main class
 # ---------------------------------------------------------------------------
-
 
 class SystemDiscovery:
     """Discover a chemical reaction network from concentration time-series data.
@@ -174,7 +118,7 @@ class SystemDiscovery:
 
     def __init__(
         self,
-        df: pd.DataFrame | list[pd.DataFrame],
+        df: pd.DataFrame,
         threshold: float = 0.01,
         alpha: float = 0.05,
         differentiation: DifferentiationMethod = "smooth",
@@ -184,23 +128,7 @@ class SystemDiscovery:
         bias_species: list[str] | None = None,
         is_normalize: bool = True,
     ) -> None:
-        self._is_normalize = is_normalize
-
-        dfs: list[pd.DataFrame] = [df] if isinstance(df, pd.DataFrame) else list(df)
-        if not dfs:
-            raise ValueError("`df` must be a non-empty DataFrame or list of DataFrames.")
-        for d in dfs:
-            self._validate_dataframe(d)
-
-        ref_cols = list(dfs[0].columns)
-        for i, d in enumerate(dfs[1:], start=1):
-            if list(d.columns) != ref_cols:
-                raise ValueError(
-                    f"All DataFrames must have identical columns. "
-                    f"DataFrame 0: {ref_cols}, DataFrame {i}: {list(d.columns)}."
-                )
-
-        self.df = pd.concat(dfs)
+        self.df = df
         self.threshold = threshold
         self.alpha = alpha
         self.differentiation = differentiation
@@ -208,7 +136,7 @@ class SystemDiscovery:
         self.include_bias = include_bias
 
         # Extract time and concentration arrays
-        species_cols = ref_cols
+        species_cols = self.df.columns.to_list()
         if len(species_cols) > MAX_SPECIES:
             raise ValueError(
                 f"DataFrame contains {len(species_cols)} species columns; "
@@ -217,10 +145,10 @@ class SystemDiscovery:
 
         self.species_cols = species_cols
         self.num_species = len(species_cols)
-        self._X_list: list[np.ndarray] = [d[species_cols].to_numpy(dtype=float) for d in dfs]
-        self._time_list: list[np.ndarray] = [d.index.to_numpy(dtype=float) for d in dfs]
-        self.time_arr: np.ndarray = self._time_list[0]
-        self.X: np.ndarray = self._X_list[0]
+        self._time_arr = self.df.index.to_numpy(dtype=float)
+        self._X_arr: np.ndarray = self.df[species_cols].to_numpy(dtype=float)
+        self._Xdot_arr: np.ndarray = np.diff(self._X_arr, axis=0) / np.diff(self._time_arr).reshape(-1,1)
+        self.Xdot_df = pd.DataFrame(self._Xdot_arr, index=self._time_arr[1:], columns=species_cols)
         #
         if species_names is not None:
             if len(species_names) != len(species_cols):
@@ -233,9 +161,7 @@ class SystemDiscovery:
         self.species_names = [n[1:-1] if n.startswith("[") else n for n in self.species_names]
         # Build Scaler with species_names as column labels so Scaler keys match
         # the feature names PySINDy generates from species_names.
-        scaler_df = pd.concat(dfs, ignore_index=True)
-        scaler_df.columns = pd.Index(self.species_names)
-        self._normalizer = Scaler(scaler_df, is_null_scaler=not is_normalize)
+        self._normalizer = Scaler(self.df, is_null_scaler=not is_normalize)
 
         if bias_species is not None:
             invalid = set(bias_species) - set(self.species_names)
@@ -256,7 +182,9 @@ class SystemDiscovery:
 
         optimizer = ps.STLSQ(threshold=0, alpha=self.alpha)
 
-        diff_method = self._build_differentiator()
+        self._differentiator = self._build_differentiator()
+
+        diff_method = self._differentiator
 
         self.model = ps.SINDy(
             feature_library=library,
@@ -265,70 +193,48 @@ class SystemDiscovery:
         )
         self.is_fitted: bool = False
 
-    # ------------------------------------------------------------------
-    # Public interface
-    # ------------------------------------------------------------------
-
-    def fit(self) -> "SystemDiscovery":
-        """Fit the SINDy model to the data.
-
-        Returns
-        -------
-        self
-        """
-        Z_list: list[np.ndarray] = [self._normalizer.normalize(X) for X in self._X_list]
-        """ if self._is_normalize:
-            Z_list = [X / self._species_std for X in self._X_list]
+    def __str__(self) -> str:
+        if self.is_fitted:
+            result = "\n".join([f"d{n}/dt = {e}" for n, e in self.getEquations().items()])
         else:
-            Z_list = self._X_list """
+            result = "Model not fitted yet."
+        return result
 
-        with warnings.catch_warnings(record=True) as _caught:
-            warnings.simplefilter("always")
-            self.model.fit(Z_list, t=self._time_list, feature_names=self.species_names)
-        if _caught:
-            print("Warnings from model.fit():")
-            for w in _caught:
-                print(f"  {w.category.__name__}: {w.message}")
-        if self.bias_species is not None:
-            allowed = set(self.bias_species)
-            for i, name in enumerate(self.species_names):
-                if name not in allowed:
-                    self.model.optimizer.coef_[i, 0] = 0.0
-        self._apply_threshold()
-        # Check that the features align with the species names.
-        if not all([n1 == n2 for n1, n2 in zip(self.species_names, self.model.feature_names)]):  # type: ignore
-            raise RuntimeError(
-                "Mismatch between species names and model feature names after fitting."
-            )
-        self.is_fitted = True
-        return self
-
-    @classmethod
-    def makeBiomodel(
-        cls,
-        model_name: str,
-        *,
-        threshold: float = 0.01,
-        poly_degree: int = 1,
-        timecourse: Timecourse | None = None,
-    ) -> "SystemDiscovery":
-        """Create a SystemDiscovery from a BioModel timecourse.
-
-        Parameters
-        ----------
-        model_name : str
-            BioModel identifier (e.g. ``'BIOMD0000000003'``).
-        threshold : float
-            STLSQ sparsity threshold passed to ``SystemDiscovery``.
-        poly_degree : int
-            Degree of the polynomial library.
-        timecourse : Timecourse | None
-            Pre-loaded timecourse.  When ``None``, the timecourse is loaded
-            from the default zip archive via ``TimecourseIterator``.
+    def _apply_threshold(self) -> None:
         """
-        if timecourse is None:
-            timecourse = TimecourseIterator().getTimecourse(model_name)
-        return cls(timecourse.timecourse_df, threshold=threshold, poly_degree=poly_degree)
+        Zero out normalized coefficients whose physical value is below
+        self.threshold.
+        Updates self.model.optimizer.coef_ in-place.
+        """
+        feature_names = self.model.get_feature_names()
+        coefs = self.model.optimizer.coef_  # shape (n_species, n_features), modified in-place
+        for i, sp_name in enumerate(self.species_names):
+            for j, feat_name in enumerate(feature_names):
+                if not np.isclose(coefs[i, j],  0.0):
+                    norm_thresh = self._normalizer.normalizeThreshold(
+                        sp_name, feat_name, self.threshold)
+                    if abs(coefs[i, j]) < norm_thresh:
+                        coefs[i, j] = 0.0
+
+    def _build_differentiator(self):
+        if self.differentiation == "smooth":
+            return ps.SmoothedFiniteDifference()
+        elif self.differentiation == "finite":
+            return ps.FiniteDifference()
+        elif self.differentiation == "spectral":
+            return ps.SpectralDerivative()
+        else:
+            raise ValueError(
+                f"Unknown differentiation method '{self.differentiation}'. "
+                "Choose from: 'smooth', 'finite', 'spectral'."
+            )
+
+    @staticmethod
+    def _normalize_rsq(rsq: float) -> float:
+        """Normalize R² to [0, 1] and handle NaN."""
+        if np.isnan(rsq):
+            return 0.0
+        return max(0.0, min(1.0, rsq))
 
     @staticmethod
     def _perturbation_col(p: float) -> str:
@@ -341,6 +247,141 @@ class SystemDiscovery:
             return "r2_0"
         sign = "+" if pct > 0 else "-"
         return f"r2_{sign}{abs(pct):02d}"
+
+    def _require_fitted(self) -> None:
+        if not self.is_fitted:
+            raise RuntimeError("Call `.fit()` before using this method.")
+
+    def _simulate(self,
+            x0: np.ndarray | None = None,
+            time_arr: np.ndarray | None = None) -> np.ndarray:
+        """
+        Chooses the simulation method based on the model's configuration
+        (matrix exponential for linear systems, otherwise general ODE integration).
+        Does parameter checks and calls the appropriate simulation method.
+
+        Args
+        ----
+        x0 : np.ndarray, optional
+            Initial state vector in physical units.  If None, uses the first row of training data
+        time_arr : np.ndarray, optional
+            Time points at which to evaluate the solution.
+            If None, uses the training time grid
+
+        Returns
+        -------
+        np.ndarray
+        """
+        if x0 is None:
+            x0 = self._X_arr[0, :]
+        if time_arr is None:
+            time_arr = self._time_arr
+        # Check time step uniformity for matrix exponential simulation
+        diff_arr = np.diff(time_arr)
+        diff_min = np.min(diff_arr)
+        diff_max = np.max(diff_arr)
+        max_deviation = (diff_max - diff_min) / np.mean(diff_arr)
+        # Determine if we can use matrix exponential
+        #   simulation (linear system with uniform time steps) 
+        if self.poly_degree != 1 or not self.include_bias  \
+                or max_deviation > MAX_TIME_FRACTIONAL_DEVIATION:
+            return self._simulateGeneral(x0=x0, time_arr=time_arr)
+        else:
+            return self._simulateSimple(x0=x0, time_arr=time_arr)
+    
+    def _simulateGeneral(self,
+            x0: np.ndarray,
+            time_arr: np.ndarray) -> np.ndarray:
+        """
+        Implements a general ODE simulation using solve_ivp. This method
+        is used for integrating the discovered ODE forward from *x0* over *time_arr*.
+        Integrate the discovered ODE forward from *x0* over *time_arr*.
+        Assumes that parameter checks have been done.
+
+        Args
+        ----
+        x0 : np.ndarray, optional
+            Initial state vector in physical units.  If None, uses the first row of training data
+        time_arr : np.ndarray, optional
+            Time points at which to evaluate the solution.
+            If None, uses the training time grid
+
+        Returns
+        -------
+        np.ndarray
+        """
+        ##
+        def rhs(_t, x):
+            z = self._normalizer.normalize(x)
+            dz_dt = self.model.predict(z.reshape(1, -1))[0]
+            dx_dt = self._normalizer.denormalize(dz_dt)
+            return np.array(dx_dt, dtype=float)
+        ##
+
+        try:
+            sol = solve_ivp(
+                rhs,
+                t_span=(time_arr[0], time_arr[-1]),
+                y0=x0,
+                t_eval=time_arr,
+                method="Radau",
+                rtol=1e-6,
+                atol=1e-8,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"ODE integration failed: {exc}") from exc
+        if not sol.success:
+            raise RuntimeError(f"ODE integration failed: {sol.message}")
+        return sol.y.T   # shape (n_timepoints, n_species)
+
+    def _simulateSimple(self,
+            x0: np.ndarray, 
+            time_arr: np.ndarray) -> np.ndarray:
+        """
+        Integrate the discovered ODE forward from *x0* over *time_arr*.
+        Assumes uniform time steps, poly_degree=1, and include_bias=True.
+        Assumes that parameter checks have been done.
+
+        Args
+        ----
+        x0 : np.ndarray, optional
+            Initial state vector in physical units.  If None, uses the first row of training data
+        time_arr : np.ndarray, optional
+            Time points at which to evaluate the solution.
+            If None, uses the training time grid
+
+        Returns
+        -------
+        np.ndarray
+        """
+        # Check assumptions
+        if self.poly_degree != 1 or not self.include_bias:
+            raise ValueError("Matrix exponential simulation only supports poly_degree=1 and include_bias=True.")
+        # Convert the initial value to the standardized inputs
+        z0 = self._normalizer.normalize(x0)
+        # Extract the A and B matrices.
+        coef_arr = self.model.coefficients()   # shape (n_states, n_features)
+        A = coef_arr[:, 1:]        # first n columns -> state terms
+        B = coef_arr[:, 0]        # remaining columns -> control terms (shape (n_states, n_controls))
+        B = B.flatten()
+        # Construct the exponential matrix for the linear system dx/dt = Ax + Bu.
+        size = self.num_species + 1  # +1 for the control input
+        M = np.zeros((size, size))
+        M[:self.num_species, :self.num_species] = A
+        M[:self.num_species, self.num_species] = B
+        # Compute the simulated result using the matrix exponential.
+        dt = np.mean(np.diff(time_arr))  # assume uniform time steps
+        Md = expm(M * dt)
+        Ad = Md[:self.num_species, :self.num_species]
+        Bd = Md[:self.num_species, self.num_species]
+        # Iterative calculate the results
+        zpreds = [z0]
+        for t in time_arr[1:]:
+            z_next = Ad @ zpreds[-1] + Bd 
+            zpreds.append(z_next)
+        zpred_arr = np.array(zpreds)
+        xpred_arr = self._normalizer.denormalize(zpred_arr)
+        return xpred_arr
 
     @classmethod
     def analyzePerturbations(
@@ -480,68 +521,113 @@ class SystemDiscovery:
 
         return pd.Series(result)
 
-    def plot_coefficient_heatmap(
-        self,
-        figsize: tuple[float, float] | None = None,
-        xlim: tuple[float, float] | None = None,
-        is_plot: bool = True,
-    ) -> plt.Figure:  # type: ignore
-        """Visualise the coefficient matrix as a heatmap.
-
-        Each row is a library feature; each column is a species.
-        Non-zero entries (active terms) are highlighted.
+    def calculateRsq(self, method: str = "derivative",
+            test_df: pd.DataFrame = NULL_DF) -> dict[str, float]:
+        """Compute R² for each species.
 
         Parameters
         ----------
-        figsize : tuple, optional
-            Figure size ``(width, height)`` in inches.  Auto-sized if *None*.
-        xlim : tuple, optional
-            X-axis limits ``(left, right)``.  Auto-sized if *None*. 
-        is_plot: bool
-            Show the figure when True.  Set to False when embedding in a larger
+        method : str
+            ``"derivative"`` (default) – computes R² on the numerical time
+            derivatives, which is fast and always works.
+            ``"simulation"`` – integrates the ODE forward and compares
+            trajectories; more informative but may fail for stiff systems or
+            poorly-identified models.
+        test_df : pd.DataFrame, optional
+            If provided, R² is computed against this DataFrame instead of the
+            training data.  Must have the same column structure as the training
+            DataFrame.
 
         Returns
         -------
-        matplotlib.figure.Figure
+        dict mapping species name → R² (clamped to [0, 1])
         """
         self._require_fitted()
+        score_type = "timecourse" if method == "simulation" else "derivative"
+        detail_df = self.getScoreDetails(test_df=test_df, score_type=score_type)
+        species_rows = detail_df[detail_df[cn.AGGREGATION_TYPE]
+                != cn.AGGREGATION_TYPE_MODEL].copy()
+        result: dict[str, float] = {}
+        for i, sp_name in enumerate(self.species_names):
+            if i < len(species_rows):
+                col = "p95" if method == "simulation" else "mean"
+                raw = float(species_rows.iloc[i][col])
+                result[sp_name] = self._normalize_rsq(raw)
+            else:
+                result[sp_name] = 0.0
+        return result
+    
+    def fit(self) -> "SystemDiscovery":
+        """Fit the SINDy model to the data.
 
-        df_coef = self.summary().T
-        if df_coef.empty:
-            print("No non-zero coefficients found; heatmap skipped.")
-            return plt.figure()
+        Returns
+        -------
+        self
+        """
+        Z = self._normalizer.normalize(self._X_arr)
+        # Fit the normalized value
+        with warnings.catch_warnings(record=True) as _caught:
+            warnings.simplefilter("always")
+            self.model.fit(Z, t=self._time_arr, feature_names=self.species_names)
+        if _caught:
+            print("Warnings from model.fit():")
+            for w in _caught:
+                print(f"  {w.category.__name__}: {w.message}")
+        if self.bias_species is not None:
+            allowed = set(self.bias_species)
+            for i, name in enumerate(self.species_names):
+                if name not in allowed:
+                    self.model.optimizer.coef_[i, 0] = 0.0
+        self._apply_threshold()
+        # Check that the features align with the species names.
+        if not all([n1 == n2 for n1, n2 in zip(self.species_names, self.model.feature_names)]):  # type: ignore
+            raise RuntimeError(
+                "Mismatch between species names and model feature names after fitting."
+            )
+        self.is_fitted = True
+        return self
 
-        if figsize is None:
-            figsize = (max(6, len(df_coef.columns) * 1.5), max(4, len(df_coef) * 0.5))
+    def getEquations(self) -> dict[str, str]:
+        """Return a dict mapping species name → string representation of its ODE."""
+        self._require_fitted()
+        equation_dct = {self.species_names[n]: eq for n, eq in enumerate(self.model.equations())}
+        return equation_dct
 
-        fig, ax = plt.subplots(figsize=figsize)
-        max_coef = np.abs(df_coef.values).max()
-        cax = ax.imshow(df_coef.values, aspect="auto", cmap="RdBu_r",
-                vmin=-max_coef, vmax=max_coef)
-        fig.colorbar(cax, ax=ax, label="Coefficient value")
+    def getNonzeroTerms(self) -> dict[str, int]:
+        """Return a dict mapping species name → number of non-zero terms in its ODE."""
+        self._require_fitted()
+        coefs = self.model.coefficients()  # shape (n_species, n_features)
+        return {
+            sp_name: np.sum(np.abs(coefs[i]) > 1e-10)  # type: ignore
+            for i, sp_name in enumerate(self.species_names)
+        }
 
-        ax.set_xticks(range(len(df_coef.columns)))
-        ax.set_xticklabels(df_coef.columns, rotation=45, ha="right")
-        ax.set_yticks(range(len(df_coef.index)))
-        ax.set_yticklabels(df_coef.index)
-        ax.set_title("SINDy Coefficient Matrix (non-zero terms)", fontweight="bold")
+    @classmethod
+    def makeBiomodel(
+        cls,
+        model_name: str,
+        *,
+        threshold: float = 0.01,
+        poly_degree: int = 1,
+        timecourse: Timecourse | None = None,
+    ) -> "SystemDiscovery":
+        """Create a SystemDiscovery from a BioModel timecourse.
 
-        # Annotate cells
-        for i in range(len(df_coef.index)):
-            for j in range(len(df_coef.columns)):
-                val = df_coef.iloc[i, j]
-                if abs(val) > 1e-10:  # type: ignore
-                    ax.text(
-                        j, i, f"{val:.3f}",
-                        ha="center", va="center", fontsize=7,
-                        color="white" if abs(val) > df_coef.values.max() * 0.5 else "black",  # type: ignore
-                    )
-
-        fig.tight_layout()
-        if is_plot:
-            plt.show()
-            plt.close(fig)
-        return fig
+        Parameters
+        ----------
+        model_name : str
+            BioModel identifier (e.g. ``'BIOMD0000000003'``).
+        threshold : float
+            STLSQ sparsity threshold passed to ``SystemDiscovery``.
+        poly_degree : int
+            Degree of the polynomial library.
+        timecourse : Timecourse | None
+            Pre-loaded timecourse.  When ``None``, the timecourse is loaded
+            from the default zip archive via ``TimecourseIterator``.
+        """
+        if timecourse is None:
+            timecourse = TimecourseIterator().getTimecourse(model_name)
+        return cls(timecourse.timecourse_df, threshold=threshold, poly_degree=poly_degree)
 
     def plotResult(
         self,
@@ -573,8 +659,8 @@ class SystemDiscovery:
             X = test_df.values
             time_arr = test_df.index.values
         else:
-            X = self.X
-            time_arr = self.time_arr
+            X = self._X_arr
+            time_arr = self._time_arr
         #
         self._require_fitted()
 
@@ -645,6 +731,66 @@ class SystemDiscovery:
             plt.close(fig)
         return fig
 
+    def plot_coefficient_heatmap(
+        self,
+        figsize: tuple[float, float] | None = None,
+        is_plot: bool = True,
+    ) -> plt.Figure:  # type: ignore
+        """Visualise the coefficient matrix as a heatmap.
+
+        Each row is a library feature; each column is a species.
+        Non-zero entries (active terms) are highlighted.
+
+        Parameters
+        ----------
+        figsize : tuple, optional
+            Figure size ``(width, height)`` in inches.  Auto-sized if *None*.
+        is_plot: bool
+            Show the figure when True.  Set to False when embedding in a larger
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+        """
+        self._require_fitted()
+
+        df_coef = self.summary().T
+        if df_coef.empty:
+            print("No non-zero coefficients found; heatmap skipped.")
+            return plt.figure()
+
+        if figsize is None:
+            figsize = (max(6, len(df_coef.columns) * 1.5), max(4, len(df_coef) * 0.5))
+
+        fig, ax = plt.subplots(figsize=figsize)
+        max_coef = np.abs(df_coef.values).max()
+        cax = ax.imshow(df_coef.values, aspect="auto", cmap="RdBu_r",
+                vmin=-max_coef, vmax=max_coef)
+        fig.colorbar(cax, ax=ax, label="Coefficient value")
+
+        ax.set_xticks(range(len(df_coef.columns)))
+        ax.set_xticklabels(df_coef.columns, rotation=45, ha="right")
+        ax.set_yticks(range(len(df_coef.index)))
+        ax.set_yticklabels(df_coef.index)
+        ax.set_title("SINDy Coefficient Matrix (non-zero terms)", fontweight="bold")
+
+        # Annotate cells
+        for i in range(len(df_coef.index)):
+            for j in range(len(df_coef.columns)):
+                val = df_coef.iloc[i, j]
+                if abs(val) > 1e-10:  # type: ignore
+                    ax.text(
+                        j, i, f"{val:.3f}",
+                        ha="center", va="center", fontsize=7,
+                        color="white" if abs(val) > df_coef.values.max() * 0.5 else "black",  # type: ignore
+                    )
+
+        fig.tight_layout()
+        if is_plot:
+            plt.show()
+            plt.close(fig)
+        return fig
+
     def predict(self, test_df: pd.DataFrame = NULL_DF) -> pd.DataFrame:
         """Integrate the discovered ODE and return predicted concentrations.
 
@@ -669,8 +815,32 @@ class SystemDiscovery:
             x0 = None
             time_arr = None
         X_sim = self._simulate(x0=x0, time_arr=time_arr)
-        t_idx = time_arr if time_arr is not None else self.time_arr
+        t_idx = time_arr if time_arr is not None else self._time_arr
         return pd.DataFrame(X_sim, index=t_idx, columns=self.species_names)
+    
+    def predictAllDerivatives(self, X: np.ndarray = cn.NULL_ARRAY) -> np.ndarray:
+        """Evaluate the fitted ODE's right-hand side at all states (no integration).
+
+        Parameters
+        ----------
+        X : np.ndarray
+            State vector in physical units, shape (n_species,), in the same
+            species order as `self.species_names`.
+
+        Returns
+        -------
+        np.ndarray
+            Derivative dx/dt at all time points, in physical units, shape (n_timepoints, n_species).
+        """
+        if X is cn.NULL_ARRAY:
+            X = self._X_arr
+        else:
+            if X.ndim == 1:
+                X = X.reshape(1, -1) 
+        self._require_fitted()
+        Z = self._normalizer.normalize(X)
+        dZ_dt = self.model.predict(Z)
+        return np.array(self._normalizer.denormalize(dZ_dt), dtype=float)  # type: ignore
 
     def predictOneStepDerivative(self, x: np.ndarray) -> np.ndarray:
         """Evaluate the fitted ODE's right-hand side at a single state (no integration).
@@ -691,109 +861,129 @@ class SystemDiscovery:
         dz_dt = self.model.predict(z.reshape(1, -1))[0]
         return np.array(self._normalizer.denormalize(dz_dt), dtype=float)
 
+    def get_derivatives(self, test_df: pd.DataFrame | None = None) -> pd.DataFrame:
+        """Return the differentiated values computed by PySINDy's differentiation method.
+
+        After fitting, this returns the numerical time derivatives of each species
+        as computed by the configured differentiation strategy (``"smooth"``,
+        ``"finite"``, or ``"spectral"``).  These are *not* the model-predicted
+        right-hand-side values — they are the raw differentiated data used during
+        fitting.
+
+        Parameters
+        ----------
+        test_df : pd.DataFrame, optional
+            If provided, derivatives are computed for this DataFrame using a
+            simple finite-difference approximation on the normalized data and
+            denormalized back to physical units.  When ``None``, returns the
+            derivatives from the original training data (which were computed
+            during ``fit``).
+
+        Returns
+        -------
+        pd.DataFrame
+            Derivatives with time as the index and one column per species.
+            Shape is ``(n_samples, n_species)`` when *test_df* is given, or
+            ``(n_samples - 1, n_species)`` for training data (since PySINDy's
+            differentiation drops the first sample).
+
+        Raises
+        ------
+        RuntimeError
+            If ``.fit()`` has not been called yet.
+
+        Example
+        -------
+        >>> disc.fit()
+        >>> X_dot = disc.get_derivatives()   # training data derivatives
+        >>> X_dot_test = disc.get_derivatives(test_df)  # for new data
+        """
+        self._require_fitted()
+        if test_df is None:
+            return self.Xdot_df.copy()
+
+        # For test data, compute finite-difference derivatives on normalized
+        # values and denormalize back to physical units.
+        Z = self._normalizer.normalize(test_df.to_numpy(dtype=float))
+        t_test = test_df.index.to_numpy(dtype=float)
+        dZ_dt = np.diff(Z, axis=0) / np.diff(t_test).reshape(-1, 1)
+        X_dot_arr = np.array(self._normalizer.denormalize(dZ_dt), dtype=float)
+        return pd.DataFrame(
+            X_dot_arr,
+            index=t_test[1:],
+            columns=self.species_names,
+        )
+
     def printEquations(self) -> None:
         """Pretty-print the discovered ODE equations."""
         print(self.__str__())
 
-    def __str__(self) -> str:
-        if self.is_fitted:
-            result = "\n".join([f"d{n}/dt = {e}" for n, e in self.getEquations().items()])
-        else:
-            result = "Model not fitted yet."
-        return result
-
-    def getNonzeroTerms(self) -> dict[str, int]:
-        """Return a dict mapping species name → number of non-zero terms in its ODE."""
-        self._require_fitted()
-        coefs = self.model.coefficients()  # shape (n_species, n_features)
-        return {
-            sp_name: np.sum(np.abs(coefs[i]) > 1e-10)  # type: ignore
-            for i, sp_name in enumerate(self.species_names)
-        }
-
-    def getEquations(self) -> dict[str, str]:
-        """Return a dict mapping species name → string representation of its ODE."""
-        self._require_fitted()
-        equation_dct = {self.species_names[n]: eq for n, eq in enumerate(self.model.equations())}
-        return equation_dct
-
-    def calculateRsq(self, method: str = "derivative",
-            test_df: pd.DataFrame = NULL_DF) -> dict[str, float]:
-        """Compute R² for each species.
+    def getScoreDetails(self, test_df: pd.DataFrame = NULL_DF, score_type: str = "derivative") -> pd.DataFrame:
+        """
+        Calculates evaluation metrics for the fitted model return information
+        about the model as a whole and the individual species.
 
         Parameters
         ----------
-        method : str
-            ``"derivative"`` (default) – computes R² on the numerical time
-            derivatives, which is fast and always works.
-            ``"simulation"`` – integrates the ODE forward and compares
-            trajectories; more informative but may fail for stiff systems or
-            poorly-identified models.
         test_df : pd.DataFrame, optional
-            If provided, R² is computed against this DataFrame instead of the
-            training data.  Must have the same column structure as the training
-            DataFrame.
+            If provided, evaluation is performed against this DataFrame instead of the training data.
+        score_type : str
+            The type of score to calculate.  Must be one of:
+            - ``"derivative"``: R² on predicted vs numerical derivatives of concentrations.
+            - ``"timecourse"``: R² for the species timecourses
 
         Returns
         -------
-        dict mapping species name → R²
+        pd.DataFrame
+            A DataFrame containing the score information for the model and each species.
         """
-        self._require_fitted()
-        if test_df is not NULL_DF:
-            X = test_df.to_numpy(dtype=float)
-            time_arr = test_df.index.to_numpy(dtype=float)
+        score = Score()
+        if score_type == "derivative":
+            if test_df is NULL_DF:
+                test_df = self.df
+            pred_arr = self.predictAllDerivatives(test_df.to_numpy(dtype=float))
+            pred_df = pd.DataFrame(pred_arr[:-1], index=test_df.index[1:],
+                    columns=self.species_names)
+            return score.add(self.Xdot_df, pred_df)
+        elif score_type == "timecourse":
+            pred_df = self.predict()
+            return score.add(self.df, pred_df)
         else:
-            X = self.df.to_numpy(dtype=float)
-            time_arr = self.df.index.to_numpy(dtype=float)
-        try:
-            if method == "simulation":
-                result = self._r_squared_simulation(X=X, time_arr=time_arr)
-            else:
-                X_list = [X] if X is not None else None
-                time_list = [time_arr] if time_arr is not None else None
-                result = self._r_squared_derivative(X_list=X_list, time_list=time_list)
-        except Exception as exc:
-            warnings.warn(f"R² computation failed: {exc}")
-            result = self._r_squared_derivative()
-        return result
-    
-    @staticmethod
-    def _normalize_rsq(rsq: float) -> float:
-        """Normalize R² to [0, 1] and handle NaN."""
-        if np.isnan(rsq):
-            return 0.0
-        return max(0.0, min(1.0, rsq))
+            raise ValueError(f"Invalid score_type '{score_type}'. Must be 'derivative' or 'timecourse'.")
 
-    def minR2(self, test_df: pd.DataFrame = NULL_DF) -> float:
-        """Return the minimum clamped R² across all species for *test_df*.
+    def score(self, score_type: str = "derivative") -> float:
+        """
+        Calculates a single measure of model performance.
+            derivative: minimum value of R² across all species
+            timecourse: maximum value of ARE across all species
+        
 
         Parameters
         ----------
-        test_df : pd.DataFrame, optional
-            If provided, R² is evaluated against this DataFrame (derivative)
-            When omitted, the training data are used.
+        score_type : str
+            The type of score to calculate.  Must be one of:
+            - ``"derivative"``
+            - ``"timecourse"``
 
         Returns
         -------
         float
-            Minimum R² across species, clamped to [0, 1].
+            The calculated score.
+            - ``"derivative"``: R² on predicted vs numerical derivatives of concentrations.
+            - ``"timecourse"``: R² for the species timecourses
         """
-        self._require_fitted()
-        r2_raw = self.calculateRsq(method="derivative", test_df=test_df)
-        return self._normalize_rsq(float(np.min(list(r2_raw.values()))))
-
-    def score(self) -> RsqScoreInfo:
-        """Return a ScoreInfo with the min, median, and max of r_squared values."""
-        derivative_rsq_arr = list(self.calculateRsq().values())
-        num_nonzero_term = sum(self.getNonzeroTerms().values())
-        return RsqScoreInfo(
-            min=self._normalize_rsq(float(np.min(derivative_rsq_arr))),
-            median=self._normalize_rsq(float(np.median(derivative_rsq_arr))),
-            max=self._normalize_rsq(float(np.max(derivative_rsq_arr))),
-            values=[self._normalize_rsq(x) for x in derivative_rsq_arr],
-            num_nonzero_term=num_nonzero_term,
-            coefficient_density=num_nonzero_term / (self.num_species **2)
-        )
+        score_detail_df = self.getScoreDetails(score_type=score_type)
+        model_sel = score_detail_df["aggregation_type"] == "model"
+        if score_type == "derivative":
+            result = float(score_detail_df[model_sel]["min"].iloc[0])
+            return result
+        elif score_type == "timecourse":
+            species_sel = score_detail_df["aggregation_type"] != "model"
+            p95_vals = score_detail_df[species_sel]["p95"].to_numpy(dtype=float)
+            result = float(np.max(p95_vals))
+            return result
+        else:
+            raise ValueError(f"Invalid score_type '{score_type}'. Must be 'derivative' or 'timecourse'.")
 
     def summary(self, entry_threshold: float = 0) -> pd.DataFrame:
         """Return a DataFrame of denormalized non-zero coefficients for all species.
@@ -830,7 +1020,7 @@ class SystemDiscovery:
         # scaling makes c_norm values meaningless for the retention decision.
         constant_cols = self._normalizer._constant_cols
         variable_cols = [col for sp, col in zip(self.species_names, col_names)
-                         if sp not in constant_cols]
+                if sp not in constant_cols]
         eval_cols = variable_cols if variable_cols else col_names
         keep_mask = df_norm[eval_cols].abs().T.max() > entry_threshold
         df_norm = df_norm[keep_mask].copy()        # type: ignore
@@ -841,251 +1031,6 @@ class SystemDiscovery:
                 df_coef.loc[factor_str, col] = self._normalizer.denormalizeCoordinate(
                     sp_name, factor_str, row[col])
         return df_coef  # type: ignore[return-value]
-
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
-    def _apply_threshold(self) -> None:
-        """
-        Zero out normalized coefficients whose physical value is below
-        self.threshold.
-        Updates self.model.optimizer.coef_ in-place.
-        """
-        feature_names = self.model.get_feature_names()
-        coefs = self.model.optimizer.coef_  # shape (n_species, n_features), modified in-place
-        for i, sp_name in enumerate(self.species_names):
-            for j, feat_name in enumerate(feature_names):
-                if not np.isclose(coefs[i, j],  0.0):
-                    norm_thresh = self._normalizer.normalizeThreshold(
-                        sp_name, feat_name, self.threshold)
-                    if abs(coefs[i, j]) < norm_thresh:
-                        coefs[i, j] = 0.0
-
-    def _build_differentiator(self):
-        if self.differentiation == "smooth":
-            return ps.SmoothedFiniteDifference()
-        elif self.differentiation == "finite":
-            return ps.FiniteDifference()
-        elif self.differentiation == "spectral":
-            return ps.SpectralDerivative()
-        else:
-            raise ValueError(
-                f"Unknown differentiation method '{self.differentiation}'. "
-                "Choose from: 'smooth', 'finite', 'spectral'."
-            )
-
-    def _parse_feature_powers(self, feature_name: str) -> dict[str, int]:
-        """Parse a PySINDy feature name into {species_name: power}.
-
-        Handles: '1' → {}, 'X' → {'X': 1}, 'X^2' → {'X': 2}, 'X Y' → {'X': 1, 'Y': 1}.
-        """
-        if feature_name == "1":
-            return {}
-        powers: dict[str, int] = {}
-        for factor in feature_name.split(" "):
-            if not factor:
-                continue
-            if "^" in factor:
-                name, exp = factor.split("^", 1)
-                powers[name] = int(exp)
-            else:
-                powers[factor] = 1
-        return powers
-
-    def _r_squared_derivative(self,
-            X_list: list[np.ndarray] | None = None,
-            time_list: list[np.ndarray] | None = None) -> dict[str, float]:
-        """R² on predicted vs numerical derivatives. Returns raw (possibly negative) values."""
-        if X_list is None:
-            X_list = self._X_list
-        if time_list is None:
-            time_list = self._time_list
-        zdot_pred_parts = []
-        zdot_num_parts = []
-        for X, t in zip(X_list, time_list):
-            Z = self._normalizer.normalize(X)
-            zdot_pred_parts.append(np.array(self.model.predict(Z)))
-            zdot_num_parts.append(self.model.differentiation_method(Z, t))  # type: ignore
-        Zdot_pred = np.vstack(zdot_pred_parts)
-        Zdot_num  = np.vstack(zdot_num_parts)
-        r2 = {}
-        for i, name in enumerate(self.species_names):
-            y_true = Zdot_num[:, i]
-            y_pred = Zdot_pred[:, i]
-            ss_res = np.sum((y_true - y_pred) ** 2)
-            ss_tot = np.sum((y_true - y_true.mean()) ** 2)
-            r2[name] = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
-        return r2
-
-    def _r_squared_simulation(self,
-                               X: np.ndarray | None = None,
-                               time_arr: np.ndarray | None = None) -> dict[str, float]:
-        """R² on simulated concentration trajectories. Returns raw (possibly negative) values."""
-        if X is None:
-            X = self.X
-        if time_arr is None:
-            time_arr = self.time_arr
-        try:
-            X_sim = self._simulate(x0=X[0, :], time_arr=time_arr)
-            r2 = {}
-            for i, name in enumerate(self.species_names):
-                ss_res = np.sum((X[:, i] - X_sim[:, i]) ** 2)
-                ss_tot = np.sum((X[:, i] - X[:, i].mean()) ** 2)
-                r2[name] = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
-            return r2
-        except Exception as exc:
-            warnings.warn(f"Simulation R² failed: {exc}. Use method='derivative'.")
-            return {name: float("nan") for name in self.species_names}
-
-    def _require_fitted(self) -> None:
-        if not self.is_fitted:
-            raise RuntimeError("Call `.fit()` before using this method.")
-
-    def _simulate(self,
-            x0: np.ndarray | None = None,
-            time_arr: np.ndarray | None = None) -> np.ndarray:
-        """
-        Chooses the simulation method based on the model's configuration
-        (matrix exponential for linear systems, otherwise general ODE integration).
-        Does parameter checks and calls the appropriate simulation method.
-
-        Args
-        ----
-        x0 : np.ndarray, optional
-            Initial state vector in physical units.  If None, uses the first row of training data
-        time_arr : np.ndarray, optional
-            Time points at which to evaluate the solution.
-            If None, uses the training time grid
-
-        Returns
-        -------
-        np.ndarray
-        """
-        if x0 is None:
-            x0 = self.X[0, :]
-        if time_arr is None:
-            time_arr = self.time_arr
-        # Check time step uniformity for matrix exponential simulation
-        diff_arr = np.diff(time_arr)
-        diff_min = np.min(diff_arr)
-        diff_max = np.max(diff_arr)
-        max_deviation = (diff_max - diff_min) / np.mean(diff_arr)
-        # Determine if we can use matrix exponential
-        #   simulation (linear system with uniform time steps) 
-        if self.poly_degree != 1 or not self.include_bias  \
-                or max_deviation > MAX_TIME_FRACTIONAL_DEVIATION:
-            return self._simulateGeneral(x0=x0, time_arr=time_arr)
-        else:
-            return self._simulateSimple(x0=x0, time_arr=time_arr)
-    
-    def _simulateGeneral(self,
-            x0: np.ndarray,
-            time_arr: np.ndarray) -> np.ndarray:
-        """
-        Implements a general ODE simulation using solve_ivp. This method
-        is used for integrating the discovered ODE forward from *x0* over *time_arr*.
-        Integrate the discovered ODE forward from *x0* over *time_arr*.
-        Assumes that parameter checks have been done.
-
-        Args
-        ----
-        x0 : np.ndarray, optional
-            Initial state vector in physical units.  If None, uses the first row of training data
-        time_arr : np.ndarray, optional
-            Time points at which to evaluate the solution.
-            If None, uses the training time grid
-
-        Returns
-        -------
-        np.ndarray
-        """
-        ##
-        def rhs(_t, x):
-            z = self._normalizer.normalize(x)
-            dz_dt = self.model.predict(z.reshape(1, -1))[0]
-            dx_dt = self._normalizer.denormalize(dz_dt)
-            return np.array(dx_dt, dtype=float)
-        ##
-
-        try:
-            sol = solve_ivp(
-                rhs,
-                t_span=(time_arr[0], time_arr[-1]),
-                y0=x0,
-                t_eval=time_arr,
-                method="Radau",
-                rtol=1e-6,
-                atol=1e-8,
-            )
-        except Exception as exc:
-            raise RuntimeError(f"ODE integration failed: {exc}") from exc
-        if not sol.success:
-            raise RuntimeError(f"ODE integration failed: {sol.message}")
-        return sol.y.T   # shape (n_timepoints, n_species)
-
-    def _simulateSimple(self,
-            x0: np.ndarray, 
-            time_arr: np.ndarray) -> np.ndarray:
-        """
-        Integrate the discovered ODE forward from *x0* over *time_arr*.
-        Assumes uniform time steps, poly_degree=1, and include_bias=True.
-        Assumes that parameter checks have been done.
-
-        Args
-        ----
-        x0 : np.ndarray, optional
-            Initial state vector in physical units.  If None, uses the first row of training data
-        time_arr : np.ndarray, optional
-            Time points at which to evaluate the solution.
-            If None, uses the training time grid
-
-        Returns
-        -------
-        np.ndarray
-        """
-        # Check assumptions
-        if self.poly_degree != 1 or not self.include_bias:
-            raise ValueError("Matrix exponential simulation only supports poly_degree=1 and include_bias=True.")
-        # Convert the initial value to the standardized inputs
-        z0 = self._normalizer.normalize(x0)
-        # Extract the A and B matrices.
-        coef_arr = self.model.coefficients()   # shape (n_states, n_features)
-        A = coef_arr[:, 1:]        # first n columns -> state terms
-        B = coef_arr[:, 0]        # remaining columns -> control terms (shape (n_states, n_controls))
-        B = B.flatten()
-        # Construct the exponential matrix for the linear system dx/dt = Ax + Bu.
-        size = self.num_species + 1  # +1 for the control input
-        M = np.zeros((size, size))
-        M[:self.num_species, :self.num_species] = A
-        M[:self.num_species, self.num_species] = B
-        # Compute the simulated result using the matrix exponential.
-        dt = np.mean(np.diff(time_arr))  # assume uniform time steps
-        Md = expm(M * dt)
-        Ad = Md[:self.num_species, :self.num_species]
-        Bd = Md[:self.num_species, self.num_species]
-        # Iterative calculate the results
-        zpreds = [z0]
-        for t in time_arr[1:]:
-            z_next = Ad @ zpreds[-1] + Bd 
-            zpreds.append(z_next)
-        zpred_arr = np.array(zpreds)
-        xpred_arr = self._normalizer.denormalize(zpred_arr)
-        return xpred_arr
-
-    @staticmethod
-    def _validate_dataframe(df: pd.DataFrame) -> None:
-        if not isinstance(df, pd.DataFrame):
-            raise TypeError("`df` must be a pandas DataFrame.")
-        if len(df.columns) == 0:
-            raise ValueError("DataFrame must contain at least one species column.")
-        if len(df.columns) > MAX_SPECIES:
-            raise ValueError(
-                f"DataFrame has {len(df.columns)} species columns; "
-                f"maximum is {MAX_SPECIES}."
-            )
-        if not df.index.is_monotonic_increasing:
-            raise ValueError("DataFrame index (time) must be strictly increasing.")
 
 
 # ---------------------------------------------------------------------------
@@ -1147,7 +1092,7 @@ def discoverNetwork(
     >>> summary = disc.summary()
     """
     disc = SystemDiscovery(
-        df,
+        df,   # type: ignore
         threshold=threshold,
         alpha=alpha,
         differentiation=differentiation,

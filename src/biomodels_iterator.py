@@ -111,7 +111,8 @@ class BiomodelsIterator:
                 existing_csv_path: Optional[str] = None,
                 is_report: bool = True,
                 first_model_num: int = 0,
-                last_model_num: int = int(1e9)
+                last_model_num: int = int(1e9),
+                endtimes_csv_path: Optional[str] = None
                 ) -> None:
         """
         Initialize a BiomodelsIterator.
@@ -133,6 +134,8 @@ class BiomodelsIterator:
             The first model number to include (inclusive).
         last_model_num : int
             The last model number to include (inclusive).
+        endtimes_csv_path : Optional[str]
+            Path to the endtimes CSV file. If None, uses cn.CALCULATED_ENTIMES_PATH.
         """
         self.biomodels_dir = biomodels_dir
         self.excluded_models = excluded_models
@@ -141,7 +144,12 @@ class BiomodelsIterator:
         self._existing_df, self._processed_models = self._getProcessedModelsFromCSV()
         self.first_model_num = first_model_num
         self.last_model_num = last_model_num
-        self._endtime_dct = getBiomodelsEndtimes()
+        if endtimes_csv_path is not None:
+            self._endtime_dct = getBiomodelsEndtimes(endtimes_csv_path=endtimes_csv_path,
+                    is_include_endtime_source=True)
+        else:
+            # When no path provided, load without source info so all models pass the filter
+            self._endtime_dct = getBiomodelsEndtimes(is_include_endtime_source=False)
 
     def _getProcessedModelsFromCSV(self) -> Tuple[pd.DataFrame, List[str]]:
         """
@@ -211,7 +219,7 @@ class BiomodelsIterator:
 
     def __iter__(self) -> Iterator[BiomodelsItem]:
         """
-        Yield a BiomodelsItem for each BioModel directory.
+        Yield a BiomodelsItem for each BioModel directory if its endtime is from SED-ML.
 
         Yields
         ------
@@ -223,10 +231,17 @@ class BiomodelsIterator:
             if os.path.isdir(os.path.join(self.biomodels_dir, d)) 
             and "BIOMD" in d
         )
+        endtime_dct = self._endtime_dct
         is_reported_too_low = False
         is_reported_too_high = False
         for model_name in model_names:
             model_num = self.extractModelNum(model_name)
+            # Skip models whose source is explicitly NOT sedml, but yield those absent from dict
+            if (model_name in endtime_dct):
+                entry = endtime_dct[model_name]
+                if isinstance(entry, tuple) and len(entry) == 2:
+                    if entry[1] != cn.ENDTIME_SOURCE_SEDML:
+                        continue
             if model_num < self.first_model_num or model_num > self.last_model_num:
                 if not is_reported_too_low and model_num < self.first_model_num:
                     self._msg(f"Model {model_name} has number {model_num} which is below the first model number {self.first_model_num}")
@@ -245,5 +260,10 @@ class BiomodelsIterator:
             self._msg(f"Processing model: {model_name}")
             item = self.getBiomodelInfo(model_dir)
             item.existing_df = self._existing_df
-            item.end_time = self._endtime_dct.get(model_name, None)
+            # Extract end time value (handle both plain values and tuples)
+            entry = self._endtime_dct.get(model_name)
+            if isinstance(entry, tuple):
+                item.end_time = entry[0]
+            else:
+                item.end_time = entry
             yield item

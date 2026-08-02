@@ -7,13 +7,15 @@ import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 from scipy.integrate import solve_ivp  # type: ignore
+from typing import cast
 
 from src.change_point_detector import ChangePointDetector  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
-from src.system_discovery import RsqScoreInfo, SystemDiscovery  # type: ignore
 from src.timecourse import Timecourse  # type: ignore
 from src.timecourse_iterator import TimecourseIterator  # type: ignore
 from src.jacobian_signal import JacobianSignal  # type: ignore
+import src.constants as cn  # type: ignore
+from src.system_discovery import SystemDiscovery  # type: ignore
 
 NULL_DF = pd.DataFrame()
 
@@ -124,19 +126,31 @@ class PiecewiseSystemDiscovery(object):
         species_names = self._subsequence_models[0].species_names
         return pd.DataFrame(sol.y.T, index=time_arr, columns=species_names)
 
-    def score(self) -> RsqScoreInfo:
+    # FIXME: Must handle each column separately
+    def getWeightedScores(self) ->  pd.DataFrame:
         """Length-weighted aggregation of per-subsequence ScoreInfo. See
         docs/piecewise_system_discovery.md `score()` section."""
         self._require_fitted()
         weighted_values: List[float] = []
         num_nonzero_term = 0
-        score_infos: List[RsqScoreInfo] = []
+        dfs : List[pd.DataFrame] = []
         for model, length in zip(self._subsequence_models, self._subsequence_lengths):
-            info = model.score()
-            weighted_values.extend(info.values * length)
-            num_nonzero_term += info.num_nonzero_term
-            score_infos.append(info)
-        return RsqScoreInfo.sum(score_infos)
+            df = model.getScoreDetails()
+            weighted_values.extend(df.values * length)
+            num_nonzero_term += df.num_nonzero_term
+            dfs.append(df)
+        final_df = pd.concat(dfs, axis=0) / len(dfs)
+        return final_df
+    
+    def score(self, column_name: str = 'p95') -> float:
+        """Length-weighted aggregation of per-subsequence ScoreInfo. See
+        docs/piecewise_system_discovery.md `score()` section."""
+        weighted_score_df = self.getWeightedScores()
+        sel = weighted_score_df[cn.AGGREGATION_TYPE] == cn.AGGREGATION_TYPE_MODEL
+        result = weighted_score_df[sel][column_name].values
+        if len(result) != 1:
+            raise RuntimeError(f"Expected 1 row for {cn.AGGREGATION_TYPE_MODEL} but got {len(result)}")
+        return cast(float, result[0])
 
     def __str__(self) -> str:
         block_list: List[str] = []
@@ -220,9 +234,11 @@ class PiecewiseSystemDiscovery(object):
             po.apply()
 
         _draw(PlotOptions(fig=fig, ax=ax_top, **plt_kwargs), baseline_pred_df,
-                f"0 change points, r2: {baseline_score.median:.3f}")
+                #f"0 change points, r2: {baseline_score.median:.3f}")
+                f"0 change points, r2: {baseline_score:.3f}")
         _draw(plot_options, psd_pred_df,
-                f"{self.max_change_point} change point(s), r2: {psd_score.median:.3f}",
+                #f"{self.max_change_point} change point(s), r2: {psd_score.median:.3f}",
+                f"{self.max_change_point} change point(s), r2: {psd_score:.3f}",
                 vlines=change_point_times)
         fig.suptitle("Actual vs Predicted", fontsize=13, fontweight="bold")
         fig.tight_layout()

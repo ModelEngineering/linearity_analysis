@@ -65,13 +65,10 @@ class TimecourseIterator:
 
     @staticmethod
     def _timecourseFromDict(dct: dict) -> Timecourse:
-        if 'jacobian_collection_arr' not in dct:
-            dct['jacobian_collection_arr'] = np.array([])
         return Timecourse(
             model=dct['model'],
             start_time=dct['start_time'],
             end_time=dct['end_time'],
             num_point=dct['num_point'],
             timecourse_df=dct['timecourse_df'],
-            jacobian_collection_arr=dct['jacobian_collection_arr'],
         )

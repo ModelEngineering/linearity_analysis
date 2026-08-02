@@ -21,3 +21,5 @@ sbmlnetwork
 tellurium
 toml
 twine
+mkdocs-material
+pymdown-extensions

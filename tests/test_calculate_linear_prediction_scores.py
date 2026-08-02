@@ -2,6 +2,7 @@
 import os
 import sys
 import unittest
+import pandas as pd  # type: ignore
 
 import src.constants as cn  # type: ignore
 
@@ -162,17 +163,15 @@ class TestProcessModels(unittest.TestCase):
         path = self._csvPath()
         if os.path.exists(path):
             os.remove(path)
-        processModels(5, 5, self._TEST_PROCESS_INDEX, 1)
+        processModels(5, 5, 1, serialization_path=path)
         self.assertTrue(os.path.exists(path))
 
     def test_csv_has_model_row(self) -> None:
         """Output CSV contains a row with aggregation_type == 'model'."""
         if IGNORE_TESTS:
             return
-        import pandas as pd  # type: ignore
         path = self._csvPath()
-        if not os.path.exists(path):
-            processModels(8, 8, self._TEST_PROCESS_INDEX, 1)
+        processModels(5, 5, 1, serialization_path=path)
         df = pd.read_csv(path)
         self.assertTrue((df["aggregation_type"] == "model").any())
 
@@ -180,10 +179,8 @@ class TestProcessModels(unittest.TestCase):
         """The description column contains the processed model's name."""
         if IGNORE_TESTS:
             return
-        import pandas as pd  # type: ignore
         path = self._csvPath()
-        if not os.path.exists(path):
-            processModels(8, 8, self._TEST_PROCESS_INDEX, 1)
+        processModels(5, 5, 1, serialization_path=path)
         df = pd.read_csv(path)
         self.assertTrue(df["description"].str.startswith("BIOMD").any())
 

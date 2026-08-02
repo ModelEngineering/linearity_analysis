@@ -147,23 +147,6 @@ class TestSimulatorGetPerturbedInitialValues(unittest.TestCase):
             self.assertGreaterEqual(perturbed_val, 0.0)
 
 
-class TestSimulatorCheckSpeciesNames(unittest.TestCase):
-    """Tests for Simulator._checkSpeciesNames."""
-
-    def test_matching_names_passes(self) -> None:
-        model = _make_model()
-        sim = Simulator(model=model, start_time=0.0, end_time=10.0, num_point=100)
-        # Should not raise
-        sim._checkSpeciesNames(model.species_names)
-
-    def test_mismatched_names_raises(self) -> None:
-        model = _make_model()
-        sim = Simulator(model=model, start_time=0.0, end_time=10.0, num_point=100)
-        with self.assertRaises(ValueError) as ctx:
-            sim._checkSpeciesNames(["WRONG_SPECIES"])
-        self.assertIn("do not match", str(ctx.exception))
-
-
 class TestSimulatorSetInitialValues(unittest.TestCase):
     """Tests for Simulator._setInitialValues."""
 
@@ -318,7 +301,7 @@ class TestSimulatorSimulateBiomodel(unittest.TestCase):
         """A model present in the endtime CSV simulates with the requested num_point."""
         num_point = 15
         model = Model.makeBiomodel(model_num=45)
-        result = Simulator.simulateBiomodel(model_num=45, num_point=num_point)
+        result = Simulator.simulateBiomodel(model_num=45, num_point=num_point, is_jacobian_collection=True)
         self.assertIsInstance(result, SimulationResult)
         self.assertEqual(result.timecourse_df.shape[0], num_point)
         expected_shape = (num_point, model.num_species, model.num_species)
@@ -333,7 +316,8 @@ class TestSimulatorSimulateBiomodel(unittest.TestCase):
         avoid that lookup entirely.
         """
         num_point = 10
-        result = Simulator.simulateBiomodel(model_num=316, end_time=10.0, num_point=num_point)
+        result = Simulator.simulateBiomodel(model_num=316, end_time=10.0, num_point=num_point,
+                is_jacobian_collection=True)
         self.assertIsInstance(result, SimulationResult)
         self.assertEqual(result.timecourse_df.shape[0], num_point)
         self.assertEqual(result.jacobian_collection_arr.shape[0], num_point)

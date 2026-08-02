@@ -22,7 +22,6 @@ class Timecourse(object):
         end_time: Optional[float] = None,
         num_point: int = cn.NUM_POINT,
         timecourse_df: pd.DataFrame = pd.DataFrame(),
-        jacobian_collection_arr: np.ndarray = np.array([]),
         perturbation_value_fraction: float = cn.PERTURBATION_VALUE_FRACTION,
         perturbation_species_fraction: float = cn.PERTURBATION_SPECIES_FRACTION
         ) -> None:
@@ -39,8 +38,6 @@ class Timecourse(object):
             Number of time points to simulate.
         timecourse_df : pd.DataFrame
             Optional pre-computed timecourse DataFrame (index: time, columns: species).
-        jacobian_collection_arr : np.ndarray
-            Optional pre-computed Jacobian collection (shape: [num_time_points, num_species, num_species]).
         perturbation_value_fraction : float
             Amount of perturbation of initial values as a fraction of the original value.
             May be positive or negative.
@@ -55,7 +52,6 @@ class Timecourse(object):
         self.perturbation_species_fraction = perturbation_species_fraction
         #
         self._timecourse_df = timecourse_df
-        self._jacobian_collection_arr = jacobian_collection_arr
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Timecourse):
@@ -67,9 +63,8 @@ class Timecourse(object):
                         else bool(np.isclose(self.end_time, other.end_time))) and
                 self.num_point == other.num_point and
                 bool(np.allclose(self.timecourse_df.values,
-                        other.timecourse_df.values, equal_nan=True)) and
-                bool(np.allclose(self.jacobian_collection_arr,
-                        other.jacobian_collection_arr, equal_nan=True)))
+                        other.timecourse_df.values, equal_nan=True))
+        )
 
     def _updateEndtime(self, end_time: Optional[float]=None):
         """Determine the end time and its source."""
@@ -90,7 +85,7 @@ class Timecourse(object):
             pd.DataFrame: _description_
         """
         if self._timecourse_df.empty:
-            simulation_result = self._simulate(is_jacobian_collection=False)
+            simulation_result = self._simulate()
             self._timecourse_df = simulation_result.timecourse_df
         return self._timecourse_df
     
@@ -99,31 +94,13 @@ class Timecourse(object):
         """Number of time points in the timecourse."""
         return self.timecourse_df.shape[0]
     
-    @property
-    def jacobian_collection_arr(self) -> np.ndarray:
-        """_summary_
-
-        Returns:
-            np.ndarray: _description_
-        """
-        if self._jacobian_collection_arr.size == 0:
-            simulation_result = self._simulate(is_jacobian_collection=True)
-            self._jacobian_collection_arr = simulation_result.jacobian_collection_arr
-            self._timecourse_df = simulation_result.timecourse_df
-        return self._jacobian_collection_arr
-    
-    def _simulate(self, is_jacobian_collection: bool = False) -> SimulationResult:
+    def _simulate(self) -> SimulationResult:
         """Delegate simulation to a Simulator instance.
 
         end_time resolution order:
             1. Caller-supplied value (source: user_specified).
             2. BioModels CSV lookup (source: sedml).
             3. Auto-detection via _updateEndtime (source: set by that method).
-
-        Parameters
-        ----------
-        is_jacobian_collection : bool
-            Whether to collect Jacobians at each time point.
 
         Returns
         -------
@@ -137,7 +114,7 @@ class Timecourse(object):
             perturbation_value_fraction=self.perturbation_value_fraction,
             perturbation_species_fraction=self.perturbation_species_fraction,
         )
-        return simulator.simulate(is_jacobian_collection=is_jacobian_collection)
+        return simulator.simulate()
     
     def serialize(self) -> str:
         """
@@ -155,7 +132,6 @@ class Timecourse(object):
             "end_time": self.end_time,
             "num_point": self.num_point,
             "timecourse_df": self.timecourse_df,
-            #"jacobian_collection_arr": self.jacobian_collection_arr,
             }
         with open(path, 'wb') as f:
             pickle.dump(dct, f)
@@ -205,7 +181,6 @@ class Timecourse(object):
             end_time=dct['end_time'],
             num_point=dct['num_point'],
             timecourse_df=df,
-            jacobian_collection_arr=dct['jacobian_collection_arr']
         )
     
     def plot(self, **kwargs) -> PlotOptions:

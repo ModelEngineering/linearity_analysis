@@ -12,8 +12,8 @@ from scripts.make_biomodels_timecourse import main  # type: ignore
 IGNORE_TESTS = False
 HAS_BIOMODELS = os.path.isdir(cn.BIOMODELS_DIR)
 
-TEST_MODEL = "BIOMD0000000003"
-TEST_MODEL_NUM = 3
+TEST_MODEL = "BIOMD0000000005"
+TEST_MODEL_NUM = 5
 EXPECTED_PKL = f"{TEST_MODEL}_timecourse.pkl"
 
 
@@ -73,6 +73,9 @@ class TestMain(unittest.TestCase):
         if IGNORE_TESTS:
             return
         pkl_path = self._expectedPklPath()
+        if os.path.exists(pkl_path):
+            os.remove(pkl_path)
+        os.makedirs(self._tmpdir, exist_ok=True)
         with open(pkl_path, 'wb') as f:
             f.write(b"placeholder")
         self._runOnTestModel()

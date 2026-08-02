@@ -50,10 +50,10 @@ def _evaluate_model(model_name: str, timecourse, *,
                 threshold=threshold,
             )
             sd.fit()
-            info = sd.score()
+            info = sd.score()[0]
             min_col, median_col, max_col, values_col, num_nonzero_term_col = _score_cols(deg)
             row[min_col] = info.min
-            row[median_col] = info.median
+            row[median_col] = info.p50
             row[max_col] = info.max
             row[values_col] = info.values
             row[num_nonzero_term_col] = info.num_nonzero_term
