@@ -284,7 +284,7 @@ class Score:
                     doPlot(value_arr, xlabel=metric_name)
         if is_plot_species:
             if cn.AGGREGATION_TYPE in df.columns:
-                species_df = df[df[cn.AGGREGATION_TYPE] == cn.AGGREGATION_TYPE_SPECIES]
+                species_df = df[df[cn.AGGREGATION_TYPE] != cn.AGGREGATION_TYPE_MODEL]
                 if not species_df.empty and metric_name in species_df.columns:
                     value_arr = np.array(species_df[metric_name].values)
                     doPlot(value_arr, xlabel=metric_name)
