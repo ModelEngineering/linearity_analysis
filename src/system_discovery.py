@@ -545,8 +545,8 @@ class SystemDiscovery:
         self._require_fitted()
         score_type = "timecourse" if method == "simulation" else "derivative"
         detail_df = self.getScoreDetails(test_df=test_df, score_type=score_type)
-        species_rows = detail_df[detail_df[cn.AGGREGATION_TYPE]
-                != cn.AGGREGATION_TYPE_MODEL].copy()
+        species_rows = detail_df[detail_df[cn.COL_AGGREGATION_TYPE]
+                != cn.COL_AGGREGATION_TYPE_MODEL].copy()
         result: dict[str, float] = {}
         for i, sp_name in enumerate(self.species_names):
             if i < len(species_rows):
@@ -938,18 +938,21 @@ class SystemDiscovery:
             A DataFrame containing the score information for the model and each species.
         """
         score = Score()
+        result_df = pd.DataFrame()
         if score_type == "derivative":
             if test_df is NULL_DF:
                 test_df = self.df
             pred_arr = self.predictAllDerivatives(test_df.to_numpy(dtype=float))
             pred_df = pd.DataFrame(pred_arr[:-1], index=test_df.index[1:],
                     columns=self.species_names)
-            return score.add(self.Xdot_df, pred_df)
+            result_df = score.add(self.Xdot_df, pred_df)
         elif score_type == "timecourse":
             pred_df = self.predict()
-            return score.add(self.df, pred_df)
+            result_df =score.add(self.df, pred_df)
         else:
             raise ValueError(f"Invalid score_type '{score_type}'. Must be 'derivative' or 'timecourse'.")
+        #
+        return result_df
 
     def score(self, score_type: str = "derivative") -> float:
         """
@@ -973,12 +976,12 @@ class SystemDiscovery:
             - ``"timecourse"``: R² for the species timecourses
         """
         score_detail_df = self.getScoreDetails(score_type=score_type)
-        model_sel = score_detail_df["aggregation_type"] == "model"
+        model_sel = score_detail_df[cn.COL_AGGREGATION_TYPE] == "model"
         if score_type == "derivative":
             result = float(score_detail_df[model_sel]["min"].iloc[0])
             return result
         elif score_type == "timecourse":
-            species_sel = score_detail_df["aggregation_type"] != "model"
+            species_sel = score_detail_df[cn.COL_AGGREGATION_TYPE] != "model"
             p95_vals = score_detail_df[species_sel]["p95"].to_numpy(dtype=float)
             result = float(np.max(p95_vals))
             return result

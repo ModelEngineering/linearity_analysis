@@ -146,10 +146,10 @@ class PiecewiseSystemDiscovery(object):
         """Length-weighted aggregation of per-subsequence ScoreInfo. See
         docs/piecewise_system_discovery.md `score()` section."""
         weighted_score_df = self.getWeightedScores()
-        sel = weighted_score_df[cn.AGGREGATION_TYPE] == cn.AGGREGATION_TYPE_MODEL
+        sel = weighted_score_df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL
         result = weighted_score_df[sel][column_name].values
         if len(result) != 1:
-            raise RuntimeError(f"Expected 1 row for {cn.AGGREGATION_TYPE_MODEL} but got {len(result)}")
+            raise RuntimeError(f"Expected 1 row for {cn.COL_AGGREGATION_TYPE_MODEL} but got {len(result)}")
         return cast(float, result[0])
 
     def __str__(self) -> str:

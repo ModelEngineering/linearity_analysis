@@ -173,7 +173,7 @@ class TestProcessModels(unittest.TestCase):
         path = self._csvPath()
         processModels(5, 5, 1, serialization_path=path)
         df = pd.read_csv(path)
-        self.assertTrue((df["aggregation_type"] == "model").any())
+        self.assertTrue((df[cn.COL_AGGREGATION_TYPE] == "model").any())
 
     def test_csv_description_matches_model_name(self) -> None:
         """The description column contains the processed model's name."""
@@ -182,7 +182,7 @@ class TestProcessModels(unittest.TestCase):
         path = self._csvPath()
         processModels(5, 5, 1, serialization_path=path)
         df = pd.read_csv(path)
-        self.assertTrue(df["description"].str.startswith("BIOMD").any())
+        self.assertTrue(df[cn.COL_SYSTEM_ID].str.startswith("BIOMD").any())
 
 
 if __name__ == "__main__":

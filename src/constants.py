@@ -30,6 +30,8 @@ DIAMETER_IVP = "weighted_eigenvectors"
 DIAMETER_MAX_CV = "max_cv"
 
 # Columns
+COL_AGGREGATION_TYPE = "aggregation_type"  # model or species name
+COL_AGGREGATION_TYPE_MODEL = "model"
 COL_MAXCV = "max_cv"
 COL_ENDTIME = "end_time"
 COL_MODEL_NAME = "model_name"
@@ -77,8 +79,3 @@ PERTURBATION_SPECIES_FRACTION = 0.5  # Perturb this fraction of points
 # Endtime fraction
 ENDTIME_FRACTION_STEADYSTATE = 0.1  # Fraction of endtime to use for timecourse analysis
 ENDTIME_FRACTION_MAXMEDIAN = 0.1  # Fraction of endtime to use for timecourse analysis
-
-# Aggregations
-AGGREGATION_TYPE = "aggregation_type"  # model or species name
-AGGREGATION_TYPE_MODEL = "model"
-DESCRIPTION = "description"  # Description of the aggregation

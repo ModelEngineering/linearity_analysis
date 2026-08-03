@@ -766,7 +766,7 @@ class TestScoreDetails(unittest.TestCase):
         result = disc.getScoreDetails(score_type="derivative")
         expected_cols = {"mean", "min", "max", "count", "invalid_count",
                 "p25", "p30", "p50", "p80", "p95", "p99",
-                        cn.AGGREGATION_TYPE, cn.DESCRIPTION}
+                        cn.COL_AGGREGATION_TYPE, cn.COL_SYSTEM_ID}
         self.assertEqual(set(result.columns), expected_cols)
 
     def test_get_score_details_has_model_and_species_rows(self) -> None:
@@ -776,8 +776,8 @@ class TestScoreDetails(unittest.TestCase):
         df = _make_linear_df(noise_std=0.01)
         disc = self._make_fitted_disc(df)
         result = disc.getScoreDetails(score_type="derivative")
-        agg_types = set(result[cn.AGGREGATION_TYPE].values)
-        self.assertIn(cn.AGGREGATION_TYPE_MODEL, agg_types)
+        agg_types = set(result[cn.COL_AGGREGATION_TYPE].values)
+        self.assertIn(cn.COL_AGGREGATION_TYPE_MODEL, agg_types)
 
     def test_get_score_details_model_row_count(self) -> None:
         """getScoreDetails returns at least one model aggregation row."""
@@ -786,7 +786,7 @@ class TestScoreDetails(unittest.TestCase):
         df = _make_linear_df(noise_std=0.01)
         disc = self._make_fitted_disc(df)
         result = disc.getScoreDetails(score_type="derivative")
-        model_rows = result[result[cn.AGGREGATION_TYPE] == cn.AGGREGATION_TYPE_MODEL]
+        model_rows = result[result[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
         # May have multiple rows if previous test runs accumulated data in score.csv
         self.assertGreaterEqual(len(model_rows), 1)
 
@@ -797,7 +797,7 @@ class TestScoreDetails(unittest.TestCase):
         df = _make_linear_df(noise_std=0.01)
         disc = self._make_fitted_disc(df)
         result = disc.getScoreDetails(score_type="derivative")
-        species_rows = result[result[cn.AGGREGATION_TYPE] != cn.AGGREGATION_TYPE_MODEL]
+        species_rows = result[result[cn.COL_AGGREGATION_TYPE] != cn.COL_AGGREGATION_TYPE_MODEL]
         # May have multiple rows if previous test runs accumulated data in score.csv
         self.assertGreaterEqual(len(species_rows), 2)
 
@@ -812,8 +812,8 @@ class TestScoreDetails(unittest.TestCase):
         disc.fit()
         result = disc.getScoreDetails(test_df=test_df, score_type="derivative")
         self.assertIsInstance(result, pd.DataFrame)
-        agg_types = set(result[cn.AGGREGATION_TYPE].values)
-        self.assertIn(cn.AGGREGATION_TYPE_MODEL, agg_types)
+        agg_types = set(result[cn.COL_AGGREGATION_TYPE].values)
+        self.assertIn(cn.COL_AGGREGATION_TYPE_MODEL, agg_types)
 
     def test_get_score_details_with_test_df_timecourse(self) -> None:
         """getScoreDetails with test_df and timecourse score_type works."""
@@ -843,9 +843,9 @@ class TestScoreDetails(unittest.TestCase):
         df = _make_linear_df(noise_std=0.01)
         disc = self._make_fitted_disc(df)
         result = disc.getScoreDetails(score_type="derivative")
-        # DESCRIPTION column should contain empty strings or NaN (from CSV read)
+        # COL_SYSTEM_ID column should contain empty strings or NaN (from CSV read)
         for _, row in result.iterrows():
-            desc_val = row[cn.DESCRIPTION]
+            desc_val = row[cn.COL_SYSTEM_ID]
             if pd.notna(desc_val):
                 self.assertEqual(desc_val, "")
 
@@ -890,7 +890,7 @@ class TestScoreDetails(unittest.TestCase):
         disc = self._make_fitted_disc(df)
         result = disc.getScoreDetails(score_type="timecourse")
         # Check that percentile statistics are populated (not NaN for valid data).
-        model_rows = result[result[cn.AGGREGATION_TYPE] == cn.AGGREGATION_TYPE_MODEL]
+        model_rows = result[result[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
         if not model_rows.empty:
             self.assertFalse(np.isnan(model_rows['p25'].values[0]))  # type: ignore
 
@@ -932,7 +932,7 @@ class TestScoreDetails(unittest.TestCase):
         df = _make_linear_df(n_points=100, noise_std=0.01)
         disc = self._make_fitted_disc(df)
         result = disc.getScoreDetails(score_type="derivative")
-        model_rows = result[result[cn.AGGREGATION_TYPE] == cn.AGGREGATION_TYPE_MODEL]
+        model_rows = result[result[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
         percentile_cols = ["p25", "p30", "p50", "p80", "p95", "p99"]
         for col in percentile_cols:
             self.assertFalse(np.isnan(model_rows[col].values[0]), f"{col} should not be NaN")  # type: ignore
@@ -944,7 +944,7 @@ class TestScoreDetails(unittest.TestCase):
         df = _make_linear_df(noise_std=0.01)
         disc = self._make_fitted_disc(df)
         result = disc.getScoreDetails(score_type="derivative")
-        species_rows = result[result[cn.AGGREGATION_TYPE] != cn.AGGREGATION_TYPE_MODEL]
+        species_rows = result[result[cn.COL_AGGREGATION_TYPE] != cn.COL_AGGREGATION_TYPE_MODEL]
         for _, row in species_rows.iterrows():
             self.assertFalse(np.isnan(row['mean']), "species mean should not be NaN")
 
@@ -992,8 +992,8 @@ class TestScoreDetails(unittest.TestCase):
         disc.fit()
         result = disc.getScoreDetails(test_df=test_df, score_type="timecourse")
         self.assertIsInstance(result, pd.DataFrame)
-        agg_types = set(result[cn.AGGREGATION_TYPE].values)
-        self.assertIn(cn.AGGREGATION_TYPE_MODEL, agg_types)
+        agg_types = set(result[cn.COL_AGGREGATION_TYPE].values)
+        self.assertIn(cn.COL_AGGREGATION_TYPE_MODEL, agg_types)
 
     def test_score_derivative(self) -> None:
         """score(method='derivative') returns a float."""

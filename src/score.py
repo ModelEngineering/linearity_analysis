@@ -105,7 +105,7 @@ class Score:
             The full score DataFrame after this addition.
         """
         mape_df: pd.DataFrame = self.calculateMAPE(true_timecourse_df, prediction_timecourse_df)
-        self.statistic_calculator.add(cn.AGGREGATION_TYPE_MODEL, mape_df.values.flatten())
+        self.statistic_calculator.add(cn.COL_AGGREGATION_TYPE_MODEL, mape_df.values.flatten())
         # Species level aggregations (one per species column, across all timepoints)
         species_names = list(mape_df.columns)
         for species_name in species_names:
@@ -113,6 +113,7 @@ class Score:
         # Add the system ID
         self.score_df = self.statistic_calculator.dataframe.copy()
         self.score_df[cn.COL_SYSTEM_ID] = system_id
+        self.score_df = self.score_df.rename(columns={cn.COL_LABEL: cn.COL_AGGREGATION_TYPE})
         # Serialize the accumulated statistics
         if self._is_persist:
             self.score_df.to_csv(self.serialization_path, index=False)
@@ -163,14 +164,14 @@ class Score:
                 plt.close()
         ##
         if is_plot_model:
-            if cn.AGGREGATION_TYPE in df.columns:
-                model_df = df[df[cn.AGGREGATION_TYPE] == cn.AGGREGATION_TYPE_MODEL]
+            if cn.COL_AGGREGATION_TYPE in df.columns:
+                model_df = df[df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
                 if not model_df.empty and metric_name in model_df.columns:
                     value_arr = np.array(model_df[metric_name].values)
                     doPlot(value_arr, xlabel=metric_name)
         if is_plot_species:
-            if cn.AGGREGATION_TYPE in df.columns:
-                species_df = df[df[cn.AGGREGATION_TYPE] != cn.AGGREGATION_TYPE_MODEL]
+            if cn.COL_AGGREGATION_TYPE in df.columns:
+                species_df = df[df[cn.COL_AGGREGATION_TYPE] != cn.COL_AGGREGATION_TYPE_MODEL]
                 if not species_df.empty and metric_name in species_df.columns:
                     value_arr = np.array(species_df[metric_name].values)
                     doPlot(value_arr, xlabel=metric_name)

@@ -221,7 +221,7 @@ class TestScoreAdd(unittest.TestCase):
         pred_df = self._make_df({"A": [10.0, 20.0, 30.0]})
         self.score.add(true_df, pred_df, system_id="test")
         df = self.score.score_df
-        model_rows = df[df[cn.COL_LABEL] == cn.AGGREGATION_TYPE_MODEL]
+        model_rows = df[df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
         self.assertEqual(len(model_rows), 1)
 
     def test_add_species_aggregation_rows(self) -> None:
@@ -230,9 +230,9 @@ class TestScoreAdd(unittest.TestCase):
         pred_df = self._make_df({"A": [12.0, 24.0], "B": [6.0, 18.0]})
         self.score.add(true_df, pred_df, system_id="test")
         df = self.score.score_df
-        species_rows = df[df[cn.COL_LABEL] == "A"]
+        species_rows = df[df[cn.COL_AGGREGATION_TYPE] == "A"]
         self.assertEqual(len(species_rows), 1)
-        species_rows = df[df[cn.COL_LABEL] == "B"]
+        species_rows = df[df[cn.COL_AGGREGATION_TYPE] == "B"]
         self.assertEqual(len(species_rows), 1)
 
     def test_add_description_stored(self) -> None:
@@ -242,10 +242,10 @@ class TestScoreAdd(unittest.TestCase):
         self.score.add(true_df, pred_df, system_id="my_label")
         df = self.score.score_df
         # Model-level row uses AGGREGATION_TYPE_MODEL as its label
-        model_rows = df[df[cn.COL_LABEL] == cn.AGGREGATION_TYPE_MODEL]
+        model_rows = df[df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
         self.assertEqual(len(model_rows), 1)
         # Species rows use the species name as their label
-        species_rows = df[df[cn.COL_LABEL] == "A"]
+        species_rows = df[df[cn.COL_AGGREGATION_TYPE] == "A"]
         self.assertEqual(len(species_rows), 1)
 
     def test_add_multiple_species(self) -> None:
@@ -254,9 +254,9 @@ class TestScoreAdd(unittest.TestCase):
         pred_df = self._make_df({"X": [12.0, 22.0], "Y": [33.0, 43.0], "Z": [55.0, 65.0]})
         self.score.add(true_df, pred_df, system_id="multi")
         df = self.score.score_df
-        species_rows = df[df[cn.COL_LABEL] == "Y"]
+        species_rows = df[df[cn.COL_AGGREGATION_TYPE] == "Y"]
         self.assertEqual(len(species_rows), 1)
-        species_rows = df[df[cn.COL_LABEL] == "Z"]
+        species_rows = df[df[cn.COL_AGGREGATION_TYPE] == "Z"]
         self.assertEqual(len(species_rows), 1)
 
     def test_add_persists_to_csv(self) -> None:
@@ -274,8 +274,8 @@ class TestScoreAdd(unittest.TestCase):
         pred_df = self._make_df({"A": [12.0, 24.0]})
         self.score.add(true_df, pred_df, system_id="test")
         df = self.score.score_df
-        labels = set(df[cn.COL_LABEL].values)
-        self.assertEqual(labels, {cn.AGGREGATION_TYPE_MODEL, "A"})
+        labels = set(df[cn.COL_AGGREGATION_TYPE].values)
+        self.assertEqual(labels, {cn.COL_AGGREGATION_TYPE_MODEL, "A"})
 
     def test_add_multiple_runs_accumulate(self) -> None:
         """Multiple add() calls accumulate rows."""
@@ -293,7 +293,7 @@ class TestScoreAdd(unittest.TestCase):
         pred_df = self._make_df({"A": [5.0, 25.0]})
         self.score.add(true_df, pred_df, system_id="invalid")
         df = self.score.score_df
-        model_rows = df[df[cn.COL_LABEL] == cn.AGGREGATION_TYPE_MODEL]
+        model_rows = df[df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
         # true=0 -> MAPE=2; |25-20|/20=0.25 -> MAPE=0.75
         # mean=(2.0+0.75)/2=1.375
         np.testing.assert_almost_equal(float(model_rows["mean"].values[0]), 1.375)  # type: ignore[arg-type]
@@ -304,7 +304,7 @@ class TestScoreAdd(unittest.TestCase):
         pred_df = self._make_df({"A": [5.0, 5.0]})
         self.score.add(true_df, pred_df, system_id="all_zero")
         df = self.score.score_df
-        model_rows = df[df[cn.COL_LABEL] == cn.AGGREGATION_TYPE_MODEL]
+        model_rows = df[df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
         # true=0 -> MAPE=2 for both rows -> mean=2.0
         np.testing.assert_almost_equal(float(model_rows["mean"].values[0]), 2.0)  # type: ignore[arg-type]
 
@@ -314,7 +314,7 @@ class TestScoreAdd(unittest.TestCase):
         pred_df = self._make_df({"A": [5.0, 25.0]})
         self.score.add(true_df, pred_df, system_id="nan")
         df = self.score.score_df
-        model_rows = df[df[cn.COL_LABEL] == cn.AGGREGATION_TYPE_MODEL]
+        model_rows = df[df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
         # NaN -> MAPE=2; |25-20|/20=0.25 -> MAPE=0.75
         # mean=(2.0+0.75)/2=1.375
         np.testing.assert_almost_equal(float(model_rows["mean"].values[0]), 1.375)  # type: ignore[arg-type]
@@ -335,7 +335,7 @@ class TestScoreAdd(unittest.TestCase):
         pred_df = self._make_df({"A": [12.0, 25.0, 35.0]})
         self.score.add(true_df, pred_df, system_id="no_inv")
         df = self.score.score_df
-        model_rows = df[df[cn.COL_LABEL] == cn.AGGREGATION_TYPE_MODEL]
+        model_rows = df[df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
         # All values are valid (>=0) -> invalid_count=0.
         self.assertEqual(int(model_rows["invalid_count"].values[0]), 0)  # type: ignore[arg-type]
 
@@ -345,7 +345,7 @@ class TestScoreAdd(unittest.TestCase):
         pred_df = self._make_df({"A": [11.0, 22.0, 28.0, 42.0]})
         self.score.add(true_df, pred_df, system_id="pctl")
         df = self.score.score_df
-        model_rows = df[df[cn.COL_LABEL] == cn.AGGREGATION_TYPE_MODEL]
+        model_rows = df[df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
         # Should have percentile columns populated (not NaN).
         self.assertFalse(np.isnan(float(model_rows["p25"].values[0])))  # type: ignore[arg-type]
         self.assertFalse(np.isnan(float(model_rows["p95"].values[0])))  # type: ignore[arg-type]
@@ -357,7 +357,7 @@ class TestScoreAdd(unittest.TestCase):
         self.score.add(true_df, pred_df)
         df = self.score.score_df
         # Model-level row uses AGGREGATION_TYPE_MODEL as its label regardless of provided label
-        model_rows = df[df[cn.COL_LABEL] == cn.AGGREGATION_TYPE_MODEL]
+        model_rows = df[df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
         self.assertEqual(len(model_rows), 1)
 
     def test_add_single_species(self) -> None:

@@ -105,8 +105,11 @@ def processModels(first_model_num: int, last_model_num: int,
     endtime_dct = getBiomodelsEndtimes(is_include_endtime_source=True)
 
     score = Score(serialization_path=serialization_path)
-    if os.path.exists(score.serialization_path):
-        existing_models = set(score.score_df["description"].unique())
+    if len(score.score_df) > 0:
+        if "description" in score.score_df.columns:
+            existing_models = set(score.score_df["description"].unique())
+        else:
+            existing_models = set(score.score_df[cn.COL_SYSTEM_ID].unique())
     else:
         existing_models = set()
     excluded_models = list(set(EXCLUDED_MODELS) | existing_models)
