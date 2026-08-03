@@ -39,6 +39,21 @@ COL_NUM_SPECIES = "num_species"
 COL_NUM_PERTURBATION = "num_perturbation"
 COL_NUM_TIMEPOINT = "num_timepoint"
 COL_NAMES = [COL_MODEL_NAME, COL_MAXCV, COL_ENDTIME, COL_ENDTIME_SOURCE]
+COL_SYSTEM_ID = "system_id"  # Unique identifier for the system, e.g. model name or species name.
+COL_MEAN = "mean" # Mean value of the valid values used in calculating the statistics.
+COL_MIN = "min"  # Minimum value of the valid values used in calculating the statistics.
+COL_MAX = "max"  # Maximum value of the valid values used in calculating the statistics.
+COL_COUNT = "count"  # Number of valid values used in calculating the statistics.
+COL_INVALID_COUNT = "invalid_count"  # Number of invalid (sentinel -1) values excluded from aggregation.
+COL_LABEL = "label"  # Unique identifier for the row of statistics, e.g. model name or species name.
+COL_P25 = "p25"  # 25th percentile of the valid values used in calculating the statistics.
+COL_P30 = "p30"  # 30th percentile of the valid values used in calculating the statistics.
+COL_P50 = "p50"  # 50th percentile of the valid values used in calculating the statistics.
+COL_P80 = "p80"  # 80th percentile of the valid values used in calculating the statistics.
+COL_P95 = "p95"  # 95th percentile of the valid values used in calculating the statistics.
+COL_P99 = "p99"  # 99th percentile of the valid values used
+COL_PERCENTILES = [COL_P25, COL_P30, COL_P50, COL_P80, COL_P95, COL_P99]
+STATISTICS = [COL_MEAN, COL_MIN, COL_MAX, COL_COUNT, COL_INVALID_COUNT] + COL_PERCENTILES
 
 # Symbolic values
 ENDTIME_SOURCE_RECIROCAL_MIN_EIGENVALUE = "reciprocal_min_eigenvalue"

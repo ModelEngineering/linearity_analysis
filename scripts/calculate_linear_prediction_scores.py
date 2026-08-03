@@ -146,7 +146,7 @@ def processModels(first_model_num: int, last_model_num: int,
                     threshold=threshold)
             discovery.fit()
             prediction_df = discovery.predict()
-            score.add(timecourse.timecourse_df, prediction_df, label=model_name)
+            score.add(timecourse.timecourse_df, prediction_df, system_id=model_name)
         except Exception as e:
             print(f"Error occurred while processing model {model_name}: {e}")
             continue
