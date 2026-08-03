@@ -6,7 +6,7 @@ that estimate the derivatives of each species as a sparse linear combination of 
 Assumes rate laws are at most quadratic in the species concentrations (i.e.,
 the library includes constant, linear, and pairwise-product terms).
 
-Supports up to 10 chemical species.
+Supports up to ``MAX_SPECIES`` (200) chemical species.
 
 Dependencies
 ------------
@@ -51,21 +51,31 @@ from scipy.linalg import expm  # type: ignore
 from pysindy.feature_library import PolynomialLibrary # type: ignore
 from scipy.integrate import solve_ivp # type: ignore
 import sys
-from typing import Literal
+from typing import Literal, Dict
 import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
 NULL_DF = pd.DataFrame()
 # max allowed deviation in time step size for spectral derivative
-MAX_TIME_FRACTIONAL_DEVIATION = 0.01
+MAX_TIME_FRACTIONAL_DEVIATION = 0.001
+
+# ODE integration tolerances (used by solve_ivp)
+ODE_RTOL: float = 1e-6
+ODE_ATOL: float = 1e-8
+
+# Scatter-plot density step for perturbation analysis
+DEFAULT_FRAC_KEEP: float = 0.2
+
+# Default number of true points to plot in trajectory comparison figures
+DEFAULT_NUM_TRUE_POINT: int = 20
 
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-MAX_SPECIES = 200
+MAX_SPECIES: int = 200
 DifferentiationMethod = Literal["smooth", "finite", "spectral"]
 
 
@@ -325,8 +335,8 @@ class SystemDiscovery:
                 y0=x0,
                 t_eval=time_arr,
                 method="Radau",
-                rtol=1e-6,
-                atol=1e-8,
+                rtol=ODE_RTOL,
+                atol=ODE_ATOL,
             )
         except Exception as exc:
             raise RuntimeError(f"ODE integration failed: {exc}") from exc
@@ -339,49 +349,84 @@ class SystemDiscovery:
             time_arr: np.ndarray) -> np.ndarray:
         """
         Integrate the discovered ODE forward from *x0* over *time_arr*.
-        Assumes uniform time steps, poly_degree=1, and include_bias=True.
-        Assumes that parameter checks have been done.
+
+        For a linear system (poly_degree=1, include_bias=True), the ODE is:
+            dz/dt = A @ z + b
+        where ``A`` is the state-coefficient matrix and ``b`` is the constant
+        (bias) vector.  We solve this exactly using an augmented matrix
+        exponential on the extended state ``[z; 1]``, which correctly handles
+        the affine term without resorting to a first-order Euler approximation.
+
+        Assumes uniform time steps and that parameter checks have been done
+        in :meth:`_simulate`.
 
         Args
         ----
-        x0 : np.ndarray, optional
-            Initial state vector in physical units.  If None, uses the first row of training data
-        time_arr : np.ndarray, optional
+        x0 : np.ndarray
+            Initial state vector in physical units.
+        time_arr : np.ndarray
             Time points at which to evaluate the solution.
-            If None, uses the training time grid
 
         Returns
         -------
         np.ndarray
+            Predicted concentrations, shape ``(n_timepoints, n_species)``.
         """
-        # Check assumptions
-        if self.poly_degree != 1 or not self.include_bias:
-            raise ValueError("Matrix exponential simulation only supports poly_degree=1 and include_bias=True.")
         # Convert the initial value to the standardized inputs
         z0 = self._normalizer.normalize(x0)
-        # Extract the A and B matrices.
-        coef_arr = self.model.coefficients()   # shape (n_states, n_features)
-        A = coef_arr[:, 1:]        # first n columns -> state terms
-        B = coef_arr[:, 0]        # remaining columns -> control terms (shape (n_states, n_controls))
-        B = B.flatten()
-        # Construct the exponential matrix for the linear system dx/dt = Ax + Bu.
-        size = self.num_species + 1  # +1 for the control input
-        M = np.zeros((size, size))
-        M[:self.num_species, :self.num_species] = A
-        M[:self.num_species, self.num_species] = B
-        # Compute the simulated result using the matrix exponential.
-        dt = np.mean(np.diff(time_arr))  # assume uniform time steps
-        Md = expm(M * dt)
+        # Extract the A matrix (state coefficients) and b vector (constant/bias).
+        coef_arr = self.model.coefficients()   # shape (n_species, n_features)
+        A = coef_arr[:, 1:]        # state terms (columns after bias)
+        b = coef_arr[:, 0]         # constant / bias term
+
+        # Build the augmented matrix for the affine system:
+        #   d/dt [z; 1] = [[A, b], [0, 0]] @ [z; 1]
+        aug_size = self.num_species + 1
+        M_aug = np.zeros((aug_size, aug_size))
+        M_aug[:self.num_species, :self.num_species] = A
+        M_aug[:self.num_species, self.num_species] = b
+
+        # Compute the discrete-time transition matrix via matrix exponential.
+        dt = float(np.mean(np.diff(time_arr)))  # assume uniform time steps
+        Md = expm(M_aug * dt)
         Ad = Md[:self.num_species, :self.num_species]
         Bd = Md[:self.num_species, self.num_species]
-        # Iterative calculate the results
-        zpreds = [z0]
-        for t in time_arr[1:]:
-            z_next = Ad @ zpreds[-1] + Bd 
+
+        # Iteratively propagate the standardized state.
+        zpreds: list[np.ndarray] = [z0.copy()]
+        for _ in time_arr[1:]:
+            z_next = Ad @ zpreds[-1] + Bd
             zpreds.append(z_next)
         zpred_arr = np.array(zpreds)
-        xpred_arr = self._normalizer.denormalize(zpred_arr)
-        return xpred_arr
+
+        # Denormalize back to physical units.
+        return self._normalizer.denormalize(zpred_arr)
+
+    def aggregateSpeciesScores(self, detailed_score_df: pd.DataFrame, statistic_column: str) -> Dict[str, float]:
+            """Aggregate species-level scores into a single model-level score.
+    
+            Parameters
+            ----------
+            detailed_score_df : pd.DataFrame
+                DataFrame returned by ``getScoreDetails()`` containing species-level scores.
+            statistic_column : str
+                The column name in *detailed_score_df* to aggregate (e.g., "mean", "p95", "min", "max").
+    
+            Returns
+            -------
+            dict[str, float]
+                Dictionary containing aggregated model-level scores for mean, min, max
+            """
+            self._require_fitted()
+            species_df = detailed_score_df[detailed_score_df[cn.COL_AGGREGATION_TYPE] != cn.COL_AGGREGATION_TYPE_MODEL]
+            if species_df.empty:
+                raise ValueError("No model-level score found in the provided DataFrame.")
+            return {
+                "mean": float(species_df[statistic_column].mean()),
+                "p95": float(species_df[statistic_column].quantile(0.95)),
+                "min": float(species_df[statistic_column].min()),
+                "max": float(species_df[statistic_column].max()),
+            }
 
     @classmethod
     def analyzePerturbations(
@@ -587,7 +632,7 @@ class SystemDiscovery:
         self.is_fitted = True
         return self
 
-    def getEquations(self) -> dict[str, str]:
+    def getEquations(self) -> Dict[str, str]:
         """Return a dict mapping species name → string representation of its ODE."""
         self._require_fitted()
         equation_dct = {self.species_names[n]: eq for n, eq in enumerate(self.model.equations())}
@@ -601,6 +646,42 @@ class SystemDiscovery:
             sp_name: np.sum(np.abs(coefs[i]) > 1e-10)  # type: ignore
             for i, sp_name in enumerate(self.species_names)
         }
+
+    def getScoreDetails(self, test_df: pd.DataFrame = NULL_DF, score_type: str = "derivative") -> pd.DataFrame:
+        """
+        Calculates evaluation metrics for the fitted model return information
+        about the model as a whole and the individual species.
+
+        Parameters
+        ----------
+        test_df : pd.DataFrame, optional
+            If provided, evaluation is performed against this DataFrame instead of the training data.
+        score_type : str
+            The type of score to calculate.  Must be one of:
+            - ``"derivative"``: R² on predicted vs numerical derivatives of concentrations.
+            - ``"timecourse"``: R² for the species timecourses
+
+        Returns
+        -------
+        pd.DataFrame
+            A DataFrame containing the score information for the model and each species.
+        """
+        score = Score()
+        result_df = pd.DataFrame()
+        if score_type == "derivative":
+            if test_df is NULL_DF:
+                test_df = self.df
+            pred_arr = self.predictAllDerivatives(test_df.to_numpy(dtype=float))
+            pred_df = pd.DataFrame(pred_arr[:-1], index=test_df.index[1:],
+                    columns=self.species_names)
+            result_df = score.add(self.Xdot_df, pred_df)
+        elif score_type == "timecourse":
+            pred_df = self.predict()
+            result_df =score.add(self.df, pred_df)
+        else:
+            raise ValueError(f"Invalid score_type '{score_type}'. Must be 'derivative' or 'timecourse'.")
+        #
+        return result_df
 
     @classmethod
     def makeBiomodel(
@@ -635,7 +716,7 @@ class SystemDiscovery:
         figsize: tuple[float, float] | None = None,
         xlim: tuple[float, float] | None = None,
         is_plot: bool = True,
-        num_true_point: int = 20,
+        num_true_point: int | None = None,
     ) -> plt.Figure:  # type: ignore
         """Plot observed vs. model-simulated trajectories for each species.
 
@@ -689,6 +770,8 @@ class SystemDiscovery:
 
         r2_vals = self.calculateRsq(method="derivative", test_df=test_df)
 
+        if num_true_point is None:
+            num_true_point = DEFAULT_NUM_TRUE_POINT
         num_skip_point = max(1, len(time_arr) // num_true_point)
         ymax = max(X.max().max(), pred_df.max().max() if pred_df is not None else 0)
         ymin = min(X.min().min(), pred_df.min().min() if pred_df is not None else 0)
@@ -917,42 +1000,6 @@ class SystemDiscovery:
     def printEquations(self) -> None:
         """Pretty-print the discovered ODE equations."""
         print(self.__str__())
-
-    def getScoreDetails(self, test_df: pd.DataFrame = NULL_DF, score_type: str = "derivative") -> pd.DataFrame:
-        """
-        Calculates evaluation metrics for the fitted model return information
-        about the model as a whole and the individual species.
-
-        Parameters
-        ----------
-        test_df : pd.DataFrame, optional
-            If provided, evaluation is performed against this DataFrame instead of the training data.
-        score_type : str
-            The type of score to calculate.  Must be one of:
-            - ``"derivative"``: R² on predicted vs numerical derivatives of concentrations.
-            - ``"timecourse"``: R² for the species timecourses
-
-        Returns
-        -------
-        pd.DataFrame
-            A DataFrame containing the score information for the model and each species.
-        """
-        score = Score()
-        result_df = pd.DataFrame()
-        if score_type == "derivative":
-            if test_df is NULL_DF:
-                test_df = self.df
-            pred_arr = self.predictAllDerivatives(test_df.to_numpy(dtype=float))
-            pred_df = pd.DataFrame(pred_arr[:-1], index=test_df.index[1:],
-                    columns=self.species_names)
-            result_df = score.add(self.Xdot_df, pred_df)
-        elif score_type == "timecourse":
-            pred_df = self.predict()
-            result_df =score.add(self.df, pred_df)
-        else:
-            raise ValueError(f"Invalid score_type '{score_type}'. Must be 'derivative' or 'timecourse'.")
-        #
-        return result_df
 
     def score(self, score_type: str = "derivative") -> float:
         """

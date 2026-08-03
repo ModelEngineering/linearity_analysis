@@ -44,7 +44,6 @@ class Score:
         self._serialization_path = serialization_path
         #
         self.score_df = pd.DataFrame()
-        self.statistic_calculator = StatisticCalculator()
 
     @property
     def serialization_path(self) -> str:
@@ -72,16 +71,20 @@ class Score:
             A DataFrame with the same structure as the input dataframes, containing the MAPE values.
         """
         with np.errstate(divide='ignore', invalid='ignore'):
-            are_df = (prediction_df - true_df) / true_df
-            are_df = are_df.abs()
+            ape_df = (prediction_df - true_df) / true_df
+            ape_df = ape_df.abs()
             # Clip valid values to [0, 1] range first.
-            are_df = are_df.clip(lower=0, upper=1)
+            ape_df = ape_df.clip(lower=0, upper=1)
             # Then mark undefined/zero-true values as -1 sentinel AFTER clipping.
             # This must happen after clip so that the -1 sentinel is not converted
             # to 0 by clip(lower=0), which would mask bad predictions from aggregation.
-            invalid_mask = (true_df == 0) | ~np.isfinite(are_df)
-            are_df = are_df.where(~invalid_mask, other=-1.0)
-        return 1 - are_df
+            invalid_mask = (true_df == 0) | ~np.isfinite(ape_df)
+            mape_df = 1 - ape_df
+            mape_df = mape_df.where(~invalid_mask, other=-1.0)
+        max_value = mape_df.max().max()
+        if max_value > 1.0:
+            raise ValueError(f"MAPE values should not exceed 1.0, but found")
+        return mape_df
 
     def add(self,
             true_timecourse_df: pd.DataFrame,
@@ -104,16 +107,18 @@ class Score:
         pd.DataFrame
             The full score DataFrame after this addition.
         """
+        statistic_calculator = StatisticCalculator()
         mape_df: pd.DataFrame = self.calculateMAPE(true_timecourse_df, prediction_timecourse_df)
-        self.statistic_calculator.add(cn.COL_AGGREGATION_TYPE_MODEL, mape_df.values.flatten())
+        statistic_calculator.add(cn.COL_AGGREGATION_TYPE_MODEL, mape_df.values.flatten())
         # Species level aggregations (one per species column, across all timepoints)
         species_names = list(mape_df.columns)
         for species_name in species_names:
-            self.statistic_calculator.add(species_name, mape_df[species_name].to_numpy())
+            statistic_calculator.add(species_name, mape_df[species_name].to_numpy())
         # Add the system ID
-        self.score_df = self.statistic_calculator.dataframe.copy()
-        self.score_df[cn.COL_SYSTEM_ID] = system_id
-        self.score_df = self.score_df.rename(columns={cn.COL_LABEL: cn.COL_AGGREGATION_TYPE})
+        score_df = statistic_calculator.dataframe.copy()
+        score_df[cn.COL_SYSTEM_ID] = system_id
+        score_df = score_df.rename(columns={cn.COL_LABEL: cn.COL_AGGREGATION_TYPE})
+        self.score_df = pd.concat([self.score_df, score_df], ignore_index=True)
         # Serialize the accumulated statistics
         if self._is_persist:
             self.score_df.to_csv(self.serialization_path, index=False)

@@ -41,11 +41,6 @@ class TestScoreInit(unittest.TestCase):
         score = Score(serialization_path="")
         self.assertEqual(score.serialization_path, "score.csv")
 
-    def test_statistic_calculator_initialized(self) -> None:
-        """StatisticCalculator is created on init."""
-        score = Score()
-        self.assertIsInstance(score.statistic_calculator, type(score.statistic_calculator))
-
     def test_score_df_empty_dataframe(self) -> None:
         """score_df starts as an empty DataFrame."""
         score = Score(is_persist=False)
@@ -68,7 +63,7 @@ class TestCalculateMAPE(unittest.TestCase):
         true_df = self._make_df({"A": [10.0, 20.0, 30.0]})
         pred_df = self._make_df({"A": [10.0, 20.0, 30.0]})
         result = Score.calculateMAPE(true_df, pred_df)
-        np.testing.assert_array_almost_equal(result["A"].values, [1.0, 1.0, 1.0])
+        np.testing.assert_array_almost_equal(result["A"].values, [1.0, 1.0, 1.0]) # type: ignore
 
     def test_mape_formula_correct(self) -> None:
         """MAPE formula is max(0, 1 - |pred-true|/true)."""
@@ -77,7 +72,7 @@ class TestCalculateMAPE(unittest.TestCase):
         result = Score.calculateMAPE(true_df, pred_df)
         # |15-10|/10 = 0.5 -> 1 - 0.5 = 0.5
         # |25-20|/20 = 0.25 -> 1 - 0.25 = 0.75
-        np.testing.assert_array_almost_equal(result["A"].values, [0.5, 0.75])
+        np.testing.assert_array_almost_equal(result["A"].values, [0.5, 0.75])# type: ignore
 
     def test_mape_clipped_to_zero_floor(self) -> None:
         """MAPE values are clipped to >= 0 (zero floor)."""
@@ -86,17 +81,7 @@ class TestCalculateMAPE(unittest.TestCase):
         result = Score.calculateMAPE(true_df, pred_df)
         # |50-10|/10 = 4.0 -> clipped to 1.0 -> 1 - 1.0 = 0.0
         # |60-20|/20 = 2.0 -> clipped to 1.0 -> 1 - 1.0 = 0.0
-        np.testing.assert_array_almost_equal(result["A"].values, [0.0, 0.0])
-
-    def test_zero_true_value_produces_two(self) -> None:
-        """Zero true values produce MAPE of 2 (since result = 1 - (-1) = 2)."""
-        true_df = self._make_df({"A": [10.0, 0.0, 30.0]})
-        pred_df = self._make_df({"A": [12.0, 5.0, 36.0]})
-        result = Score.calculateMAPE(true_df, pred_df)
-        # true=0 -> are_df=-1 -> result=1-(-1)=2
-        np.testing.assert_almost_equal(float(result["A"].values[1]), 2.0)  # type: ignore[arg-type]
-        # |36-30|/30 = 0.2 -> 1 - 0.2 = 0.8
-        np.testing.assert_almost_equal(float(result["A"].values[2]), 0.8)  # type: ignore[arg-type]
+        np.testing.assert_array_almost_equal(result["A"].values, [0.0, 0.0])# type: ignore
 
     def test_nan_true_value_produces_two(self) -> None:
         """NaN true values produce MAPE of 2 (since result = 1 - (-1) = 2)."""
@@ -104,7 +89,7 @@ class TestCalculateMAPE(unittest.TestCase):
         pred_df = self._make_df({"A": [5.0, 25.0]})
         result = Score.calculateMAPE(true_df, pred_df)
         # NaN -> are_df=-1 -> result=1-(-1)=2
-        np.testing.assert_almost_equal(float(result["A"].values[0]), 2.0)  # type: ignore[arg-type]
+        np.testing.assert_almost_equal(float(result["A"].values[0]), -1.0)  # type: ignore[arg-type]
         # Valid row: |25-20|/20=0.25 -> 1-0.25=0.75
         np.testing.assert_almost_equal(float(result["A"].values[1]), 0.75)  # type: ignore[arg-type]
 
@@ -114,7 +99,7 @@ class TestCalculateMAPE(unittest.TestCase):
         pred_df = self._make_df({"A": [5.0, 25.0]})
         result = Score.calculateMAPE(true_df, pred_df)
         # inf -> are_df=-1 -> result=1-(-1)=2
-        np.testing.assert_almost_equal(float(result["A"].values[0]), 2.0)  # type: ignore[arg-type]
+        np.testing.assert_almost_equal(float(result["A"].values[0]), -1.0)  # type: ignore[arg-type]
         np.testing.assert_almost_equal(float(result["A"].values[1]), 0.75)  # type: ignore[arg-type]
 
     def test_returns_dataframe_with_same_columns(self) -> None:
@@ -131,16 +116,16 @@ class TestCalculateMAPE(unittest.TestCase):
         pred_df = self._make_df({"A": [12.0, 24.0], "B": [6.0, 18.0]})
         result = Score.calculateMAPE(true_df, pred_df)
         # A: |12-10|/10=0.2 -> 0.8, |24-20|/20=0.2 -> 0.8
-        np.testing.assert_array_almost_equal(result["A"].values, [0.8, 0.8])
+        np.testing.assert_array_almost_equal(result["A"].values, [0.8, 0.8]) # type: ignore
         # B: |6-5|/5=0.2 -> 0.8, |18-15|/15=0.2 -> 0.8
-        np.testing.assert_array_almost_equal(result["B"].values, [0.8, 0.8])
+        np.testing.assert_array_almost_equal(result["B"].values, [0.8, 0.8]) # type: ignore
 
     def test_all_zero_true_values_produce_two(self) -> None:
         """All zero true values produce MAPE of 2 for all rows."""
         true_df = self._make_df({"A": [0.0, 0.0]})
         pred_df = self._make_df({"A": [5.0, 5.0]})
         result = Score.calculateMAPE(true_df, pred_df)
-        np.testing.assert_array_almost_equal(result["A"].values, [2.0, 2.0])
+        np.testing.assert_array_almost_equal(result["A"].values, [-1.0, -1.0]) # type: ignore
 
     def test_prediction_smaller_than_true(self) -> None:
         """When prediction is smaller than true, MAPE decreases."""
@@ -148,7 +133,7 @@ class TestCalculateMAPE(unittest.TestCase):
         pred_df = self._make_df({"A": [5.0, 10.0]})
         result = Score.calculateMAPE(true_df, pred_df)
         # |5-10|/10=0.5 -> 0.5, |10-20|/20=0.5 -> 0.5
-        np.testing.assert_array_almost_equal(result["A"].values, [0.5, 0.5])
+        np.testing.assert_array_almost_equal(result["A"].values, [0.5, 0.5]) # type: ignore
 
     def test_large_prediction_clipped(self) -> None:
         """Very large predictions are clipped to zero MAPE."""
@@ -156,7 +141,7 @@ class TestCalculateMAPE(unittest.TestCase):
         pred_df = self._make_df({"A": [1e10]})
         result = Score.calculateMAPE(true_df, pred_df)
         # |1e10-1|/1 ≈ 1e10 -> clipped to 1 -> 1 - 1 = 0
-        np.testing.assert_almost_equal(float(result["A"].values[0]), 0.0)
+        np.testing.assert_almost_equal(float(result["A"].values[0]), 0.0) # type: ignore
 
     def test_mape_between_zero_and_one(self) -> None:
         """All valid MAPE values are in [0, 1] range."""
@@ -183,7 +168,7 @@ class TestCalculateMAPE(unittest.TestCase):
         pred_df = self._make_df({"A": [5.0, 12.0, 18.0]})
         result = Score.calculateMAPE(true_df, pred_df)
         # true=0 -> are_df=-1 -> result=1-(-1)=2
-        np.testing.assert_almost_equal(float(result["A"].values[0]), 2.0)  # type: ignore[arg-type]
+        np.testing.assert_almost_equal(float(result["A"].values[0]), -1.0)  # type: ignore[arg-type]
         # |12-10|/10=0.2 -> 0.8
         np.testing.assert_almost_equal(float(result["A"].values[1]), 0.8)  # type: ignore[arg-type]
         # |18-20|/20=0.1 -> 0.9
@@ -295,8 +280,7 @@ class TestScoreAdd(unittest.TestCase):
         df = self.score.score_df
         model_rows = df[df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
         # true=0 -> MAPE=2; |25-20|/20=0.25 -> MAPE=0.75
-        # mean=(2.0+0.75)/2=1.375
-        np.testing.assert_almost_equal(float(model_rows["mean"].values[0]), 1.375)  # type: ignore[arg-type]
+        np.testing.assert_almost_equal(float(model_rows["mean"].values[0]), 0.75)  # type: ignore[arg-type]
 
     def test_add_with_all_zero_true_values(self) -> None:
         """All zero true values produce MAPE=2 for all rows."""
@@ -306,7 +290,7 @@ class TestScoreAdd(unittest.TestCase):
         df = self.score.score_df
         model_rows = df[df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
         # true=0 -> MAPE=2 for both rows -> mean=2.0
-        np.testing.assert_almost_equal(float(model_rows["mean"].values[0]), 2.0)  # type: ignore[arg-type]
+        self.assertEqual(model_rows[cn.COL_INVALID_COUNT].values[0], 2)  # type: ignore[arg-type]
 
     def test_add_with_nan_true_values(self) -> None:
         """NaN true values produce MAPE=2, included in aggregation."""
@@ -315,9 +299,8 @@ class TestScoreAdd(unittest.TestCase):
         self.score.add(true_df, pred_df, system_id="nan")
         df = self.score.score_df
         model_rows = df[df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
-        # NaN -> MAPE=2; |25-20|/20=0.25 -> MAPE=0.75
-        # mean=(2.0+0.75)/2=1.375
-        np.testing.assert_almost_equal(float(model_rows["mean"].values[0]), 1.375)  # type: ignore[arg-type]
+        # NaN -> |25-20|/20=0.25 -> MAPE=0.75
+        np.testing.assert_almost_equal(float(model_rows["mean"].values[0]), 0.75)  # type: ignore[arg-type]
 
     def test_add_with_persist(self) -> None:
         """Data is written to CSV when is_persist=True."""
