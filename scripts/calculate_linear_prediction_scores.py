@@ -24,7 +24,8 @@ import matplotlib.pyplot as plt # type: ignore
 import numpy as np  # type: ignore
 import os
 
-SERIALIZATION_PATH = os.path.join(cn.DATA_DIR, "linear_predictor_scores.csv")
+SYSTEM_DISCOVERY_THRESHOLD = 0.001
+SERIALIZATION_PATH = os.path.join(cn.DATA_DIR, f"linear_predictor_scores-{SYSTEM_DISCOVERY_THRESHOLD}.csv")
 
 EXCLUDED_MODELS: list[str] = [
     "BIOMD0000000014",  # Errors "too much work"
@@ -90,7 +91,7 @@ def _getChunk(all_model_nums: list[int], num_processes: int,
     return chunk[0], chunk[-1]
 
 def processModels(first_model_num: int, last_model_num: int,
-        threshold: float=cn.SYSTEM_DISCOVERY_THRESHOLD,
+        threshold: float=SYSTEM_DISCOVERY_THRESHOLD,
         serialization_path: str=SERIALIZATION_PATH) -> None:
     """Processes all the models in the range of first to last.
 

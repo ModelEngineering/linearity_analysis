@@ -764,9 +764,7 @@ class TestScoreDetails(unittest.TestCase):
         df = _make_linear_df(noise_std=0.01)
         disc = self._make_fitted_disc(df)
         result = disc.getScoreDetails(score_type="derivative")
-        expected_cols = {"mean", "min", "max", "count", "invalid_count",
-                "p25", "p30", "p50", "p80", "p95", "p99",
-                        cn.COL_AGGREGATION_TYPE, cn.COL_SYSTEM_ID}
+        expected_cols = set(cn.STATISTICS + [cn.COL_AGGREGATION_TYPE, cn.COL_SYSTEM_ID])
         self.assertEqual(set(result.columns), expected_cols)
 
     def test_get_score_details_has_model_and_species_rows(self) -> None:
@@ -1262,6 +1260,163 @@ class TestKnownDynamics(unittest.TestCase):
         r2 = disc.calculateRsq(method="derivative")
         for v in r2.values():
             self.assertGreater(v, 0.0)
+
+
+# ---------------------------------------------------------------------------
+# getScoreAggregatedBySpecies tests
+# ---------------------------------------------------------------------------
+
+
+class TestGetScoreAggregatedBySpecies(unittest.TestCase):
+    """Tests for SystemDiscovery.getScoreAggregatedBySpecies."""
+
+    def _make_fitted_disc(self, df: pd.DataFrame, **kwargs) -> SystemDiscovery:
+        defaults = {"is_normalize": False}
+        defaults.update(kwargs)
+        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, **defaults)  # type: ignore
+        disc.fit()
+        return disc
+
+    def test_raises_before_fit(self) -> None:
+        """getScoreAggregatedBySpecies raises RuntimeError before fit."""
+        if _IGNORE_TESTS:
+            return
+        df = _make_linear_df()
+        disc = SystemDiscovery(df, is_normalize=False)
+        with self.assertRaises(RuntimeError):
+            disc.getScoreAggregatedBySpecies()
+
+    def test_returns_dict(self) -> None:
+        """getScoreAggregatedBySpecies returns a dict."""
+        if _IGNORE_TESTS:
+            return
+        df = _make_linear_df(noise_std=0.01)
+        disc = self._make_fitted_disc(df)
+        result = disc.getScoreAggregatedBySpecies()
+        self.assertIsInstance(result, dict)
+
+    def test_returns_expected_keys(self) -> None:
+        """getScoreAggregatedBySpecies returns dict with mean, min, max, median keys."""
+        if _IGNORE_TESTS:
+            return
+        df = _make_linear_df(noise_std=0.01)
+        disc = self._make_fitted_disc(df)
+        result = disc.getScoreAggregatedBySpecies()
+        expected_keys = {"mean", "min", "max", "median"}
+        self.assertEqual(set(result.keys()), expected_keys)
+
+    def test_returns_float_values(self) -> None:
+        """getScoreAggregatedBySpecies returns float values."""
+        if _IGNORE_TESTS:
+            return
+        df = _make_linear_df(noise_std=0.01)
+        disc = self._make_fitted_disc(df)
+        result = disc.getScoreAggregatedBySpecies()
+        for v in result.values():
+            self.assertIsInstance(v, float)
+
+    def test_values_in_valid_range(self) -> None:
+        """getScoreAggregatedBySpecies values are non-negative floats."""
+        if _IGNORE_TESTS:
+            return
+        df = _make_linear_df(noise_std=0.01)
+        disc = self._make_fitted_disc(df)
+        result = disc.getScoreAggregatedBySpecies()
+        for v in result.values():
+            self.assertGreaterEqual(v, 0.0)
+
+    def test_derivative_score_type(self) -> None:
+        """getScoreAggregatedBySpecies works with score_type='derivative'."""
+        if _IGNORE_TESTS:
+            return
+        df = _make_linear_df(noise_std=0.01)
+        disc = self._make_fitted_disc(df)
+        result = disc.getScoreAggregatedBySpecies(score_type="derivative")
+        self.assertIsInstance(result, dict)
+        self.assertEqual(set(result.keys()), {"mean", "min", "max", "median"})
+
+    def test_timecourse_score_type(self) -> None:
+        """getScoreAggregatedBySpecies works with score_type='timecourse'."""
+        if _IGNORE_TESTS:
+            return
+        df = _make_linear_df(noise_std=0.01)
+        disc = self._make_fitted_disc(df)
+        result = disc.getScoreAggregatedBySpecies(score_type="timecourse")
+        self.assertIsInstance(result, dict)
+        self.assertEqual(set(result.keys()), {"mean", "min", "max", "median"})
+
+    def test_with_test_df(self) -> None:
+        """getScoreAggregatedBySpecies works with a provided test DataFrame."""
+        if _IGNORE_TESTS:
+            return
+        df = _make_linear_df(n_points=100, noise_std=0.01)
+        train_df = df.iloc[:50]
+        test_df = df.iloc[50:]
+        disc = SystemDiscovery(train_df, threshold=0.001, alpha=0.001, is_normalize=False)
+        disc.fit()
+        result = disc.getScoreAggregatedBySpecies(test_df=test_df)
+        self.assertIsInstance(result, dict)
+        self.assertEqual(set(result.keys()), {"mean", "min", "max", "median"})
+
+    def test_statistic_column_mean(self) -> None:
+        """getScoreAggregatedBySpecies works with statistic_column='mean'."""
+        if _IGNORE_TESTS:
+            return
+        df = _make_linear_df(noise_std=0.01)
+        disc = self._make_fitted_disc(df)
+        result = disc.getScoreAggregatedBySpecies(statistic_column="mean")
+        self.assertIsInstance(result, dict)
+
+    def test_statistic_column_p95(self) -> None:
+        """getScoreAggregatedBySpecies works with statistic_column='p95' (default)."""
+        if _IGNORE_TESTS:
+            return
+        df = _make_linear_df(noise_std=0.01)
+        disc = self._make_fitted_disc(df)
+        result = disc.getScoreAggregatedBySpecies(statistic_column="p95")
+        self.assertIsInstance(result, dict)
+
+    def test_statistic_column_p50(self) -> None:
+        """getScoreAggregatedBySpecies works with statistic_column='p50'."""
+        if _IGNORE_TESTS:
+            return
+        df = _make_linear_df(noise_std=0.01)
+        disc = self._make_fitted_disc(df)
+        result = disc.getScoreAggregatedBySpecies(statistic_column="p50")
+        self.assertIsInstance(result, dict)
+
+    def test_mean_geq_min_and_leq_max(self) -> None:
+        """The mean statistic is between min and max."""
+        if _IGNORE_TESTS:
+            return
+        df = _make_linear_df(noise_std=0.01)
+        disc = self._make_fitted_disc(df)
+        result = disc.getScoreAggregatedBySpecies(statistic_column="mean")
+        self.assertGreaterEqual(result["mean"], result["min"])
+        self.assertLessEqual(result["mean"], result["max"])
+
+    def test_median_geq_min_and_leq_max(self) -> None:
+        """The median statistic is between min and max."""
+        if _IGNORE_TESTS:
+            return
+        df = _make_linear_df(noise_std=0.01)
+        disc = self._make_fitted_disc(df)
+        result = disc.getScoreAggregatedBySpecies(statistic_column="p50")
+        self.assertGreaterEqual(result["median"], result["min"])
+        self.assertLessEqual(result["median"], result["max"])
+
+    def test_derivative_with_test_df(self) -> None:
+        """getScoreAggregatedBySpecies works with derivative score_type and test_df."""
+        if _IGNORE_TESTS:
+            return
+        df = _make_linear_df(n_points=100, noise_std=0.01)
+        train_df = df.iloc[:50]
+        test_df = df.iloc[50:]
+        disc = SystemDiscovery(train_df, threshold=0.001, alpha=0.001, is_normalize=False)
+        disc.fit()
+        result = disc.getScoreAggregatedBySpecies(test_df=test_df, score_type="derivative")
+        self.assertIsInstance(result, dict)
+        self.assertEqual(set(result.keys()), {"mean", "min", "max", "median"})
 
 
 if __name__ == "__main__":

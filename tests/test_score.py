@@ -49,56 +49,56 @@ class TestScoreInit(unittest.TestCase):
 
 
 #########################################
-# Score.calculateMAPE Tests
+# Score.calculateAccuracy Tests
 #########################################
 
-class TestCalculateMAPE(unittest.TestCase):
-    """Tests for Score.calculateMAPE static method."""
+class TestCalculateAccuracy(unittest.TestCase):
+    """Tests for Score.calculateAccuracy static method."""
 
     def _make_df(self, data: dict) -> pd.DataFrame:
         return pd.DataFrame(data)
 
     def test_perfect_prediction_returns_one(self) -> None:
-        """Identical predictions yield MAPE of 1.0 (perfect score)."""
+        """Identical predictions yield Accuracy of 1.0 (perfect score)."""
         true_df = self._make_df({"A": [10.0, 20.0, 30.0]})
         pred_df = self._make_df({"A": [10.0, 20.0, 30.0]})
-        result = Score.calculateMAPE(true_df, pred_df)
+        result = Score.calculateAccuracy(true_df, pred_df)
         np.testing.assert_array_almost_equal(result["A"].values, [1.0, 1.0, 1.0]) # type: ignore
 
-    def test_mape_formula_correct(self) -> None:
-        """MAPE formula is max(0, 1 - |pred-true|/true)."""
+    def test_accuracy_formula_correct(self) -> None:
+        """Accuracy formula is max(0, 1 - |pred-true|/true)."""
         true_df = self._make_df({"A": [10.0, 20.0]})
         pred_df = self._make_df({"A": [15.0, 25.0]})
-        result = Score.calculateMAPE(true_df, pred_df)
+        result = Score.calculateAccuracy(true_df, pred_df)
         # |15-10|/10 = 0.5 -> 1 - 0.5 = 0.5
         # |25-20|/20 = 0.25 -> 1 - 0.25 = 0.75
         np.testing.assert_array_almost_equal(result["A"].values, [0.5, 0.75])# type: ignore
 
-    def test_mape_clipped_to_zero_floor(self) -> None:
-        """MAPE values are clipped to >= 0 (zero floor)."""
+    def test_accuracy_clipped_to_zero_floor(self) -> None:
+        """Accuracy values are clipped to >= 0 (zero floor)."""
         true_df = self._make_df({"A": [10.0, 20.0]})
         pred_df = self._make_df({"A": [50.0, 60.0]})
-        result = Score.calculateMAPE(true_df, pred_df)
+        result = Score.calculateAccuracy(true_df, pred_df)
         # |50-10|/10 = 4.0 -> clipped to 1.0 -> 1 - 1.0 = 0.0
         # |60-20|/20 = 2.0 -> clipped to 1.0 -> 1 - 1.0 = 0.0
         np.testing.assert_array_almost_equal(result["A"].values, [0.0, 0.0])# type: ignore
 
     def test_nan_true_value_produces_two(self) -> None:
-        """NaN true values produce MAPE of 2 (since result = 1 - (-1) = 2)."""
+        """NaN true values produce sentinel -1 (invalid measurement excluded from aggregation)."""
         true_df = self._make_df({"A": [float("nan"), 20.0]})
         pred_df = self._make_df({"A": [5.0, 25.0]})
-        result = Score.calculateMAPE(true_df, pred_df)
-        # NaN -> are_df=-1 -> result=1-(-1)=2
+        result = Score.calculateAccuracy(true_df, pred_df)
+        # NaN -> ape_df=NaN -> invalid_mask=True -> sentinel=-1
         np.testing.assert_almost_equal(float(result["A"].values[0]), -1.0)  # type: ignore[arg-type]
         # Valid row: |25-20|/20=0.25 -> 1-0.25=0.75
         np.testing.assert_almost_equal(float(result["A"].values[1]), 0.75)  # type: ignore[arg-type]
 
     def test_inf_true_value_produces_two(self) -> None:
-        """Inf true values produce MAPE of 2 (since result = 1 - (-1) = 2)."""
+        """Inf true values produce sentinel -1 (invalid measurement excluded from aggregation)."""
         true_df = self._make_df({"A": [float("inf"), 20.0]})
         pred_df = self._make_df({"A": [5.0, 25.0]})
-        result = Score.calculateMAPE(true_df, pred_df)
-        # inf -> are_df=-1 -> result=1-(-1)=2
+        result = Score.calculateAccuracy(true_df, pred_df)
+        # inf -> ape_df=inf -> invalid_mask=True -> sentinel=-1
         np.testing.assert_almost_equal(float(result["A"].values[0]), -1.0)  # type: ignore[arg-type]
         np.testing.assert_almost_equal(float(result["A"].values[1]), 0.75)  # type: ignore[arg-type]
 
@@ -106,48 +106,48 @@ class TestCalculateMAPE(unittest.TestCase):
         """Returns a DataFrame with same columns as input."""
         true_df = self._make_df({"A": [10.0, 20.0], "B": [5.0, 15.0]})
         pred_df = self._make_df({"A": [12.0, 24.0], "B": [6.0, 18.0]})
-        result = Score.calculateMAPE(true_df, pred_df)
+        result = Score.calculateAccuracy(true_df, pred_df)
         self.assertIsInstance(result, pd.DataFrame)
         self.assertListEqual(list(result.columns), ["A", "B"])
 
     def test_multiple_species(self) -> None:
-        """MAPE is computed for each species independently."""
+        """Accuracy is computed for each species independently."""
         true_df = self._make_df({"A": [10.0, 20.0], "B": [5.0, 15.0]})
         pred_df = self._make_df({"A": [12.0, 24.0], "B": [6.0, 18.0]})
-        result = Score.calculateMAPE(true_df, pred_df)
+        result = Score.calculateAccuracy(true_df, pred_df)
         # A: |12-10|/10=0.2 -> 0.8, |24-20|/20=0.2 -> 0.8
         np.testing.assert_array_almost_equal(result["A"].values, [0.8, 0.8]) # type: ignore
         # B: |6-5|/5=0.2 -> 0.8, |18-15|/15=0.2 -> 0.8
         np.testing.assert_array_almost_equal(result["B"].values, [0.8, 0.8]) # type: ignore
 
     def test_all_zero_true_values_produce_two(self) -> None:
-        """All zero true values produce MAPE of 2 for all rows."""
+        """All zero true values produce sentinel -1 for all rows (invalid measurements)."""
         true_df = self._make_df({"A": [0.0, 0.0]})
         pred_df = self._make_df({"A": [5.0, 5.0]})
-        result = Score.calculateMAPE(true_df, pred_df)
+        result = Score.calculateAccuracy(true_df, pred_df)
         np.testing.assert_array_almost_equal(result["A"].values, [-1.0, -1.0]) # type: ignore
 
     def test_prediction_smaller_than_true(self) -> None:
-        """When prediction is smaller than true, MAPE decreases."""
+        """When prediction is smaller than true, Accuracy decreases."""
         true_df = self._make_df({"A": [10.0, 20.0]})
         pred_df = self._make_df({"A": [5.0, 10.0]})
-        result = Score.calculateMAPE(true_df, pred_df)
+        result = Score.calculateAccuracy(true_df, pred_df)
         # |5-10|/10=0.5 -> 0.5, |10-20|/20=0.5 -> 0.5
         np.testing.assert_array_almost_equal(result["A"].values, [0.5, 0.5]) # type: ignore
 
     def test_large_prediction_clipped(self) -> None:
-        """Very large predictions are clipped to zero MAPE."""
+        """Very large predictions are clipped to zero Accuracy."""
         true_df = self._make_df({"A": [1.0]})
         pred_df = self._make_df({"A": [1e10]})
-        result = Score.calculateMAPE(true_df, pred_df)
+        result = Score.calculateAccuracy(true_df, pred_df)
         # |1e10-1|/1 ≈ 1e10 -> clipped to 1 -> 1 - 1 = 0
         np.testing.assert_almost_equal(float(result["A"].values[0]), 0.0) # type: ignore
 
-    def test_mape_between_zero_and_one(self) -> None:
-        """All valid MAPE values are in [0, 1] range."""
+    def test_accuracy_between_zero_and_one(self) -> None:
+        """All valid Accuracy values are in [0, 1] range."""
         true_df = self._make_df({"A": [10.0, 20.0, 30.0, 40.0]})
         pred_df = self._make_df({"A": [5.0, 25.0, 35.0, 50.0]})
-        result = Score.calculateMAPE(true_df, pred_df)
+        result = Score.calculateAccuracy(true_df, pred_df)
         for val in result["A"].values:
             if val >= 0:
                 self.assertGreaterEqual(val, 0.0)
@@ -157,7 +157,7 @@ class TestCalculateMAPE(unittest.TestCase):
         """Negative true values are handled correctly."""
         true_df = self._make_df({"A": [-10.0, -20.0]})
         pred_df = self._make_df({"A": [-5.0, -25.0]})
-        result = Score.calculateMAPE(true_df, pred_df)
+        result = Score.calculateAccuracy(true_df, pred_df)
         # |-5-(-10)|/|-10| = 5/10 = 0.5 -> 1 - 0.5 = 0.5
         # |-25-(-20)|/|-20| = 5/20 = 0.25 -> 1 - 0.25 = 0.75
         np.testing.assert_array_almost_equal(result["A"].values, [0.5, 0.75])  # type: ignore
@@ -166,8 +166,8 @@ class TestCalculateMAPE(unittest.TestCase):
         """Mixed zero and valid true values handled correctly."""
         true_df = self._make_df({"A": [0.0, 10.0, 20.0]})
         pred_df = self._make_df({"A": [5.0, 12.0, 18.0]})
-        result = Score.calculateMAPE(true_df, pred_df)
-        # true=0 -> are_df=-1 -> result=1-(-1)=2
+        result = Score.calculateAccuracy(true_df, pred_df)
+        # true=0 -> ape_df=inf -> invalid_mask=True -> sentinel=-1
         np.testing.assert_almost_equal(float(result["A"].values[0]), -1.0)  # type: ignore[arg-type]
         # |12-10|/10=0.2 -> 0.8
         np.testing.assert_almost_equal(float(result["A"].values[1]), 0.8)  # type: ignore[arg-type]
@@ -273,34 +273,37 @@ class TestScoreAdd(unittest.TestCase):
         self.assertEqual(len(df), 4)
 
     def test_add_with_invalid_true_values(self) -> None:
-        """Zero true values produce MAPE=2, included in aggregation."""
+        """Zero true values produce sentinel -1, included in percentile aggregation."""
         true_df = self._make_df({"A": [0.0, 20.0]})
         pred_df = self._make_df({"A": [5.0, 25.0]})
         self.score.add(true_df, pred_df, system_id="invalid")
         df = self.score.score_df
         model_rows = df[df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
-        # true=0 -> MAPE=2; |25-20|/20=0.25 -> MAPE=0.75
-        np.testing.assert_almost_equal(float(model_rows["mean"].values[0]), 0.75)  # type: ignore[arg-type]
+        # true=0 -> sentinel=-1; |25-20|/20=0.25 -> Accuracy=0.75
+        # 90th percentile of [-1, 0.75] = -1 + 0.9*(0.75-(-1)) = 0.575
+        np.testing.assert_almost_equal(float(model_rows["mean"].values[0]), 0.575)  # type: ignore[arg-type]
 
     def test_add_with_all_zero_true_values(self) -> None:
-        """All zero true values produce MAPE=2 for all rows."""
+        """All zero true values produce sentinel -1, included in percentile aggregation."""
         true_df = self._make_df({"A": [0.0, 0.0]})
         pred_df = self._make_df({"A": [5.0, 5.0]})
         self.score.add(true_df, pred_df, system_id="all_zero")
         df = self.score.score_df
         model_rows = df[df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
-        # true=0 -> MAPE=2 for both rows -> mean=2.0
-        self.assertEqual(model_rows[cn.COL_INVALID_COUNT].values[0], 2)  # type: ignore[arg-type]
+        # true=0 -> sentinel=-1 for both rows; 90th percentile of [-1,-1] = -1
+        # StatisticCalculator receives one value (-1), which is negative sentinel -> invalid_count=1
+        self.assertEqual(model_rows[cn.COL_INVALID_COUNT].values[0], 1)  # type: ignore[arg-type]
 
     def test_add_with_nan_true_values(self) -> None:
-        """NaN true values produce MAPE=2, included in aggregation."""
+        """NaN true values produce sentinel -1, included in percentile aggregation."""
         true_df = self._make_df({"A": [float("nan"), 20.0]})
         pred_df = self._make_df({"A": [5.0, 25.0]})
         self.score.add(true_df, pred_df, system_id="nan")
         df = self.score.score_df
         model_rows = df[df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
-        # NaN -> |25-20|/20=0.25 -> MAPE=0.75
-        np.testing.assert_almost_equal(float(model_rows["mean"].values[0]), 0.75)  # type: ignore[arg-type]
+        # NaN -> sentinel=-1; |25-20|/20=0.25 -> Accuracy=0.75
+        # 90th percentile of [-1, 0.75] = -1 + 0.9*(0.75-(-1)) = 0.575
+        np.testing.assert_almost_equal(float(model_rows["mean"].values[0]), 0.575)  # type: ignore[arg-type]
 
     def test_add_with_persist(self) -> None:
         """Data is written to CSV when is_persist=True."""

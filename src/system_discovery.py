@@ -402,32 +402,6 @@ class SystemDiscovery:
         # Denormalize back to physical units.
         return self._normalizer.denormalize(zpred_arr)
 
-    def aggregateSpeciesScores(self, detailed_score_df: pd.DataFrame, statistic_column: str) -> Dict[str, float]:
-            """Aggregate species-level scores into a single model-level score.
-    
-            Parameters
-            ----------
-            detailed_score_df : pd.DataFrame
-                DataFrame returned by ``getScoreDetails()`` containing species-level scores.
-            statistic_column : str
-                The column name in *detailed_score_df* to aggregate (e.g., "mean", "p95", "min", "max").
-    
-            Returns
-            -------
-            dict[str, float]
-                Dictionary containing aggregated model-level scores for mean, min, max
-            """
-            self._require_fitted()
-            species_df = detailed_score_df[detailed_score_df[cn.COL_AGGREGATION_TYPE] != cn.COL_AGGREGATION_TYPE_MODEL]
-            if species_df.empty:
-                raise ValueError("No model-level score found in the provided DataFrame.")
-            return {
-                "mean": float(species_df[statistic_column].mean()),
-                "p95": float(species_df[statistic_column].quantile(0.95)),
-                "min": float(species_df[statistic_column].min()),
-                "max": float(species_df[statistic_column].max()),
-            }
-
     @classmethod
     def analyzePerturbations(
         cls,
@@ -647,7 +621,7 @@ class SystemDiscovery:
             for i, sp_name in enumerate(self.species_names)
         }
 
-    def getScoreDetails(self, test_df: pd.DataFrame = NULL_DF, score_type: str = "derivative") -> pd.DataFrame:
+    def getScoreDetails(self, test_df: pd.DataFrame = NULL_DF, score_type: str = "timecourse") -> pd.DataFrame:
         """
         Calculates evaluation metrics for the fitted model return information
         about the model as a whole and the individual species.
@@ -682,6 +656,38 @@ class SystemDiscovery:
             raise ValueError(f"Invalid score_type '{score_type}'. Must be 'derivative' or 'timecourse'.")
         #
         return result_df
+    
+    def getScoreAggregatedBySpecies(self, test_df: pd.DataFrame = NULL_DF, score_type: str = "timecourse",
+                statistic_column: str = "p95") -> Dict[str, float]:
+        """Aggregate species-level scores into a model-level statistics
+
+        Parameters
+        ----------
+        test_df : pd.DataFrame, optional
+            If provided, evaluation is performed against this DataFrame instead of the training data.
+        score_type : str
+            The type of score to calculate.  Must be one of:
+            - ``"derivative"``: R² on predicted vs numerical derivatives of concentrations.
+            - ``"timecourse"``: R² for the species timecourses
+        statistic_column : str
+            The column name in the score DataFrame to aggregate
+
+        Returns
+        -------
+        dict[str, float]
+            Dictionary containing aggregated model-level scores for mean, min, max, median
+        """
+        self._require_fitted()
+        df = self.getScoreDetails(test_df=test_df, score_type=score_type)
+        species_df = df[df[cn.COL_AGGREGATION_TYPE] != cn.COL_AGGREGATION_TYPE_MODEL]
+        if species_df.empty:
+            raise ValueError("No model-level score found in the provided DataFrame.")
+        return {
+            "mean": float(species_df[statistic_column].mean()),
+            "min": float(species_df[statistic_column].min()),
+            "max": float(species_df[statistic_column].max()),
+            "median": float(species_df[statistic_column].median()),
+        }
 
     @classmethod
     def makeBiomodel(
