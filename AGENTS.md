@@ -17,6 +17,12 @@ The project uses a local venv at `mla/`. Always activate it before running anyth
 source activate.sh
 ```
 
+## Access to BioModels
+
+* You can iterate through BioModels using biomodels_iterator.BiomodelsIterator
+* You can iterate through previously run simulation so many BioModels using timecourse_itertor.TimecourseIterator.
+* You can access a the timecourse for a specific model using timecourse_iterator.getTimecourse.
+
 `activate.sh` also adds `src/` to `PYTHONPATH`, so imports like `from src.trajectory import Trajectory` work in tests without a package install.
 
 ## Commands

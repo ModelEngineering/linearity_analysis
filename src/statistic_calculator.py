@@ -30,6 +30,14 @@ class StatisticCalculator(object):
         self.statistic_dct: dict = {n: [] for n in cn.STATISTICS}
         self.statistic_dct[cn.COL_LABEL] = []
 
+    @staticmethod
+    def extractPercentile(column_name: str) -> int:
+        """Extracts the percentile value from a column name (e.g. p25 -> 25)."""
+        if column_name.startswith("p") and column_name[1:].isdigit():
+            return int(column_name[1:])
+        else:
+            raise ValueError(f"Column name {column_name} is not a valid percentile column name.")
+
     @property
     def dataframe(self) -> pd.DataFrame:
         """Returns a DataFrame of the accumulated statistics.
@@ -100,5 +108,6 @@ class StatisticCalculator(object):
         self.statistic_dct[cn.COL_COUNT].append(count)
         self.statistic_dct[cn.COL_INVALID_COUNT].append(invalid_count)
         percentiles = [p for p in cn.STATISTICS if self._is_percentile(p)]
+        # FIXME: C percentile isn't computed accurately?
         for p in percentiles:
-            self.statistic_dct[p].append(float(np.nanpercentile(valid_arr, int(p[1:]))))
+            self.statistic_dct[p].append(float(np.nanpercentile(valid_arr, self.extractPercentile(p))))

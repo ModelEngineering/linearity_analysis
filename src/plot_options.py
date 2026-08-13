@@ -1,7 +1,7 @@
 '''Sets up plot options'''
 
 import matplotlib.pyplot as plt # type: ignore
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 import src.constants as cn
 import numpy as np # type: ignore
 
@@ -13,7 +13,7 @@ class PlotOptions(object):
             title: Optional[str] = None,
             xlabel: str = "time",
             ylabel: str = "concentration",
-            legend: bool = True,
+            legend: Union[bool, list[str]] = True,
             xlim: Optional[Tuple[float, float]] = None,
             ylim: Optional[Tuple[float, float]] = None,
             model_name: str = "",

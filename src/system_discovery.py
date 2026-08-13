@@ -409,22 +409,25 @@ class SystemDiscovery:
         training_df: pd.DataFrame,
         threshold: float,
         perturbations: list[float],
+        col_percentile: str = cn.COL_P10,
         perturbation_species_fraction: float = 1.0,
         figsize: tuple[float, float] | None = None,
         poly_degree: int = 1,
-        frac_keep: float = 0.2,
+        scatter_frac_keep: float = 0.2,
         is_plot: bool = True,
-    ) -> pd.Series:
-        """Fit on training_df and evaluate derivative R² at each perturbation level.
+    ) -> pd.DataFrame:
+        """Fit on training_df; evaluate timecourse accuracy on perturbed timecourses.
 
         For each value in *perturbations* a fresh Timecourse is simulated from
         *model* with that ``perturbation_value_fraction``.  The SINDy model
         (fitted on the unperturbed *training_df*) is evaluated against each
-        perturbed timecourse using the derivative R² method.  The reported R²
-        per perturbation are the min, median, and max clamped R² across all species.
+        perturbed timecourse using absolute relative error (ARE) accuracy.  The
+        returned DataFrame contains one row per perturbation at the model level,
+        with columns for COL_SYSTEM_ID, COL_AGGREGATION_TYPE, and all statistics
+        (mean, min, max, count, invalid_count, and percentiles p05-p99).
 
         When *is_plot* is True, a trajectory comparison figure is also shown
-        (derivative) R² shown in the legend for visual context).
+        (the chosen percentile accuracy shown in the legend for visual context).
 
         Parameters
         ----------
@@ -436,26 +439,24 @@ class SystemDiscovery:
             STLSQ sparsity threshold.
         perturbations : list[float]
             Signed fractional perturbation values (e.g. [-0.05, 0.0, 0.05]).
+        col_percentile : str
+            The column name in the accuracy dataframe
         perturbation_species_fraction : float
-            Fraction of species whose initial values are perturbed.
+            Fraction of species whose initial values are perturbed if their initial value > 0.
         figsize : tuple, optional
             Figure size in inches.  Auto-sized when None.
         poly_degree : int
             Degree of the polynomial library.
-        frac_keep : float
-            Scatter-plot density: step = max(1, int(n_points * frac_keep)).
+        scatter_frac_keep : float
+            Scatter-plot density: step = max(1, int(n_points * scatter_frac_keep)).
         is_plot : bool
             Show a trajectory comparison figure when True.
 
         Returns
         -------
-        pd.Series
-            Index: ``model_name``, ``threshold``, and three keys per
-            perturbation value (``r2_*_min``, ``r2_*_med``, ``r2_*_max``).
-            R² values are clamped derivative R² across species, in [0, 1].
+        pd.DataFrame
+            Accuracy metrics
         """
-        import src.constants as cn  # avoid circular at module level
-
         start_time = float(training_df.index[0])
         end_time = float(training_df.index[-1])
         num_point = len(training_df)
@@ -463,41 +464,43 @@ class SystemDiscovery:
         disc = cls(training_df, threshold=threshold, poly_degree=poly_degree)
         disc.fit()
 
-        result: dict = {cn.COL_MODEL_NAME: model.model_name, "threshold": threshold}
         plot_records: list[
-            tuple[float, pd.DataFrame, pd.DataFrame | None, dict[str, float]]
+            tuple[float, pd.DataFrame, pd.DataFrame | None, float]
         ] = []
-
+        score = Score(serialization_path="", is_persist=False)
         for p in perturbations:
-            col_name = cls._perturbation_col(p)
+            tc = Timecourse(
+                model=model,
+                start_time=start_time,
+                end_time=end_time,
+                num_point=num_point,
+                perturbation_value_fraction=p,
+                perturbation_species_fraction=perturbation_species_fraction,
+            )
+            test_df = tc.timecourse_df
+            pred_df = None
             try:
-                tc = Timecourse(
-                    model=model,
-                    start_time=start_time,
-                    end_time=end_time,
-                    num_point=num_point,
-                    perturbation_value_fraction=p,
-                    perturbation_species_fraction=perturbation_species_fraction,
-                )
-                test_df = tc.timecourse_df
-                r2_dict = disc.calculateRsq(method="derivative", test_df=test_df)
-                r2_clamped = {k: cls._normalize_rsq(v) for k, v in r2_dict.items()}
-                vals = list(r2_clamped.values())
-                result[f"{col_name}_min"] = float(np.min(vals))
-                result[f"{col_name}_med"] = float(np.median(vals))
-                result[f"{col_name}_max"] = float(np.max(vals))
-                if is_plot:
-                    try:
-                        pred_df: pd.DataFrame | None = disc.predict(test_df)
-                    except Exception:
-                        pred_df = None
-                    plot_records.append((p, test_df, pred_df, r2_clamped))
-            except Exception as exc:
-                print(f"  [p={p}] {model.model_name}: {exc}", file=sys.stderr)
-                result[f"{col_name}_min"] = float("nan")
-                result[f"{col_name}_med"] = float("nan")
-                result[f"{col_name}_max"] = float("nan")
-
+                pred_df = disc.predict(test_df)
+                score.add(test_df, pred_df, system_id=str(p))
+            except Exception:
+                pass
+            if is_plot and pred_df is not None:
+                new_df = score.score_df[score.score_df[cn.COL_SYSTEM_ID] == str(p)]
+                row = new_df.iloc[0]
+                plot_records.append((p, test_df, pred_df, row[col_percentile]))
+        # Construct one row per perturbation from the accumulated Score DataFrame.
+        records = []
+        for p in perturbations:
+            row = score.score_df[
+                (score.score_df[cn.COL_SYSTEM_ID] == str(p)) &
+                (score.score_df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL)
+            ]
+            if not row.empty:
+                rec = row.iloc[0].to_dict()
+                rec["perturbation"] = p
+                records.append(rec)
+        model_accuracy_df = pd.DataFrame(records)
+        # Construct plots
         if is_plot and plot_records:
             n = len(disc.species_names)
             ncols = min(n, 3)
@@ -506,20 +509,19 @@ class SystemDiscovery:
                 figsize = (5 * ncols, 3.5 * nrows)
             fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
             fig.suptitle("Perturbation Analysis", fontsize=14, fontweight="bold")
-            num_skip = max(1, int(num_point * frac_keep))
+            num_skip = max(1, int(num_point * scatter_frac_keep))
             for sp_idx, sp_name in enumerate(disc.species_names):
                 ax_row, ax_col = divmod(sp_idx, ncols)
                 ax = axes[ax_row][ax_col]
                 sp_col = disc.species_cols[sp_idx]
-                for p_idx, (p, test_df, pred_df, r2_dct) in enumerate(plot_records):
-                    r2 = r2_dct.get(sp_name, float("nan"))
-                    r2_str = f"{r2:.3f}" if np.isfinite(r2) else "nan"
+                for p_idx, (p, test_df, pred_df, accuracy) in enumerate(plot_records):
+                    acc = f"{accuracy:.3f}" if np.isfinite(accuracy) else "nan"
                     color = f"C{p_idx}"
                     ax.scatter(
                         test_df.index[::num_skip],
                         test_df[sp_col][::num_skip],
                         s=10, color=color, alpha=0.6,
-                        label=f"vfrac={p:.2f}, R²={r2_str}",
+                        label=f"vfrac={p:.2f}, Accuracy={acc}",
                     )
                     if pred_df is not None:
                         ax.plot(
@@ -537,16 +539,18 @@ class SystemDiscovery:
             fig.tight_layout()
             plt.show()
             plt.close(fig)
+        return model_accuracy_df
 
-        return pd.Series(result)
-
-    def calculateRsq(self, method: str = "derivative",
-            test_df: pd.DataFrame = NULL_DF) -> dict[str, float]:
-        """Compute R² for each species.
+    def calculateSpeciesScores(self, score_type: str = "timecourse",
+            test_df: pd.DataFrame = NULL_DF,
+            col_percentile: str = cn.COL_P10) -> dict[str, float]:
+        """Compute accuracies for each species in the fitted model.
 
         Parameters
         ----------
-        method : str
+        score_type : str
+            The type of score to compute.  The default is "timecourse".
+            ``"timecourse"`` (default) – computes R² on the timecourses.
             ``"derivative"`` (default) – computes R² on the numerical time
             derivatives, which is fast and always works.
             ``"simulation"`` – integrates the ODE forward and compares
@@ -556,21 +560,25 @@ class SystemDiscovery:
             If provided, R² is computed against this DataFrame instead of the
             training data.  Must have the same column structure as the training
             DataFrame.
+        percentile : str
+            The column name in the score DataFrame to use for R².  Default is
+            ``"p10"`` (10th percentile).  Other options include ``"mean"``,
+            ``"p50"``, ``"p90"``, etc.
 
         Returns
         -------
         dict mapping species name → R² (clamped to [0, 1])
         """
+        if not col_percentile in cn.STATISTICS:
+            raise ValueError(f"Invalid percentile '{col_percentile}'. Must be one of {cn.STATISTICS}.")  
+        #
         self._require_fitted()
-        score_type = "timecourse" if method == "simulation" else "derivative"
         detail_df = self.getScoreDetails(test_df=test_df, score_type=score_type)
-        species_rows = detail_df[detail_df[cn.COL_AGGREGATION_TYPE]
-                != cn.COL_AGGREGATION_TYPE_MODEL].copy()
+        species_ser = detail_df[detail_df[cn.COL_AGGREGATION_TYPE] != cn.COL_AGGREGATION_TYPE_MODEL].copy()
         result: dict[str, float] = {}
         for i, sp_name in enumerate(self.species_names):
-            if i < len(species_rows):
-                col = "p95" if method == "simulation" else "mean"
-                raw = float(species_rows.iloc[i][col])
+            if i < len(species_ser):
+                raw = float(species_ser.iloc[i][col_percentile])
                 result[sp_name] = self._normalize_rsq(raw)
             else:
                 result[sp_name] = 0.0
@@ -641,21 +649,21 @@ class SystemDiscovery:
             A DataFrame containing the score information for the model and each species.
         """
         score = Score()
-        result_df = pd.DataFrame()
+        score_df = pd.DataFrame()
         if score_type == "derivative":
             if test_df is NULL_DF:
                 test_df = self.df
             pred_arr = self.predictAllDerivatives(test_df.to_numpy(dtype=float))
             pred_df = pd.DataFrame(pred_arr[:-1], index=test_df.index[1:],
                     columns=self.species_names)
-            result_df = score.add(self.Xdot_df, pred_df)
+            score_df = score.add(self.Xdot_df, pred_df)
         elif score_type == "timecourse":
             pred_df = self.predict()
-            result_df =score.add(self.df, pred_df)
+            score_df =score.add(self.df, pred_df)
         else:
             raise ValueError(f"Invalid score_type '{score_type}'. Must be 'derivative' or 'timecourse'.")
         #
-        return result_df
+        return score_df
     
     def getScoreAggregatedBySpecies(self, test_df: pd.DataFrame = NULL_DF, score_type: str = "timecourse",
                 statistic_column: str = "p95") -> Dict[str, float]:
@@ -774,15 +782,17 @@ class SystemDiscovery:
             pred_df = None
             prediction_ok = False
 
-        r2_vals = self.calculateRsq(method="derivative", test_df=test_df)
+        PERCENTILE = "p10"
+        score_dct = self.calculateSpeciesScores(score_type="timecourse", test_df=test_df,
+                col_percentile=PERCENTILE)
 
         if num_true_point is None:
             num_true_point = DEFAULT_NUM_TRUE_POINT
         num_skip_point = max(1, len(time_arr) // num_true_point)
         ymax = max(X.max().max(), pred_df.max().max() if pred_df is not None else 0)
         ymin = min(X.min().min(), pred_df.min().min() if pred_df is not None else 0)
-        ymax = ymax if not np.isfinite(ymax) else None
-        ymin = ymin if not np.isfinite(ymin) else None
+        ymax = ymax if np.isfinite(ymax) else None
+        ymin = ymin if np.isfinite(ymin) else None
         for idx, name in enumerate(self.species_names):
             row, col = divmod(idx, ncols)
             ax = axes[row][col]
@@ -790,10 +800,12 @@ class SystemDiscovery:
             ax.scatter(time_arr[::num_skip_point], X[::num_skip_point, idx], s=20, color=color, label=f"{name} (observed)")
             if prediction_ok and pred_df is not None:
                 ax.plot(pred_df.index, pred_df[name], "-", lw=2, color=color, label=f"{name} (predicted)")
-            r2 = r2_vals.get(name, float("nan"))
+            score = score_dct.get(name, float("nan"))
+            if len(name) > 20:
+                name = name[:7] + "..." + name[-10:]
             title = f"{name}"
-            if not np.isnan(r2):
-                title += f"   R²={r2:.4f}"
+            if not np.isnan(score):
+                title += f"   {PERCENTILE} accuracy={score:.4f}"
             low_y = X[:, idx].min()
             high_y = X[:, idx].max()
             if np.isclose(low_y, high_y):
@@ -1007,7 +1019,7 @@ class SystemDiscovery:
         """Pretty-print the discovered ODE equations."""
         print(self.__str__())
 
-    def score(self, score_type: str = "derivative") -> float:
+    def score(self, score_type: str = "derivative", score_column: str = "p50") -> float:
         """
         Calculates a single measure of model performance.
             derivative: minimum value of R² across all species
@@ -1031,12 +1043,12 @@ class SystemDiscovery:
         score_detail_df = self.getScoreDetails(score_type=score_type)
         model_sel = score_detail_df[cn.COL_AGGREGATION_TYPE] == "model"
         if score_type == "derivative":
-            result = float(score_detail_df[model_sel]["min"].iloc[0])
+            result = float(score_detail_df[model_sel][score_column].iloc[0])
             return result
         elif score_type == "timecourse":
             species_sel = score_detail_df[cn.COL_AGGREGATION_TYPE] != "model"
-            p95_vals = score_detail_df[species_sel]["p95"].to_numpy(dtype=float)
-            result = float(np.max(p95_vals))
+            vals = score_detail_df[species_sel][score_column].to_numpy(dtype=float)
+            result = float(np.max(vals))
             return result
         else:
             raise ValueError(f"Invalid score_type '{score_type}'. Must be 'derivative' or 'timecourse'.")
@@ -1163,13 +1175,13 @@ def discoverNetwork(
         disc.printEquations()
 
     if is_print_r_squared:
-        r2 = disc.calculateRsq()
+        r2 = disc.calculateSpeciesScores()
         print("R² on time derivatives per species:")
         for name, val in r2.items():
             print(f"  {name}: {val:.6f}")
         print()
         try:
-            r2_sim = disc.calculateRsq(method="derivative", test_df=test_df)
+            r2_sim = disc.calculateSpeciesScores(score_type="derivative", test_df=test_df)
             print("R² on simulated trajectories per species:")
             for name, val in r2_sim.items():
                 print(f"  {name}: {val:.6f}")

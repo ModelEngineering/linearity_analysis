@@ -52,7 +52,7 @@ def main(is_initialize: bool = False) -> pd.DataFrame:
     if len(initial_df) > 0:
         already_done = set(initial_df[cn.COL_MODEL_NAME].values)
 
-    rows: list[pd.Series] = []
+    all_perturbation_df: list[pd.DataFrame] = []
     for item in TimecourseIterator():
         if item.model_name not in model_names:
             continue
@@ -64,7 +64,7 @@ def main(is_initialize: bool = False) -> pd.DataFrame:
             continue
         print(f"Processing {item.model_name}...", flush=True)
         try:
-            series = SystemDiscovery.analyzePerturbations(
+            analyze_df = SystemDiscovery.analyzePerturbations(
                 model=item.timecourse.model,
                 training_df=item.timecourse.timecourse_df,
                 threshold=THRESHOLD,
@@ -76,13 +76,14 @@ def main(is_initialize: bool = False) -> pd.DataFrame:
         except Exception as exc:
             print(f"  [error] {item.model_name}: {exc}", file=sys.stderr)
             continue
-        rows.append(series)
-        full_df = pd.concat([initial_df, pd.DataFrame(rows)], ignore_index=True)
+        analyze_df[cn.COL_MODEL_NAME] = item.model_name
+        all_perturbation_df.append(analyze_df)
+        full_df = pd.concat([initial_df, analyze_df], ignore_index=True) if len(initial_df) > 0 else analyze_df
         full_df.to_csv(OUTPUT_PATH, index=False)
 
     full_df = (
-        pd.concat([initial_df, pd.DataFrame(rows)], ignore_index=True)
-        if rows
+        pd.concat([initial_df, pd.DataFrame(all_perturbation_df)], ignore_index=True)
+        if all_perturbation_df
         else initial_df
     )
     print(f"\nDone. {len(full_df)} rows in {OUTPUT_PATH}")

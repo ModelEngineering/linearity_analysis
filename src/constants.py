@@ -55,9 +55,10 @@ COL_P25 = "p25"  # 25th percentile of the valid values used in calculating the s
 COL_P30 = "p30"  # 30th percentile of the valid values used in calculating the statistics.
 COL_P50 = "p50"  # 50th percentile of the valid values used in calculating the statistics.
 COL_P80 = "p80"  # 80th percentile of the valid values used in calculating the statistics.
+COL_P90 = "p90"  # 90th percentile of the valid values used in calculating the statistics.
 COL_P95 = "p95"  # 95th percentile of the valid values used in calculating the statistics.
 COL_P99 = "p99"  # 99th percentile of the valid values used
-COL_PERCENTILES = [COL_P05,COL_P10, COL_P20, COL_P25, COL_P30, COL_P50, COL_P80, COL_P95, COL_P99]
+COL_PERCENTILES = [COL_P05,COL_P10, COL_P20, COL_P25, COL_P30, COL_P50, COL_P80, COL_P90, COL_P95, COL_P99]
 STATISTICS = [COL_MEAN, COL_MIN, COL_MAX, COL_COUNT, COL_INVALID_COUNT] + COL_PERCENTILES
 
 # Symbolic values
