@@ -408,15 +408,15 @@ class SystemDiscovery:
     @classmethod
     def analyzePerturbations(
         cls,
-        model: Model,
-        training_df: pd.DataFrame,
-        threshold: float,
-        perturbations: list[float],
+        model: Model | int,
+        training_df: pd.DataFrame = NULL_DF,
+        threshold: float = 0.001,
+        perturbations: list[float] = [-0.5, -0.2, -0.1, 0.0, 0.1, 0.2, 0.5],
         col_percentile: str = cn.COL_P10,
         perturbation_species_fraction: float = 1.0,
         figsize: tuple[float, float] | None = None,
         poly_degree: int = 1,
-        scatter_frac_keep: float = 0.2,
+        frac_scatter_skip: float = 0.2,
         is_plot: bool = True,
     ) -> pd.DataFrame:
         """Fit on training_df; evaluate timecourse accuracy on perturbed timecourses.
@@ -450,8 +450,8 @@ class SystemDiscovery:
             Figure size in inches.  Auto-sized when None.
         poly_degree : int
             Degree of the polynomial library.
-        scatter_frac_keep : float
-            Scatter-plot density: step = max(1, int(n_points * scatter_frac_keep)).
+        frac_scatter_skip : float
+            Scatter-plot density: num_skip = max(1, int(n_points * frac_scatter_skip)).
         is_plot : bool
             Show a trajectory comparison figure when True.
 
@@ -460,6 +460,10 @@ class SystemDiscovery:
         pd.DataFrame
             Accuracy metrics
         """
+        if isinstance(model, int):
+            model = Model.makeBiomodel(model_num=model)
+        if training_df is NULL_DF:
+            training_df = TimecourseIterator().getTimecourse(model.model_name).timecourse_df
         # Initializations
         modifable_species_names = model.getModifableSpecies()
         if model.num_species == 0:
@@ -474,7 +478,7 @@ class SystemDiscovery:
         disc.fit()
 
         plot_records: list[
-            tuple[float, pd.DataFrame, pd.DataFrame | None, float]
+            tuple[float, pd.DataFrame, pd.DataFrame | None, pd.Series]
         ] = []
         score = Score(serialization_path="", is_persist=False)
         for p in perturbations:
@@ -497,7 +501,9 @@ class SystemDiscovery:
             if is_plot and pred_df is not None:
                 new_df = score.score_df[score.score_df[cn.COL_SYSTEM_ID] == str(p)]
                 row = new_df.iloc[0]
-                plot_records.append((p, test_df, pred_df, row[col_percentile]))
+                new_ser = new_df[col_percentile]
+                new_ser.index = new_df[cn.COL_AGGREGATION_TYPE]
+                plot_records.append((p, test_df, pred_df, new_ser))
         # Construct one row per perturbation from the accumulated Score DataFrame.
         records = []
         if not score.score_df.empty:
@@ -522,13 +528,13 @@ class SystemDiscovery:
                 figsize = (5 * ncols, 3.5 * nrows)
             fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
             fig.suptitle("Perturbation Analysis", fontsize=14, fontweight="bold")
-            num_skip = max(1, int(num_point * scatter_frac_keep))
+            num_skip = max(1, int(num_point * frac_scatter_skip))
             for sp_idx, sp_name in enumerate(disc.species_names):
                 ax_row, ax_col = divmod(sp_idx, ncols)
                 ax = axes[ax_row][ax_col]
                 sp_col = disc.species_cols[sp_idx]
-                for p_idx, (p, test_df, pred_df, accuracy) in enumerate(plot_records):
-                    acc = f"{accuracy:.3f}" if np.isfinite(accuracy) else "nan"
+                for p_idx, (p, test_df, pred_df, accuracy_ser) in enumerate(plot_records):
+                    acc = f"{accuracy_ser.loc[sp_name]:.3f}" if np.isfinite(accuracy_ser.loc[sp_name]) else "0"
                     color = f"C{p_idx}"
                     ax.scatter(
                         test_df.index[::num_skip],

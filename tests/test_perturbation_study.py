@@ -54,13 +54,13 @@ def _makeIteratorItem(model_name: str = _MODEL_NAME) -> MagicMock:
 
 def _makeSourceDF(model_names: list, deg1_max: float = 0.95) -> pd.DataFrame:
     return pd.DataFrame({
-        cn.COL_MODEL_NAME: model_names,
+        cn.COL_SYSTEM_ID: model_names,
         "deg1_max": [deg1_max] * len(model_names),
     })
 
 
 def _makeFakeSeries(model_name: str) -> pd.Series:
-    data: dict = {cn.COL_MODEL_NAME: model_name, "threshold": THRESHOLD}
+    data: dict = {cn.COL_SYSTEM_ID: model_name, "threshold": THRESHOLD}
     for p in PERTURBATIONS:
         base = SystemDiscovery._perturbation_col(p)
         for suffix in ("_min", "_med", "_max"):
@@ -122,14 +122,14 @@ class TestMain(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = self._runMain(["model_A", "model_B"], ["model_A"])
-        self.assertIn("model_A", df[cn.COL_MODEL_NAME].values)
-        self.assertNotIn("model_B", df[cn.COL_MODEL_NAME].values)
+        self.assertIn("model_A", df[cn.COL_SYSTEM_ID].values)
+        self.assertNotIn("model_B", df[cn.COL_SYSTEM_ID].values)
 
     def test_output_has_model_name_column(self) -> None:
         if IGNORE_TESTS:
             return
         df = self._runMain(["model_A"], ["model_A"])
-        self.assertIn(cn.COL_MODEL_NAME, df.columns)
+        self.assertIn(cn.COL_SYSTEM_ID, df.columns)
 
     def test_output_has_threshold_column(self) -> None:
         if IGNORE_TESTS:
@@ -150,14 +150,14 @@ class TestMain(unittest.TestCase):
     def test_resumes_from_existing_csv(self) -> None:
         if IGNORE_TESTS:
             return
-        existing = pd.DataFrame([{cn.COL_MODEL_NAME: "model_A", "threshold": THRESHOLD}])
+        existing = pd.DataFrame([{cn.COL_SYSTEM_ID: "model_A", "threshold": THRESHOLD}])
         df = self._runMain(
             ["model_A", "model_B"], ["model_A", "model_B"],
             existing_df=existing,
         )
         self.assertEqual(len(df), 2)
-        self.assertIn("model_A", df[cn.COL_MODEL_NAME].values)
-        self.assertIn("model_B", df[cn.COL_MODEL_NAME].values)
+        self.assertIn("model_A", df[cn.COL_SYSTEM_ID].values)
+        self.assertIn("model_B", df[cn.COL_SYSTEM_ID].values)
 
     def test_already_done_models_are_skipped(self) -> None:
         """model_A in existing CSV → analyzePerturbations not called for it."""

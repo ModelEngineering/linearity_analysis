@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -72,8 +72,13 @@ SBML models are stored in `/Users/jlheller/home/Technical/repos/temp-biomodels/f
 
 ## Coding Style
 
-Delegate all coding style to ``python-coder.md``.
+Delegate all coding style to ``python-coder.md`` $HOME/.clinerules and $HOME/.claude/agents.
 
 ## Tests
 
-Delegate all coding style to ``test-builder.md``.
+Delegate all coding style to ``test-builder.md`` in $HOME/.clinerules and $HOME/.claude/agents.
+
+## Folder Notes
+
+* @data contains data produced in analyses
+* Many directories have a ``README.md`` that describe how the contents of the directory

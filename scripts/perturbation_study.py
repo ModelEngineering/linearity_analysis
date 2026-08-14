@@ -25,8 +25,7 @@ POLY_DEGREE = 1
 SPECIES_FRACTION = 1.0
 PERTURBATIONS: list[float] = [-0.50, -0.20, -0.10, -0.05, 0.00, 0.05, 0.10, 0.20, 0.50]
 
-SOURCE_PATH = os.path.join(cn.DATA_DIR, "evaluate_monomial_models-0.01.csv")
-OUTPUT_PATH = os.path.join(cn.DATA_DIR, "perturbation_study.csv")
+OUTPUT_PATH = os.path.join(cn.DATA_DIR, f"perturbation_study-{THRESHOLD}.csv")
 MIN_R2 = 0.8
 COL_DEG1_MODEL_MAX = "deg1_max"
 
@@ -36,12 +35,6 @@ EXCLUDES = [
 
 
 def main(is_initialize: bool = False) -> pd.DataFrame:
-    source_df = pd.read_csv(SOURCE_PATH)
-    model_names: set[str] = set(
-        source_df.loc[source_df[COL_DEG1_MODEL_MAX] >= MIN_R2, cn.COL_MODEL_NAME]
-    )
-    print(f"Models ({len(source_df)}) with deg1_min >= {MIN_R2}: {len(model_names)}")
-
     if not is_initialize and os.path.isfile(OUTPUT_PATH):
         print(f"Loading existing results from {OUTPUT_PATH}...")
         initial_df = pd.read_csv(OUTPUT_PATH)
@@ -52,10 +45,7 @@ def main(is_initialize: bool = False) -> pd.DataFrame:
     if len(initial_df) > 0:
         already_done = set(initial_df[cn.COL_SYSTEM_ID].values)
 
-    all_perturbation_df: list[pd.DataFrame] = []
     for item in TimecourseIterator():
-        if item.model_name not in model_names:
-            continue
         if item.model_name in already_done:
             print(f"Skipping {item.model_name} (already processed)", flush=True)
             continue
@@ -76,15 +66,18 @@ def main(is_initialize: bool = False) -> pd.DataFrame:
         except Exception as exc:
             print(f"  [error] {item.model_name}: {exc}", file=sys.stderr)
             continue
+
         current_df = pd.read_csv(OUTPUT_PATH) if os.path.isfile(OUTPUT_PATH) else pd.DataFrame()
-        full_df = pd.concat([current_df, analyze_df], ignore_index=True) if len(initial_df) > 0 else analyze_df
+        # Ensure analyze_df is a DataFrame before concatenating/writing.
+        if isinstance(analyze_df, pd.Series):
+            analyze_df = pd.DataFrame([analyze_df.to_dict()])
+        full_df = pd.concat([current_df, analyze_df], ignore_index=True) if len(current_df) > 0 else analyze_df
         full_df.to_csv(OUTPUT_PATH, index=False)
 
-    full_df = (
-        pd.concat([initial_df, pd.DataFrame(all_perturbation_df)], ignore_index=True)
-        if all_perturbation_df
-        else initial_df
-    )
+    if os.path.isfile(OUTPUT_PATH):
+        full_df = pd.read_csv(OUTPUT_PATH)
+    else:
+        full_df = initial_df
     print(f"\nDone. {len(full_df)} rows in {OUTPUT_PATH}")
     return full_df
 
