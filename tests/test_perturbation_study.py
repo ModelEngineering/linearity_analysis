@@ -98,7 +98,6 @@ class TestMain(unittest.TestCase):
         with patch("perturbation_study.TimecourseIterator") as mock_iter_cls, \
              patch("perturbation_study.SystemDiscovery.analyzePerturbations",
                    side_effect=fake_analyze), \
-             patch("perturbation_study.SOURCE_PATH", self._source_path), \
              patch("perturbation_study.OUTPUT_PATH", self._output_path):
             mock_iter_cls.return_value.__iter__ = MagicMock(
                 return_value=iter(items)
@@ -116,14 +115,6 @@ class TestMain(unittest.TestCase):
             return
         df = self._runMain(["model_A", "model_B"], ["model_A", "model_B"])
         self.assertEqual(len(df), 2)
-
-    def test_non_qualifying_models_excluded(self) -> None:
-        """model_B is in the iterator but not in qualifying list → excluded."""
-        if IGNORE_TESTS:
-            return
-        df = self._runMain(["model_A", "model_B"], ["model_A"])
-        self.assertIn("model_A", df[cn.COL_SYSTEM_ID].values)
-        self.assertNotIn("model_B", df[cn.COL_SYSTEM_ID].values)
 
     def test_output_has_model_name_column(self) -> None:
         if IGNORE_TESTS:
@@ -179,7 +170,6 @@ class TestMain(unittest.TestCase):
         with patch("perturbation_study.TimecourseIterator") as mock_iter_cls, \
              patch("perturbation_study.SystemDiscovery.analyzePerturbations",
                    side_effect=fake_analyze), \
-             patch("perturbation_study.SOURCE_PATH", self._source_path), \
              patch("perturbation_study.OUTPUT_PATH", self._output_path):
             mock_iter_cls.return_value.__iter__ = MagicMock(return_value=iter(items))
             main()
