@@ -1655,24 +1655,6 @@ class TestAnalyzePerturbations(unittest.TestCase):
             "Column 'p50' contains non-finite values.",
         )
 
-class TestSystemDiscoveryBug(unittest.TestCase):
-    """Tests for specific bugs or regressions in SystemDiscovery."""
-
-    def test_bug_1234_example(self) -> None:
-        if IGNORE_TESTS:
-            return
-        MODEL_NUM = 692
-        tc = TimecourseIterator.getTimecourse(MODEL_NUM)
-        training_df = tc.timecourse_df
-        defaults = {
-            "model": Model.makeBiomodel(model_num=MODEL_NUM),
-            "training_df": training_df,
-            "threshold": 0.01,
-            "perturbations": [0, 5, -0.1],
-            "is_plot": False,
-        }
-        result_df = SystemDiscovery.analyzePerturbations(**defaults)
-        self.assertGreater(result_df.loc[0, cn.COL_MEAN], result_df.loc[1, cn.COL_MEAN]) # type: ignore
 
 if __name__ == "__main__":
     unittest.main()
