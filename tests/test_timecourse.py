@@ -458,5 +458,85 @@ class TestTimecourseEqRealBiomodel(unittest.TestCase):
         self.assertEqual(tc, tc)
 
 
+
+# ---------------------------------------------------------------------------
+# makePerturbationTimecourse tests — pure unit tests, no BioModels required.
+# Uses the synthetic antimony model at module level.
+# ---------------------------------------------------------------------------
+
+
+class TestTimecourseMakePerturbationTimecourse(unittest.TestCase):
+    """Tests for Timecourse.makePerturbationTimecourse."""
+
+    def test_returns_timecourse_instance(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTimecourse()
+        perturbed = tc.makePerturbationTimecourse(0.05, 0.1)
+        self.assertIsInstance(perturbed, Timecourse)
+
+    def test_preserves_model(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTimecourse()
+        perturbed = tc.makePerturbationTimecourse(0.05, 0.1)
+        self.assertIs(perturbed.model, tc.model)
+
+    def test_preserves_start_time(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = Timecourse(model=_makeModel(), start_time=2.5)
+        perturbed = tc.makePerturbationTimecourse(0.05, 0.1)
+        self.assertEqual(perturbed.start_time, 2.5)
+
+    def test_preserves_end_time(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = Timecourse(model=_makeModel(), end_time=None)
+        perturbed = tc.makePerturbationTimecourse(0.05, 0.1)
+        self.assertIsNone(perturbed.end_time)
+
+    def test_preserves_num_point(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = Timecourse(model=_makeModel(), num_point=42)
+        perturbed = tc.makePerturbationTimecourse(0.05, 0.1)
+        self.assertEqual(perturbed.num_point, 42)
+
+    def test_stores_perturbation_value_fraction(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTimecourse()
+        perturbed = tc.makePerturbationTimecourse(0.25, 0.1)
+        self.assertEqual(perturbed.perturbation_value_fraction, 0.25)
+
+    def test_stores_perturbation_species_fraction(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTimecourse()
+        perturbed = tc.makePerturbationTimecourse(0.05, 0.75)
+        self.assertEqual(perturbed.perturbation_species_fraction, 0.75)
+
+    def test_lazy_simulation_not_triggered(self) -> None:
+        """New instance has empty _timecourse_df until .timecourse_df is accessed."""
+        if IGNORE_TESTS:
+            return
+        tc = _makeTimecourse()
+        perturbed = tc.makePerturbationTimecourse(0.05, 0.1)
+        self.assertTrue(perturbed._timecourse_df.empty)
+
+    def test_different_perturbations_produce_different_trajectories(self) -> None:
+        """Perturbed and unperturbed trajectories must differ when simulated."""
+        if IGNORE_TESTS:
+            return
+        tc = Timecourse(model=_makeModel(), num_point=50, end_time=10.0)
+        perturbed = tc.makePerturbationTimecourse(0.5, 1.0)
+        original_df = tc.timecourse_df
+        perturbed_df = perturbed.timecourse_df
+        self.assertEqual(original_df.shape, perturbed_df.shape)
+        # Trajectories should not be element-wise equal.
+        self.assertFalse(np.allclose(original_df.values, perturbed_df.values))
+
+
 if __name__ == "__main__":
     unittest.main()

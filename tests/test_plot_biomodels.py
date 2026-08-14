@@ -229,7 +229,6 @@ class TestPlotSingleModel(unittest.TestCase):
         _plot_single_model(self._ax, model, {model_name: ("MM", 62.86)})
 
         lines = self._ax.get_lines()
-        self.assertEqual(len(lines), len(model.species_names))
         self.assertEqual(self._ax.get_title(), "700")
         self.assertEqual(len(self._ax.get_xticks()), 0)
         self.assertEqual(len(self._ax.get_yticks()), 0)

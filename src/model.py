@@ -32,7 +32,7 @@ class Model(object):
         self._species_names: List[str] = []
         #
         rr = te.loadSBMLModel(self.sbml_str)
-        self.species_names = rr.getFloatingSpeciesIds()
+        self.species_names = rr.getFloatingSpeciesIds() + rr.getBoundarySpeciesIds()
         self.initial_value_dct = {n: float(rr.model[f"init({n})"])
                 for n in self.species_names}
         self.num_reaction = rr.getNumReactions()
@@ -43,13 +43,40 @@ class Model(object):
         if not isinstance(other, Model):
             return NotImplemented
         return self.sbml_str == other.sbml_str and self.model_name == other.model_name
-    
+
+    def getModifableSpecies(self) -> List[str]:
+        """
+        Finds the species whose initial values can be modified.
+        """
+        rr = te.loadSBMLModel(self.sbml_str)
+        modifable_species_names = []
+        for species_name in self.species_names:
+            try:
+                rr.model[f"init({species_name})"] = rr.model[f"init({species_name})"]
+                modifable_species_names.append(species_name)
+            except Exception as e:
+                pass
+        #
+        return modifable_species_names
+
+    def checkModifableSpecies(self) -> None:
+        """Check that the model has modifiable species."""
+        modifable_species_names = self.getModifableSpecies()
+        if (len(self.species_names) == 0) or len(modifable_species_names) != len(self.species_names):
+            raise ValueError(f"model {self.model_name} has non-modifiable species: "
+                    f"{set(self.species_names) - set(modifable_species_names)}")
+
+    @staticmethod
+    def getBiomodelNumberFromName(model_name: str) -> int:
+        """Return the BioModels number if the model name is a BioModels identifier."""
+        if model_name.startswith("BIOMD"):
+            return int(model_name[5:])
+        else:
+            raise ValueError(f"Model name '{model_name}' is not a BioModels identifier.")
+
     def getBiomodelNumber(self) -> int:
         """Return the BioModels number if the model name is a BioModels identifier."""
-        if self.model_name.startswith("BIOMD"):
-            return int(self.model_name[5:])
-        else:
-            raise ValueError(f"Model name '{self.model_name}' is not a BioModels identifier.")
+        return self.getBiomodelNumberFromName(self.model_name)
 
     @staticmethod 
     def getBiomodelName(model_num: int) -> str:

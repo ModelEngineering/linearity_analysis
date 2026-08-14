@@ -98,8 +98,7 @@ class Simulator(object):
             model=model,
             start_time=start_time,
             end_time=end_time,
-            num_point=num_point,
-        )
+            num_point=num_point)
         return simulator.simulate(is_jacobian_collection=is_jacobian_collection)
 
     def simulate(self, is_jacobian_collection: bool = False) -> SimulationResult:
@@ -223,7 +222,7 @@ class Simulator(object):
 
     def _setInitialValues(self, rr, initial_dct: Dict[str, float]) -> None:
         """Set initial values of floating species in the RoadRunner model."""
-        for idx, name in enumerate(self.model.species_names):
+        for name in self.model.species_names:
             if name in initial_dct.keys():
                 rr[name] = initial_dct[name]
 

@@ -457,6 +457,8 @@ class SystemDiscovery:
         pd.DataFrame
             Accuracy metrics
         """
+        # Initializations
+        modifable_species_names = model.getModifableSpecies()
         start_time = float(training_df.index[0])
         end_time = float(training_df.index[-1])
         num_point = len(training_df)
@@ -478,6 +480,7 @@ class SystemDiscovery:
                 perturbation_species_fraction=perturbation_species_fraction,
             )
             test_df = tc.timecourse_df
+            disc._checkColumns(test_df.columns.tolist())
             pred_df = None
             try:
                 pred_df = disc.predict(test_df)
@@ -490,15 +493,17 @@ class SystemDiscovery:
                 plot_records.append((p, test_df, pred_df, row[col_percentile]))
         # Construct one row per perturbation from the accumulated Score DataFrame.
         records = []
-        for p in perturbations:
-            row = score.score_df[
-                (score.score_df[cn.COL_SYSTEM_ID] == str(p)) &
-                (score.score_df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL)
-            ]
-            if not row.empty:
-                rec = row.iloc[0].to_dict()
-                rec["perturbation"] = p
-                records.append(rec)
+        if not score.score_df.empty:
+            for p in perturbations:
+                row = score.score_df[
+                    (score.score_df[cn.COL_SYSTEM_ID] == str(p)) &
+                    (score.score_df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL)
+                ]
+                if not row.empty:
+                    rec = row.iloc[0].to_dict()
+                    rec[cn.COL_PERTURBATION] = p
+                    rec[cn.COL_SYSTEM_ID] = ""
+                    records.append(rec)
         model_accuracy_df = pd.DataFrame(records)
         # Construct plots
         if is_plot and plot_records:
@@ -892,6 +897,12 @@ class SystemDiscovery:
             plt.close(fig)
         return fig
 
+    def _checkColumns(self, candidate_columns: list[str]) -> None:
+        """Check that the candidate columns are present in the DataFrame."""
+        differences = set(candidate_columns).symmetric_difference(set(self.df.columns))
+        if differences:
+            raise ValueError(f"Mismatched columns in DataFrame: {differences}")    
+
     def predict(self, test_df: pd.DataFrame = NULL_DF) -> pd.DataFrame:
         """Integrate the discovered ODE and return predicted concentrations.
 
@@ -909,6 +920,9 @@ class SystemDiscovery:
             species.  Raises ``RuntimeError`` if the ODE integrator fails.
             columns: species names; index: time points
         """
+        if not test_df.empty:
+            self._checkColumns(test_df.columns.tolist())
+        self._require_fitted()
         if test_df is not NULL_DF:
             x0 = test_df.to_numpy(dtype=float)[0, :]
             time_arr = test_df.index.to_numpy(dtype=float)
@@ -1002,6 +1016,8 @@ class SystemDiscovery:
         self._require_fitted()
         if test_df is None:
             return self.Xdot_df.copy()
+        if not test_df.empty:
+            self._checkColumns(test_df.columns.tolist())
 
         # For test data, compute finite-difference derivatives on normalized
         # values and denormalize back to physical units.
@@ -1169,6 +1185,8 @@ def discoverNetwork(
         species_names=species_names,
         is_normalize=True,
     )
+    if not test_df.empty:
+            disc._checkColumns(test_df.columns.tolist())
     disc.fit()
     if is_print_equations:
         print("Discovered equations:")

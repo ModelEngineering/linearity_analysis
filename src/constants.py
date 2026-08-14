@@ -41,6 +41,7 @@ COL_NUM_SPECIES = "num_species"
 COL_NUM_PERTURBATION = "num_perturbation"
 COL_NUM_TIMEPOINT = "num_timepoint"
 COL_NAMES = [COL_MODEL_NAME, COL_MAXCV, COL_ENDTIME, COL_ENDTIME_SOURCE]
+COL_PERTURBATION = "perturbation"  # Perturbation value fraction used in simulation
 COL_SYSTEM_ID = "system_id"  # Unique identifier for the system, e.g. model name or species name.
 COL_MEAN = "mean" # Mean value of the valid values used in calculating the statistics.
 COL_MIN = "min"  # Minimum value of the valid values used in calculating the statistics.

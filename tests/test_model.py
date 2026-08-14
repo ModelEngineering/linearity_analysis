@@ -419,5 +419,84 @@ class TestModelNumAssignmentRule(unittest.TestCase):
         self.assertEqual(model.num_assignment_rule, 1)
 
 
+
+# ---------------------------------------------------------------------------
+# checkModifableSpecies tests — synthetic SBML + real BioModels case.
+# ---------------------------------------------------------------------------
+
+SBML_WITH_CONSTRAINED_SPECIES = """<?xml version="1.0" encoding="UTF-8"?>
+<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">
+  <model id="test_constrained" name="test_constrained">
+    <listOfCompartments>
+      <compartment id="vol" size="1" boundaryCondition="false" constant="true"/>
+    </listOfCompartments>
+    <listOfParameters>
+      <parameter id="p0" value="5.0" constant="true"/>
+    </listOfParameters>
+    <listOfSpecies>
+      <species id="S1" compartment="vol" initialConcentration="10" hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>
+    </listOfSpecies>
+    <listOfRules>
+      <assignmentRule variable="S1">
+        <math xmlns="http://www.w3.org/1998/Math/MathML"><ci>p0</ci></math>
+      </assignmentRule>
+    </listOfRules>
+  </model>
+</sbml>"""
+
+
+class TestModelCheckModifableSpecies(unittest.TestCase):
+    """Tests for Model.checkModifableSpecies (called explicitly, not during __init__)."""
+
+    def test_synthetic_constrained_species_constructs(self) -> None:
+        """Construction succeeds; checkModifableSpecies() reports the non-modifiable species."""
+        if IGNORE_TESTS:
+            return
+        model = Model(SBML_WITH_CONSTRAINED_SPECIES, model_name="synthetic_constrained")
+        self.assertEqual(len(model.species_names), 1)
+        with self.assertRaises(ValueError) as ctx:
+            model.checkModifableSpecies()
+        msg = str(ctx.exception)
+        self.assertIn("non-modifiable species", msg)
+        self.assertIn("S1", msg)
+
+    def test_synthetic_constrained_species_getModifableSubset(self) -> None:
+        """getModifableSpecies returns only the modifiable subset when one species is constrained."""
+        if IGNORE_TESTS:
+            return
+        model = Model(SBML_WITH_CONSTRAINED_SPECIES, model_name="synthetic_constrained")
+        self.assertEqual(model.getModifableSpecies(), [])
+
+    def test_normal_model_passes_check(self) -> None:
+        """A normal antimony model has no non-modifiable species and loads successfully."""
+        if IGNORE_TESTS:
+            return
+        model = Model(ANTIMONY_MODEL, model_name="normal")
+        self.assertEqual(model.num_species, 2)
+        self.assertIn("S1", model.species_names)
+
+    @unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
+    def test_biomd_538_constructs(self) -> None:
+        """BIOMD0000000538 has a non-modifiable species; construction succeeds but checkModifableSpecies() fails."""
+        if IGNORE_TESTS:
+            return
+        model = Model.makeBiomodel("BIOMD0000000538")
+        self.assertIn("ONLrom", model.species_names)
+        with self.assertRaises(ValueError) as ctx:
+            model.checkModifableSpecies()
+        msg = str(ctx.exception)
+        self.assertIn("non-modifiable species", msg)
+
+    @unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
+    def test_biomd_538_getModifableSubset(self) -> None:
+        """getModifableSpecies reports a strict subset of species_names for BIOMD 538."""
+        if IGNORE_TESTS:
+            return
+        model = Model.makeBiomodel("BIOMD0000000538")
+        modifiable = set(model.getModifableSpecies())
+        self.assertTrue(modifiable.issubset(set(model.species_names)))
+        self.assertNotIn("ONLrom", modifiable)
+
+
 if __name__ == "__main__":
     unittest.main()

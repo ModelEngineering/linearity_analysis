@@ -2,6 +2,8 @@
 
 from src.system_discovery import SystemDiscovery, discoverNetwork  # type: ignore
 import src.constants as cn  # type: ignore
+from src.timecourse_iterator import TimecourseIterator  # type: ignore
+from src.model import Model  # type: ignore
 
 import os
 import sys
@@ -1613,16 +1615,6 @@ class TestAnalyzePerturbations(unittest.TestCase):
             result["perturbation"].to_numpy(), np.array(perturbations)
         )
 
-    def test_system_id_matches_perturbation_string(self) -> None:
-        """Each row's COL_SYSTEM_ID equals str(perturbation_value)."""
-        if IGNORE_TESTS:
-            return
-        perturbations = [-0.1, 0.05, 0.2]
-        result = self._run_analyze(perturbations=perturbations)
-        for _, row in result.iterrows():
-            expected_id = str(row["perturbation"])
-            self.assertEqual(row[cn.COL_SYSTEM_ID], expected_id)
-
     def test_aggregation_type_all_model(self) -> None:
         """All rows have COL_AGGREGATION_TYPE == 'model' (model-level only)."""
         if IGNORE_TESTS:
@@ -1663,6 +1655,24 @@ class TestAnalyzePerturbations(unittest.TestCase):
             "Column 'p50' contains non-finite values.",
         )
 
+class TestSystemDiscoveryBug(unittest.TestCase):
+    """Tests for specific bugs or regressions in SystemDiscovery."""
+
+    def test_bug_1234_example(self) -> None:
+        if IGNORE_TESTS:
+            return
+        MODEL_NUM = 692
+        tc = TimecourseIterator.getTimecourse(MODEL_NUM)
+        training_df = tc.timecourse_df
+        defaults = {
+            "model": Model.makeBiomodel(model_num=MODEL_NUM),
+            "training_df": training_df,
+            "threshold": 0.01,
+            "perturbations": [0, 5, -0.1],
+            "is_plot": False,
+        }
+        result_df = SystemDiscovery.analyzePerturbations(**defaults)
+        self.assertGreater(result_df.loc[0, cn.COL_MEAN], result_df.loc[1, cn.COL_MEAN]) # type: ignore
 
 if __name__ == "__main__":
     unittest.main()

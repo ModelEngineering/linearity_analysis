@@ -74,7 +74,7 @@ def main(
         model = Model.makeBiomodel(model_name)
         if os.path.isfile(pkl_path) and (not is_initialize):
             timecourse = Timecourse.deserialize(path=pkl_path)
-            if timecourse._jacobian_collection_arr.size > 0:
+            if not timecourse.timecourse_df.empty:
                 print(f"Skipping {model_name} (already serialized)")
                 continue
         try:

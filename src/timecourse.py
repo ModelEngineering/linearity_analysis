@@ -23,7 +23,8 @@ class Timecourse(object):
         num_point: int = cn.NUM_POINT,
         timecourse_df: pd.DataFrame = pd.DataFrame(),
         perturbation_value_fraction: float = cn.PERTURBATION_VALUE_FRACTION,
-        perturbation_species_fraction: float = cn.PERTURBATION_SPECIES_FRACTION
+        perturbation_species_fraction: float = cn.PERTURBATION_SPECIES_FRACTION,
+        modifable_species_names: Optional[List[str]] = None,
         ) -> None:
         """ 
         Parameters
@@ -43,6 +44,8 @@ class Timecourse(object):
             May be positive or negative.
         perturbation_species_fraction : float
             Fraction of non-zero initial values that are perturbed
+        modifable_species_names : Optional[List[str]]
+            Optional list of species names that are modifiable. If not provided, it will be determined
         """
         self.model = model
         self.start_time = start_time
@@ -50,8 +53,23 @@ class Timecourse(object):
         self.num_point = num_point
         self.perturbation_value_fraction = perturbation_value_fraction
         self.perturbation_species_fraction = perturbation_species_fraction
+        self.modifable_species_names = modifable_species_names
         #
         self._timecourse_df = timecourse_df
+
+    def makePerturbationTimecourse(self,
+        perturbation_value_fraction: float,
+        perturbation_species_fraction: float) -> "Timecourse":
+        """Create a new Timecourse with perturbed initial values.
+        """
+        return type(self)(
+            model=self.model,
+            start_time=self.start_time,
+            end_time=self.end_time,
+            num_point=self.num_point,
+            perturbation_value_fraction=perturbation_value_fraction,
+            perturbation_species_fraction=perturbation_species_fraction
+        )
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Timecourse):

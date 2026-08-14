@@ -178,27 +178,27 @@ class TestTimecourseIteratorGetTimecourse(unittest.TestCase):
     def test_returns_timecourse_for_valid_model(self) -> None:
         if IGNORE_TESTS:
             return
-        tc = self._iterator().getTimecourse("model_A")
+        tc = self._iterator().getTimecourse("model_A", zip_path=self._zip_path)
         self.assertIsInstance(tc, Timecourse)
 
     def test_raises_for_unknown_model(self) -> None:
         if IGNORE_TESTS:
             return
         with self.assertRaises(KeyError):
-            self._iterator().getTimecourse("does_not_exist")
+            self._iterator().getTimecourse("does_not_exist", zip_path=self._zip_path)
 
     def test_timecourse_df_is_nonempty(self) -> None:
         if IGNORE_TESTS:
             return
-        tc = self._iterator().getTimecourse("model_A")
+        tc = self._iterator().getTimecourse("model_A", zip_path=self._zip_path)
         self.assertFalse(tc._timecourse_df.empty)
 
     def test_can_get_each_model_independently(self) -> None:
         if IGNORE_TESTS:
             return
         it = self._iterator()
-        tc_a = it.getTimecourse("model_A")
-        tc_b = it.getTimecourse("model_B")
+        tc_a = it.getTimecourse("model_A", zip_path=self._zip_path)
+        tc_b = it.getTimecourse("model_B", zip_path=self._zip_path)
         self.assertEqual(tc_a.model.model_name, "model_A")
         self.assertEqual(tc_b.model.model_name, "model_B")
 
