@@ -417,6 +417,8 @@ class SystemDiscovery:
         figsize: tuple[float, float] | None = None,
         poly_degree: int = 1,
         frac_scatter_skip: float = 0.2,
+        plot_species_names: list[str] | None = None,
+        subtitle: str = "Perturbation Analysis",
         is_plot: bool = True,
     ) -> pd.DataFrame:
         """Fit on training_df; evaluate timecourse accuracy on perturbed timecourses.
@@ -454,6 +456,8 @@ class SystemDiscovery:
             Scatter-plot density: num_skip = max(1, int(n_points * frac_scatter_skip)).
         is_plot : bool
             Show a trajectory comparison figure when True.
+        plot_species_names : list[str] | None
+            List of species to plot. If None, all species are plotted.
 
         Returns
         -------
@@ -475,6 +479,8 @@ class SystemDiscovery:
         num_point = len(training_df)
 
         disc = cls(training_df, threshold=threshold, poly_degree=poly_degree)
+        if plot_species_names is None:
+            plot_species_names = disc.species_names
         disc.fit()
 
         plot_records: list[
@@ -521,16 +527,19 @@ class SystemDiscovery:
         model_accuracy_df = pd.DataFrame(records)
         # Construct plots
         if is_plot and plot_records:
-            n = len(disc.species_names)
+            n = len(plot_species_names)
             ncols = min(n, 3)
             nrows = (n + ncols - 1) // ncols
             if figsize is None:
                 figsize = (5 * ncols, 3.5 * nrows)
             fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
-            fig.suptitle("Perturbation Analysis", fontsize=14, fontweight="bold")
+            fig.suptitle(subtitle, fontsize=14, fontweight="bold")
             num_skip = max(1, int(num_point * frac_scatter_skip))
-            for sp_idx, sp_name in enumerate(disc.species_names):
-                ax_row, ax_col = divmod(sp_idx, ncols)
+            for pos_idx, sp_name in enumerate(plot_species_names):
+                sp_idx = disc.species_names.index(sp_name)
+                if not sp_name in plot_species_names:
+                    continue
+                ax_row, ax_col = divmod(pos_idx, ncols)
                 ax = axes[ax_row][ax_col]
                 sp_col = disc.species_cols[sp_idx]
                 for p_idx, (p, test_df, pred_df, accuracy_ser) in enumerate(plot_records):
