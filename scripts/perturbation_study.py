@@ -50,7 +50,7 @@ def main(is_initialize: bool = False) -> pd.DataFrame:
 
     already_done: set[str] = set()
     if len(initial_df) > 0:
-        already_done = set(initial_df[cn.COL_MODEL_NAME].values)
+        already_done = set(initial_df[cn.COL_SYSTEM_ID].values)
 
     all_perturbation_df: list[pd.DataFrame] = []
     for item in TimecourseIterator():
@@ -76,9 +76,8 @@ def main(is_initialize: bool = False) -> pd.DataFrame:
         except Exception as exc:
             print(f"  [error] {item.model_name}: {exc}", file=sys.stderr)
             continue
-        analyze_df[cn.COL_MODEL_NAME] = item.model_name
-        all_perturbation_df.append(analyze_df)
-        full_df = pd.concat([initial_df, analyze_df], ignore_index=True) if len(initial_df) > 0 else analyze_df
+        current_df = pd.read_csv(OUTPUT_PATH) if os.path.isfile(OUTPUT_PATH) else pd.DataFrame()
+        full_df = pd.concat([current_df, analyze_df], ignore_index=True) if len(initial_df) > 0 else analyze_df
         full_df.to_csv(OUTPUT_PATH, index=False)
 
     full_df = (

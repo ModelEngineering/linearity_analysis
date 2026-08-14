@@ -70,6 +70,9 @@ DEFAULT_FRAC_KEEP: float = 0.2
 # Default number of true points to plot in trajectory comparison figures
 DEFAULT_NUM_TRUE_POINT: int = 20
 
+# Columns in dataframes
+COL_FRACTION_SPECIES_PERTURBABLE: str = "fraction_species_perturbable"
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -459,6 +462,10 @@ class SystemDiscovery:
         """
         # Initializations
         modifable_species_names = model.getModifableSpecies()
+        if model.num_species == 0:
+            fraction_species_perturbable = 0.0
+        else:
+            fraction_species_perturbable = len(modifable_species_names) / model.num_species
         start_time = float(training_df.index[0])
         end_time = float(training_df.index[-1])
         num_point = len(training_df)
@@ -502,7 +509,8 @@ class SystemDiscovery:
                 if not row.empty:
                     rec = row.iloc[0].to_dict()
                     rec[cn.COL_PERTURBATION] = p
-                    rec[cn.COL_SYSTEM_ID] = ""
+                    rec[COL_FRACTION_SPECIES_PERTURBABLE] = fraction_species_perturbable
+                    rec[cn.COL_SYSTEM_ID] = model.model_name
                     records.append(rec)
         model_accuracy_df = pd.DataFrame(records)
         # Construct plots
