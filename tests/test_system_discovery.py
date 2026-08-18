@@ -485,7 +485,7 @@ class TestApplyThreshold(unittest.TestCase):
         coefs_before = disc.model.coefficients().copy()
         # Set an extremely high threshold so everything gets pruned
         disc.threshold = 1e6
-        disc._apply_threshold()
+        disc._applyThreshold()
         coefs_after = disc.model.coefficients()
         # All should be zero now (or very close)
         for i in range(coefs_after.shape[0]):

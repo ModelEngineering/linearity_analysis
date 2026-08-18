@@ -20,22 +20,20 @@ A pandas DataFrame with:
 
 Usage
 -----
-    from chemical_network_sindy import NetworkRateDiscovery
+    from src.system_discovery import SystemDiscovery, discoverNetwork
 
-    discovery = NetworkRateDiscovery(
+    disc = SystemDiscovery(
         df,
         threshold=0.05,          # STLSQ sparsity threshold
         alpha=0.05,              # L2 regularisation
         differentiation="smooth" # "smooth" | "finite" | "spectral"
     )
-    discovery.fit()
-    discovery.print_equations()
-    discovery.plot_results()
-    summary = discovery.summary()
-
-To Do:
-1. Integrate normalizer
+    disc.fit()
+    disc.print_equations()
+    disc.plot_results()
+    summary = disc.summary()
 """
+
 import constants as cn # type: ignore
 from src.model import Model  # type: ignore
 from src.scaler import Scaler  # type: ignore
@@ -191,21 +189,18 @@ class SystemDiscovery:
             self.include_bias = True
         self.bias_species: list[str] | None = bias_species
 
-        self.model: ps.SINDy
+        self._differentiator = self._build_differentiator()
 
         library = PolynomialLibrary(
             degree=self.poly_degree,
             include_bias=self.include_bias,
             include_interaction=True,
         )
-
         optimizer = ps.STLSQ(threshold=0, alpha=self.alpha)
-
-        self._differentiator = self._build_differentiator()
 
         diff_method = self._differentiator
 
-        self.model = ps.SINDy(
+        self.model: ps.SINDy = ps.SINDy(
             feature_library=library,
             optimizer=optimizer,
             differentiation_method=diff_method,
@@ -219,7 +214,7 @@ class SystemDiscovery:
             result = "Model not fitted yet."
         return result
 
-    def _apply_threshold(self) -> None:
+    def _applyThreshold(self) -> None:
         """
         Zero out normalized coefficients whose physical value is below
         self.threshold.
@@ -546,8 +541,6 @@ class SystemDiscovery:
             num_skip = max(1, int(num_point * frac_scatter_skip))
             for pos_idx, sp_name in enumerate(plot_species_names):
                 sp_idx = disc.species_names.index(sp_name)
-                if not sp_name in plot_species_names:
-                    continue
                 ax_row, ax_col = divmod(pos_idx, ncols)
                 ax = axes[ax_row][ax_col]
                 sp_col = disc.species_cols[sp_idx]
@@ -642,7 +635,7 @@ class SystemDiscovery:
             for i, name in enumerate(self.species_names):
                 if name not in allowed:
                     self.model.optimizer.coef_[i, 0] = 0.0
-        self._apply_threshold()
+        self._applyThreshold()
         # Check that the features align with the species names.
         if not all([n1 == n2 for n1, n2 in zip(self.species_names, self.model.feature_names)]):  # type: ignore
             raise RuntimeError(
@@ -1242,7 +1235,7 @@ def discoverNetwork(
         for name, val in accuracy_dct.items():
             print(f"  {name}: {val:.6f}")
         print()
-        #
+        # Print accuracy for time derivatives
         accuracy_dct = disc.calculateSpeciesScores(score_type="derivative", test_df=test_df)
         print("Accuracy for species time derivatives:")
         for name, val in accuracy_dct.items():
