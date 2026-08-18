@@ -14,6 +14,7 @@ SERIALIZATION_DIR = os.path.join(PROJECT_DIR, "data", "serialize")
 TIMECOURSE_SERIALIZATION_DIR = os.path.join(SERIALIZATION_DIR,
         "timecourse")
 TIMECOURSE_ZIP_PATH = os.path.join(TIMECOURSE_SERIALIZATION_DIR, "timecourse.zip")
+PAPER_DIR = os.path.join(PROJECT_DIR, "paper")
 
 # Types
 TYPE_ROADRUNNER = "tellurium.roadrunner.extended_roadrunner.ExtendedRoadRunner"
@@ -43,6 +44,7 @@ COL_NUM_TIMEPOINT = "num_timepoint"
 COL_NAMES = [COL_MODEL_NAME, COL_MAXCV, COL_ENDTIME, COL_ENDTIME_SOURCE]
 COL_PERTURBATION = "perturbation"  # Perturbation value fraction used in simulation
 COL_SYSTEM_ID = "system_id"  # Unique identifier for the system, e.g. model name or species name.
+COL_THRESHOLD = "threshold"  # Threshold used in SystemDiscovery
 COL_MEAN = "mean" # Mean value of the valid values used in calculating the statistics.
 COL_MIN = "min"  # Minimum value of the valid values used in calculating the statistics.
 COL_MAX = "max"  # Maximum value of the valid values used in calculating the statistics.

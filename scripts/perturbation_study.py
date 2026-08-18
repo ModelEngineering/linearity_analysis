@@ -1,14 +1,12 @@
 """Perturbation study: how do perturbed initial conditions affect SystemDiscovery R²?
 
-Runs only on models whose deg1_min >= MIN_R2 in evaluate_monomial_models-0.01.csv.
+Runs only on models with a explicitly specified end time.
 For each qualifying model, SystemDiscovery.analyzePerturbations is called with
 perturbation_value_fractions of -50%, -20%, -10%, -5%, 0%, +5%, +10%, +20%, +50%.
 R² is computed using the derivative method.
 
 Output CSV: data/perturbation_study.csv
 Columns: model_name, threshold, and for each perturbation level
-         (r2_-50, r2_-20, r2_-10, r2_-05, r2_0, r2_+05, r2_+10, r2_+20, r2_+50):
-         three columns _min, _med, _max (clamped derivative R² across species).
 """
 
 import os
@@ -62,15 +60,16 @@ def main(is_initialize: bool = False) -> pd.DataFrame:
                 perturbation_species_fraction=SPECIES_FRACTION,
                 poly_degree=POLY_DEGREE,
                 is_plot=False,
-            )
+            ).df
         except Exception as exc:
             print(f"  [error] {item.model_name}: {exc}", file=sys.stderr)
             continue
 
+        analyze_df[cn.COL_THRESHOLD] = THRESHOLD
         current_df = pd.read_csv(OUTPUT_PATH) if os.path.isfile(OUTPUT_PATH) else pd.DataFrame()
         # Ensure analyze_df is a DataFrame before concatenating/writing.
         if isinstance(analyze_df, pd.Series):
-            analyze_df = pd.DataFrame([analyze_df.to_dict()])
+            analyze_df = pd.DataFrame([analyze_df.to_dict()]).df
         full_df = pd.concat([current_df, analyze_df], ignore_index=True) if len(current_df) > 0 else analyze_df
         full_df.to_csv(OUTPUT_PATH, index=False)
 

@@ -1,6 +1,6 @@
 """Tests for the SystemDiscovery class in src/system_discovery.py."""
 
-from src.system_discovery import SystemDiscovery, discoverNetwork  # type: ignore
+from src.system_discovery import SystemDiscovery, discoverNetwork, DiscoverNetworkResult  # type: ignore
 import src.constants as cn  # type: ignore
 from src.timecourse_iterator import TimecourseIterator  # type: ignore
 from src.model import Model  # type: ignore
@@ -1129,26 +1129,27 @@ class TestDiscoverNetwork(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(n_points=50, noise_std=0.01)
-        disc = discoverNetwork(
+        sdr = discoverNetwork(
             df, threshold=0.001, alpha=0.001,
             is_plot_comparisons=False, is_plot_heatmap=False,
-            is_print_equations=False, is_print_r_squared=False,
+            is_print_equations=False, is_print_accuracy=False,
         )
-        self.assertIsInstance(disc, SystemDiscovery)
-        self.assertTrue(disc.is_fitted)
+        self.assertIsInstance(sdr, DiscoverNetworkResult)
+        self.assertIsInstance(sdr.sd, SystemDiscovery) # type: ignore
+        self.assertTrue(sdr.sd.is_fitted)  # type: ignore
 
     def test_discover_network_with_species_names(self) -> None:
         """discoverNetwork respects species_names parameter (same names as columns)."""
         if IGNORE_TESTS:
             return
         df = _make_linear_df(n_points=50, noise_std=0.01)
-        disc = discoverNetwork(
+        sdr= discoverNetwork(
             df, threshold=0.001, alpha=0.001,
             species_names=["A", "B"],
             is_plot_comparisons=False, is_plot_heatmap=False,
-            is_print_equations=False, is_print_r_squared=False,
+            is_print_equations=False, is_print_accuracy=False,
         )
-        self.assertEqual(disc.species_names, ["A", "B"])
+        self.assertEqual(sdr.sd.species_names, ["A", "B"])  # type: ignore
 
 
 # ---------------------------------------------------------------------------
@@ -1570,7 +1571,7 @@ class TestAnalyzePerturbations(unittest.TestCase):
             "is_plot": False,
         }
         defaults.update(kwargs)
-        return SystemDiscovery.analyzePerturbations(**defaults)
+        return SystemDiscovery.analyzePerturbations(**defaults).df
 
     def test_returns_dataframe(self) -> None:
         """analyzePerturbations returns a pd.DataFrame."""

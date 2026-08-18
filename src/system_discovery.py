@@ -43,6 +43,7 @@ from src.timecourse import Timecourse  # type: ignore
 from src.timecourse_iterator import TimecourseIterator  # type: ignore
 from src.score import Score  # type: ignore
 
+from collections import namedtuple
 import matplotlib.pyplot as plt # type: ignore
 import numpy as np # type: ignore
 import pandas as pd # type: ignore
@@ -50,12 +51,15 @@ import pysindy as ps # type: ignore
 from scipy.linalg import expm  # type: ignore
 from pysindy.feature_library import PolynomialLibrary # type: ignore
 from scipy.integrate import solve_ivp # type: ignore
-import sys
 from typing import Literal, Dict
 import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 NULL_DF = pd.DataFrame()
 # max allowed deviation in time step size for spectral derivative
 MAX_TIME_FRACTIONAL_DEVIATION = 0.001
@@ -74,14 +78,16 @@ DEFAULT_NUM_TRUE_POINT: int = 20
 COL_FRACTION_SPECIES_PERTURBABLE: str = "fraction_species_perturbable"
 
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
 MAX_SPECIES: int = 200
 DifferentiationMethod = Literal["smooth", "finite", "spectral"]
 
 
+
+# ---------------------------------------------------------------------------
+# Named tuples
+# ---------------------------------------------------------------------------
+AnalyzePerturbationsResult = namedtuple("AnalyzePerturbationsResult", ["df", "fig"])
+DiscoverNetworkResult = namedtuple("DiscoverNetworkResult",["sd", "fig"])
 
 # ---------------------------------------------------------------------------
 # Main class
@@ -174,7 +180,7 @@ class SystemDiscovery:
         self.species_names = [n[1:-1] if n.startswith("[") else n for n in self.species_names]
         # Build Scaler with species_names as column labels so Scaler keys match
         # the feature names PySINDy generates from species_names.
-        self._normalizer = Scaler(self.df, is_null_scaler=not is_normalize)
+        self._scaler = Scaler(self.df, is_null_scaler=not is_normalize)
 
         if bias_species is not None:
             invalid = set(bias_species) - set(self.species_names)
@@ -224,7 +230,7 @@ class SystemDiscovery:
         for i, sp_name in enumerate(self.species_names):
             for j, feat_name in enumerate(feature_names):
                 if not np.isclose(coefs[i, j],  0.0):
-                    norm_thresh = self._normalizer.normalizeThreshold(
+                    norm_thresh = self._scaler.normalizeThreshold(
                         sp_name, feat_name, self.threshold)
                     if abs(coefs[i, j]) < norm_thresh:
                         coefs[i, j] = 0.0
@@ -325,9 +331,9 @@ class SystemDiscovery:
         """
         ##
         def rhs(_t, x):
-            z = self._normalizer.normalize(x)
+            z = self._scaler.normalize(x)
             dz_dt = self.model.predict(z.reshape(1, -1))[0]
-            dx_dt = self._normalizer.denormalize(dz_dt)
+            dx_dt = self._scaler.denormalize(dz_dt)
             return np.array(dx_dt, dtype=float)
         ##
 
@@ -376,7 +382,7 @@ class SystemDiscovery:
             Predicted concentrations, shape ``(n_timepoints, n_species)``.
         """
         # Convert the initial value to the standardized inputs
-        z0 = self._normalizer.normalize(x0)
+        z0 = self._scaler.normalize(x0)
         # Extract the A matrix (state coefficients) and b vector (constant/bias).
         coef_arr = self.model.coefficients()   # shape (n_species, n_features)
         A = coef_arr[:, 1:]        # state terms (columns after bias)
@@ -403,7 +409,7 @@ class SystemDiscovery:
         zpred_arr = np.array(zpreds)
 
         # Denormalize back to physical units.
-        return self._normalizer.denormalize(zpred_arr)
+        return self._scaler.denormalize(zpred_arr)
 
     @classmethod
     def analyzePerturbations(
@@ -420,7 +426,7 @@ class SystemDiscovery:
         plot_species_names: list[str] | None = None,
         subtitle: str = "Perturbation Analysis",
         is_plot: bool = True,
-    ) -> pd.DataFrame:
+    ) -> AnalyzePerturbationsResult:
         """Fit on training_df; evaluate timecourse accuracy on perturbed timecourses.
 
         For each value in *perturbations* a fresh Timecourse is simulated from
@@ -461,14 +467,17 @@ class SystemDiscovery:
 
         Returns
         -------
-        pd.DataFrame
-            Accuracy metrics
+        AnalyzePerturbationsResult
+            A named tuple containing the accuracy metrics and the plot figure.
+                pd.DataFrame: Accuracy metrics
+                fig
         """
         if isinstance(model, int):
             model = Model.makeBiomodel(model_num=model)
         if training_df is NULL_DF:
             training_df = TimecourseIterator().getTimecourse(model.model_name).timecourse_df
         # Initializations
+        fig = None
         modifable_species_names = model.getModifableSpecies()
         if model.num_species == 0:
             fraction_species_perturbable = 0.0
@@ -533,7 +542,7 @@ class SystemDiscovery:
             if figsize is None:
                 figsize = (5 * ncols, 3.5 * nrows)
             fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
-            fig.suptitle(subtitle, fontsize=14, fontweight="bold")
+            fig.suptitle(subtitle, fontsize=14)
             num_skip = max(1, int(num_point * frac_scatter_skip))
             for pos_idx, sp_name in enumerate(plot_species_names):
                 sp_idx = disc.species_names.index(sp_name)
@@ -567,7 +576,7 @@ class SystemDiscovery:
             fig.tight_layout()
             plt.show()
             plt.close(fig)
-        return model_accuracy_df
+        return AnalyzePerturbationsResult(df=model_accuracy_df, fig=fig)
 
     def calculateSpeciesScores(self, score_type: str = "timecourse",
             test_df: pd.DataFrame = NULL_DF,
@@ -619,7 +628,7 @@ class SystemDiscovery:
         -------
         self
         """
-        Z = self._normalizer.normalize(self._X_arr)
+        Z = self._scaler.normalize(self._X_arr)
         # Fit the normalized value
         with warnings.catch_warnings(record=True) as _caught:
             warnings.simplefilter("always")
@@ -758,7 +767,9 @@ class SystemDiscovery:
         figsize: tuple[float, float] | None = None,
         xlim: tuple[float, float] | None = None,
         is_plot: bool = True,
-        num_true_point: int | None = None,
+        num_true_point: int = 30,
+        plot_species_names: list[str] | None = None,
+        subtitle: str = "",
     ) -> plt.Figure:  # type: ignore
         """Plot observed vs. model-simulated trajectories for each species.
 
@@ -773,21 +784,27 @@ class SystemDiscovery:
             figure or saving manually.
         num_true_point : int
             Number of true points to plot.
+        plot_species_names : list[str] | None
+            List of species names to plot.  If *None*, all species are plotted.
 
         Returns
         -------
         matplotlib.figure.Figure
         """
+        if plot_species_names is None:
+            plot_species_names = self.species_names
         if test_df is not NULL_DF:
             X = test_df.values
             time_arr = test_df.index.values
         else:
             X = self._X_arr
             time_arr = self._time_arr
+            test_df = pd.DataFrame(X, index=time_arr, columns=self.species_names)
         #
         self._require_fitted()
 
-        n = len(self.species_names)
+        #n = len(self.species_names)
+        n = len(plot_species_names)
         ncols = min(n, 3)
         nrows = (n + ncols - 1) // ncols
 
@@ -795,12 +812,7 @@ class SystemDiscovery:
             figsize = (5 * ncols, 3.5 * nrows)
 
         fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
-        fig.suptitle(
-            "Chemical Network Discovery – Observed vs Predicted",
-            fontsize=14,
-            fontweight="bold",
-            y=1.01,
-        )
+        fig.suptitle(subtitle, fontsize=14, fontweight="bold", y=1.01)
 
         try:
             pred_df = self.predict(test_df)
@@ -821,13 +833,17 @@ class SystemDiscovery:
         ymin = min(X.min().min(), pred_df.min().min() if pred_df is not None else 0)
         ymax = ymax if np.isfinite(ymax) else None
         ymin = ymin if np.isfinite(ymin) else None
+        plot_idx = 0
         for idx, name in enumerate(self.species_names):
-            row, col = divmod(idx, ncols)
+            if not name in plot_species_names:
+                continue
+            row, col = divmod(plot_idx - 1, ncols)
+            plot_idx += 1
             ax = axes[row][col]
             color = f"C{idx}"
             ax.scatter(time_arr[::num_skip_point], X[::num_skip_point, idx], s=20, color=color, label=f"{name} (observed)")
             if prediction_ok and pred_df is not None:
-                ax.plot(pred_df.index, pred_df[name], "-", lw=2, color=color, label=f"{name} (predicted)")
+                ax.plot(pred_df.index.to_numpy(), pred_df[name].to_numpy(), "-", lw=2, color=color, label=f"{name} (predicted)")
             score = score_dct.get(name, float("nan"))
             if len(name) > 20:
                 name = name[:7] + "..." + name[-10:]
@@ -857,7 +873,6 @@ class SystemDiscovery:
         fig.tight_layout()
         if is_plot:
             plt.show()
-            plt.close(fig)
         return fig
 
     def plot_coefficient_heatmap(
@@ -976,9 +991,9 @@ class SystemDiscovery:
             if X.ndim == 1:
                 X = X.reshape(1, -1) 
         self._require_fitted()
-        Z = self._normalizer.normalize(X)
+        Z = self._scaler.normalize(X)
         dZ_dt = self.model.predict(Z)
-        return np.array(self._normalizer.denormalize(dZ_dt), dtype=float)  # type: ignore
+        return np.array(self._scaler.denormalize(dZ_dt), dtype=float)  # type: ignore
 
     def predictOneStepDerivative(self, x: np.ndarray) -> np.ndarray:
         """Evaluate the fitted ODE's right-hand side at a single state (no integration).
@@ -995,9 +1010,9 @@ class SystemDiscovery:
             Derivative dx/dt at `x`, in physical units, shape (n_species,).
         """
         self._require_fitted()
-        z = self._normalizer.normalize(x)
+        z = self._scaler.normalize(x)
         dz_dt = self.model.predict(z.reshape(1, -1))[0]
-        return np.array(self._normalizer.denormalize(dz_dt), dtype=float)
+        return np.array(self._scaler.denormalize(dz_dt), dtype=float)
 
     def get_derivatives(self, test_df: pd.DataFrame | None = None) -> pd.DataFrame:
         """Return the differentiated values computed by PySINDy's differentiation method.
@@ -1044,10 +1059,10 @@ class SystemDiscovery:
 
         # For test data, compute finite-difference derivatives on normalized
         # values and denormalize back to physical units.
-        Z = self._normalizer.normalize(test_df.to_numpy(dtype=float))
+        Z = self._scaler.normalize(test_df.to_numpy(dtype=float))
         t_test = test_df.index.to_numpy(dtype=float)
         dZ_dt = np.diff(Z, axis=0) / np.diff(t_test).reshape(-1, 1)
-        X_dot_arr = np.array(self._normalizer.denormalize(dZ_dt), dtype=float)
+        X_dot_arr = np.array(self._scaler.denormalize(dZ_dt), dtype=float)
         return pd.DataFrame(
             X_dot_arr,
             index=t_test[1:],
@@ -1125,7 +1140,7 @@ class SystemDiscovery:
         df_norm = pd.DataFrame(coefs.T, index=feature_names, columns=col_names)
         # Filter on normalized coefficients — exclude constant species whose fallback
         # scaling makes c_norm values meaningless for the retention decision.
-        constant_cols = self._normalizer._constant_cols
+        constant_cols = self._scaler._constant_cols
         variable_cols = [col for sp, col in zip(self.species_names, col_names)
                 if sp not in constant_cols]
         eval_cols = variable_cols if variable_cols else col_names
@@ -1135,7 +1150,7 @@ class SystemDiscovery:
         df_coef = df_norm.copy()
         for factor_str, row in df_norm.iterrows():
             for sp_name, col in zip(self.species_names, col_names):
-                df_coef.loc[factor_str, col] = self._normalizer.denormalizeCoordinate(
+                df_coef.loc[factor_str, col] = self._scaler.denormalizeCoordinate(
                     sp_name, factor_str, row[col])
         return df_coef  # type: ignore[return-value]
 
@@ -1143,8 +1158,6 @@ class SystemDiscovery:
 # ---------------------------------------------------------------------------
 # Convenience factory
 # ---------------------------------------------------------------------------
-
-
 def discoverNetwork(
     df: pd.DataFrame | list[pd.DataFrame],
     test_df: pd.DataFrame = NULL_DF,
@@ -1157,8 +1170,11 @@ def discoverNetwork(
     is_plot_comparisons: bool = True,
     is_plot_heatmap: bool = True,
     xlim: tuple[float, float] | None = None,
+    plot_species_names: list[str] | None = None,
+    subtitle: str = "",
+    is_plot: bool = True,
     is_print_equations: bool = True,
-    is_print_r_squared: bool = True,
+    is_print_accuracy: bool = True,
 ) -> SystemDiscovery:
     """One-shot helper: construct, fit, print, and optionally plot.
 
@@ -1178,14 +1194,19 @@ def discoverNetwork(
         Include a constant term in the library.
     species_names : list[str] | None
         Human-readable species labels.
-    is_plot_comparisons : bool
-        Show trajectory comparison plots.
+    plot_species_names : list[str] | None
+        List of species names to plot.  If *None*, all species are plotted.
+    xlim : tuple[float, float] | None
+    is_plot : bool
+        Show plots when True.  Set to False when embedding in a larger figure or saving manually
     is_plot_heatmap : bool
         Show coefficient heatmap.
     is_print_equations : bool
         Print the discovered equations.
-    is_print_r_squared : bool
-        Print R² values for each species.
+    is_print_accuracy : bool
+        Print accuracy values for each species.
+    subtitle : str
+        Optional subtitle for the plots.
 
     Returns
     -------
@@ -1215,27 +1236,27 @@ def discoverNetwork(
         print("Discovered equations:")
         disc.printEquations()
 
-    if is_print_r_squared:
-        r2 = disc.calculateSpeciesScores()
-        print("R² on time derivatives per species:")
-        for name, val in r2.items():
+    if is_print_accuracy:
+        accuracy_dct = disc.calculateSpeciesScores(score_type="timecourse", test_df=test_df)
+        print("Accuracy for species timecourses:")
+        for name, val in accuracy_dct.items():
             print(f"  {name}: {val:.6f}")
         print()
-        try:
-            r2_sim = disc.calculateSpeciesScores(score_type="derivative", test_df=test_df)
-            print("R² on simulated trajectories per species:")
-            for name, val in r2_sim.items():
-                print(f"  {name}: {val:.6f}")
-            print()
-        except Exception:
-            pass
+        #
+        accuracy_dct = disc.calculateSpeciesScores(score_type="derivative", test_df=test_df)
+        print("Accuracy for species time derivatives:")
+        for name, val in accuracy_dct.items():
+            print(f"  {name}: {val:.6f}")
+        print()
 
+    fig = None
     if is_plot_comparisons:
-        disc.plotResult(test_df, xlim=xlim)
+        fig = disc.plotResult(test_df, xlim=xlim, plot_species_names=plot_species_names, is_plot=is_plot
+                , subtitle=subtitle)
     if is_plot_heatmap:
-        disc.plot_coefficient_heatmap()
+        disc.plot_coefficient_heatmap(is_plot=is_plot)
 
-    return disc
+    return DiscoverNetworkResult(sd=disc, fig=fig)  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------

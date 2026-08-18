@@ -271,25 +271,25 @@ class Score:
         plot_options = PlotOptions(**kwargs)
         legend = []
         if is_plot_model:
-            for metric_name in metric_names:
+            for mname in metric_names:
                 model_df = df[df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
-                if not model_df.empty and metric_name in model_df.columns:
-                    legend.append(f"{metric_name} (model)")
-                    value_arr = np.array(model_df[metric_name].values)
+                if not model_df.empty and mname in model_df.columns:
+                    legend.append(f"{mname} (model)")
+                    value_arr = np.array(model_df[mname].values)
                     doPlot(value_arr)
                     plotted_any = True
                 else:
-                    missing_metrics.append(f"model: {metric_name}")
+                    missing_metrics.append(f"model: {mname}")
         if is_plot_species:
-                for metric_name in metric_names:
+                for mname in metric_names:
                     species_df = df[df[cn.COL_AGGREGATION_TYPE] != cn.COL_AGGREGATION_TYPE_MODEL]
-                    if not species_df.empty and metric_name in species_df.columns:
-                        legend.append(f"{metric_name} (species)")
-                        value_arr = np.array(species_df[metric_name].values)
+                    if not species_df.empty and mname in species_df.columns:
+                        legend.append(f"{mname} (species)")
+                        value_arr = np.array(species_df[mname].values)
                         doPlot(value_arr)
                         plotted_any = True
                     else:
-                        missing_metrics.append(f"species: {metric_name}")
+                        missing_metrics.append(f"species: {mname}")
         if len(missing_metrics) > 0:
             warnings.warn(f"No data found for metrics {missing_metrics}; nothing was plotted.", UserWarning)
         if not plotted_any:
