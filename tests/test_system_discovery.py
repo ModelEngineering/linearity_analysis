@@ -13,7 +13,7 @@ import pandas as pd  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+#sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -1573,14 +1573,14 @@ class TestAnalyzePerturbations(unittest.TestCase):
         if IGNORE_TESTS:
             return
         perturbations = [-0.1, 0.0, 0.1]
-        result = self._run_analyze(perturbations=perturbations, is_species=False)
+        result = self._run_analyze(perturbations=perturbations, is_analyze_species=False)
         self.assertEqual(len(result), len(perturbations))
 
     def test_single_perturbation_returns_one_row(self) -> None:
         """A single-element perturbation list yields exactly one row (model-only)."""
         if IGNORE_TESTS:
             return
-        result = self._run_analyze(perturbations=[0.0], is_species=False)
+        result = self._run_analyze(perturbations=[0.0], is_analyze_species=False)
         self.assertEqual(len(result), 1)
 
     def test_columns_include_expected(self) -> None:
@@ -1595,10 +1595,10 @@ class TestAnalyzePerturbations(unittest.TestCase):
         self.assertTrue(expected_cols.issubset(set(result.columns)))
 
     def test_aggregation_type_model_only_when_species_disabled(self) -> None:
-        """With is_species=False all rows have COL_AGGREGATION_TYPE == 'model'."""
+        """With is_analyze_species=False all rows have COL_AGGREGATION_TYPE == 'model'."""
         if IGNORE_TESTS:
             return
-        result = self._run_analyze(is_species=False)
+        result = self._run_analyze(is_analyze_species=False)
         self.assertTrue(
             (result[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL).all()
         )
@@ -1625,10 +1625,10 @@ class TestAnalyzePerturbations(unittest.TestCase):
         np.testing.assert_array_equal(expected_perts_in_result, np.array(sorted(perturbations)))
 
     def test_aggregation_type_all_model(self) -> None:
-        """Backward-compat alias: previously always model-only; now controlled by is_species flag."""
+        """Backward-compat alias: previously always model-only; now controlled by is_analyze_species flag."""
         if IGNORE_TESTS:
             return
-        result = self._run_analyze(is_species=False, is_model=True)
+        result = self._run_analyze(is_analyze_species=False, is_analyze_model=True)
         self.assertTrue(
             (result[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL).all()
         )

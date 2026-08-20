@@ -45,6 +45,12 @@ _src_pkg.timecourse_iterator = _tc_it_mod # type: ignore
 
 from scripts import perturbation_study as ps  # type: ignore
 
+# Remove stubs from sys.modules so other test files get the real src package.
+# perturbation_study already holds direct references to the stub objects, so
+# removing them here doesn't affect its behavior.
+for _key in ["src", "src.constants", "src.system_discovery", "src.timecourse_iterator"]:
+    sys.modules.pop(_key, None)
+
 
 # ---------------------------------------------------------------------------
 # Helpers shared by integration tests.
