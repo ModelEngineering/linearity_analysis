@@ -420,17 +420,26 @@ class SystemDiscovery:
         frac_scatter_skip: float = 0.2,
         plot_species_names: list[str] | None = None,
         subtitle: str = "Perturbation Analysis",
+        is_analyze_model: bool = True,
+        is_analyze_species: bool = True,
         is_plot: bool = True,
     ) -> AnalyzePerturbationsResult:
-        """Fit on training_df; evaluate timecourse accuracy on perturbed timecourses.
+        '''Fit on training_df; evaluate timecourse accuracy on perturbed timecourses.
 
         For each value in *perturbations* a fresh Timecourse is simulated from
         *model* with that ``perturbation_value_fraction``.  The SINDy model
         (fitted on the unperturbed *training_df*) is evaluated against each
-        perturbed timecourse using absolute relative error (ARE) accuracy.  The
-        returned DataFrame contains one row per perturbation at the model level,
-        with columns for COL_SYSTEM_ID, COL_AGGREGATION_TYPE, and all statistics
-        (mean, min, max, count, invalid_count, and percentiles p05-p99).
+        perturbed timecourse using absolute relative error (ARE) accuracy.
+
+        When *is_analyze_model* and/or *is_analyze_species* are True, the returned DataFrame
+        includes rows at that level of aggregation:
+            - ``COL_AGGREGATION_TYPE == 'model'``  -- one model-level row per
+              perturbation value with aggregated statistics across species.
+            - Species-level rows (aggregation type = species name) -- one row
+              per species per perturbation with per-species ARE values.
+
+        By default both levels are included. Set ``is_analyze_model=False`` or
+        ``is_analyze_species=False`` to drop the corresponding level from the output.
 
         When *is_plot* is True, a trajectory comparison figure is also shown
         (the chosen percentile accuracy shown in the legend for visual context).
@@ -457,6 +466,10 @@ class SystemDiscovery:
             Scatter-plot density: num_skip = max(1, int(n_points * frac_scatter_skip)).
         is_plot : bool
             Show a trajectory comparison figure when True.
+        is_analyze_model : bool
+            Include model-level rows (aggregation_type='model') in the returned DataFrame.
+        is_analyze_species : bool
+            Include per-species rows (aggregation_type=species name) in the returned DataFrame.
         plot_species_names : list[str] | None
             List of species to plot. If None, all species are plotted.
 
@@ -464,9 +477,9 @@ class SystemDiscovery:
         -------
         AnalyzePerturbationsResult
             A named tuple containing the accuracy metrics and the plot figure.
-                pd.DataFrame: Accuracy metrics
+                pd.DataFrame: Accuracy metrics (one row per perturbation at each requested aggregation level)
                 fig
-        """
+        '''
         if isinstance(model, int):
             model = Model.makeBiomodel(model_num=model)
         if training_df is NULL_DF:
@@ -510,25 +523,42 @@ class SystemDiscovery:
                 pass
             if is_plot and pred_df is not None:
                 new_df = score.score_df[score.score_df[cn.COL_SYSTEM_ID] == str(p)]
-                row = new_df.iloc[0]
                 new_ser = new_df[col_percentile]
                 new_ser.index = new_df[cn.COL_AGGREGATION_TYPE]
                 plot_records.append((p, test_df, pred_df, new_ser))
-        # Construct one row per perturbation from the accumulated Score DataFrame.
-        records = []
+        # Build per-row records so each row carries its own perturbation value.
+        _META_COLS = [cn.COL_PERTURBATION, COL_FRACTION_SPECIES_PERTURBABLE, cn.COL_SYSTEM_ID]
+
+        rows: list[dict] = []
         if not score.score_df.empty:
             for p in perturbations:
-                row = score.score_df[
-                    (score.score_df[cn.COL_SYSTEM_ID] == str(p)) &
-                    (score.score_df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL)
-                ]
-                if not row.empty:
-                    rec = row.iloc[0].to_dict()
-                    rec[cn.COL_PERTURBATION] = p
-                    rec[COL_FRACTION_SPECIES_PERTURBABLE] = fraction_species_perturbable
-                    rec[cn.COL_SYSTEM_ID] = model.model_name
-                    records.append(rec)
-        model_accuracy_df = pd.DataFrame(records)
+                if is_analyze_model:
+                    model_row_df = (
+                        score.score_df[
+                            (score.score_df[cn.COL_SYSTEM_ID] == str(p)) &
+                            (score.score_df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL)
+                        ]
+                    )
+                    if not model_row_df.empty:
+                        for _, r in model_row_df.iterrows():
+                            rec = {**r.to_dict(), **{cn.COL_PERTURBATION: p,
+                                    COL_FRACTION_SPECIES_PERTURBABLE: fraction_species_perturbable,
+                                    cn.COL_SYSTEM_ID: model.model_name}}
+                            rows.append(rec)
+                if is_analyze_species:
+                    species_row_df = (
+                        score.score_df[
+                            (score.score_df[cn.COL_SYSTEM_ID] == str(p)) &
+                            (score.score_df[cn.COL_AGGREGATION_TYPE] != cn.COL_AGGREGATION_TYPE_MODEL)
+                        ]
+                    )
+                    if not species_row_df.empty:
+                        for _, r in species_row_df.iterrows():
+                            rec = {**r.to_dict(), **{cn.COL_PERTURBATION: p,
+                                    COL_FRACTION_SPECIES_PERTURBABLE: fraction_species_perturbable,
+                                    cn.COL_SYSTEM_ID: model.model_name}}
+                            rows.append(rec)
+        accuracy_df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=list(dict.fromkeys(_META_COLS + list(score.score_df.columns))))
         # Construct plots
         if is_plot and plot_records:
             n = len(plot_species_names)
@@ -569,7 +599,7 @@ class SystemDiscovery:
             fig.tight_layout()
             plt.show()
             plt.close(fig)
-        return AnalyzePerturbationsResult(df=model_accuracy_df, fig=fig)
+        return AnalyzePerturbationsResult(df=accuracy_df, fig=fig)
 
     def calculateSpeciesScores(self, score_type: str = "timecourse",
             test_df: pd.DataFrame = NULL_DF,

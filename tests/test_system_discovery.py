@@ -259,18 +259,6 @@ class TestSystemDiscoveryStaticMethods(unittest.TestCase):
         )
         return SystemDiscovery(df, is_normalize=False)
 
-    def test_perturbation_col_zero(self) -> None:
-        """0.0 maps to 'r2_0'."""
-        self.assertEqual(SystemDiscovery._perturbation_col(0.0), "r2_0")
-
-    def test_perturbation_col_positive(self) -> None:
-        """0.05 maps to 'r2_+05'."""
-        self.assertEqual(SystemDiscovery._perturbation_col(0.05), "r2_+05")
-
-    def test_perturbation_col_negative(self) -> None:
-        """-0.20 maps to 'r2_-20'."""
-        self.assertEqual(SystemDiscovery._perturbation_col(-0.20), "r2_-20")
-
 
 # ---------------------------------------------------------------------------
 # Differentiator builder tests
@@ -1581,18 +1569,18 @@ class TestAnalyzePerturbations(unittest.TestCase):
         self.assertIsInstance(result, pd.DataFrame)
 
     def test_row_count_matches_perturbation_count(self) -> None:
-        """Returned DataFrame has one row per perturbation value passed in."""
+        """Returned DataFrame has one row per perturbation value passed in (model-only)."""
         if IGNORE_TESTS:
             return
         perturbations = [-0.1, 0.0, 0.1]
-        result = self._run_analyze(perturbations=perturbations)
+        result = self._run_analyze(perturbations=perturbations, is_species=False)
         self.assertEqual(len(result), len(perturbations))
 
     def test_single_perturbation_returns_one_row(self) -> None:
-        """A single-element perturbation list yields exactly one row."""
+        """A single-element perturbation list yields exactly one row (model-only)."""
         if IGNORE_TESTS:
             return
-        result = self._run_analyze(perturbations=[0.0])
+        result = self._run_analyze(perturbations=[0.0], is_species=False)
         self.assertEqual(len(result), 1)
 
     def test_columns_include_expected(self) -> None:
@@ -1606,21 +1594,41 @@ class TestAnalyzePerturbations(unittest.TestCase):
         )
         self.assertTrue(expected_cols.issubset(set(result.columns)))
 
+    def test_aggregation_type_model_only_when_species_disabled(self) -> None:
+        """With is_species=False all rows have COL_AGGREGATION_TYPE == 'model'."""
+        if IGNORE_TESTS:
+            return
+        result = self._run_analyze(is_species=False)
+        self.assertTrue(
+            (result[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL).all()
+        )
+
+    def test_aggregation_type_mixed_by_default(self) -> None:
+        """With default args both 'model' and species names appear in aggregation_type."""
+        if IGNORE_TESTS:
+            return
+        result = self._run_analyze()
+        agg_types = set(result[cn.COL_AGGREGATION_TYPE].tolist())
+        self.assertIn(cn.COL_AGGREGATION_TYPE_MODEL, agg_types)
+        # At least one species-level row must be present (model 551 has multiple species).
+        species_agg = agg_types - {cn.COL_AGGREGATION_TYPE_MODEL}
+        self.assertGreater(len(species_agg), 0)
+
     def test_perturbation_column_matches_input_order(self) -> None:
-        """The 'perturbation' column matches the input list in order."""
+        """Each row's perturbation column matches its corresponding input value, even with species rows."""
         if IGNORE_TESTS:
             return
         perturbations = [-0.1, 0.05, 0.2]
         result = self._run_analyze(perturbations=perturbations)
-        np.testing.assert_array_equal(
-            result["perturbation"].to_numpy(), np.array(perturbations)
-        )
+        # For each distinct perturbation value present in the input list, rows carrying it should match exactly.
+        expected_perts_in_result = sorted(set(result[cn.COL_PERTURBATION].tolist()))
+        np.testing.assert_array_equal(expected_perts_in_result, np.array(sorted(perturbations)))
 
     def test_aggregation_type_all_model(self) -> None:
-        """All rows have COL_AGGREGATION_TYPE == 'model' (model-level only)."""
+        """Backward-compat alias: previously always model-only; now controlled by is_species flag."""
         if IGNORE_TESTS:
             return
-        result = self._run_analyze()
+        result = self._run_analyze(is_species=False, is_model=True)
         self.assertTrue(
             (result[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL).all()
         )

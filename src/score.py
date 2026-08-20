@@ -14,7 +14,7 @@ from src.statistic_calculator import StatisticCalculator # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
-from typing import List  # type: ignore
+from typing import List, Optional  # type: ignore
 import warnings  # type: ignore
 
 
@@ -25,7 +25,7 @@ class Score:
     """
     SERIALIZATION_PATH = "score.csv"  # Default path for persistence, can be overridden in subclasses.
 
-    def __init__(self, serialization_path: str = "", is_persist: bool = True,
+    def __init__(self, serialization_path: Optional[str] = None, is_persist: bool = True,
             col_percentile: str = cn.COL_P10) -> None:
         """
         Parameters
@@ -38,7 +38,7 @@ class Score:
             The percentile to compute (e.g., 'p10', 'p50', 'p90'). Default is 'p10'.
         """
         self._is_persist = is_persist
-        if len(serialization_path) == 0:
+        if serialization_path is None:
             serialization_path = self.SERIALIZATION_PATH
         self._serialization_path = serialization_path
         self._col_percentile = col_percentile
@@ -46,7 +46,7 @@ class Score:
         self.score_df = pd.DataFrame()
 
     @classmethod
-    def deserialize(cls, serialization_path: str) -> 'Score':
+    def deserialize(cls, serialization_path: Optional[str]=None) -> 'Score':
         """Loads a previously serialized score DataFrame from CSV.
         Uses a defulat of cn.COL_P10 for the percentile column, but this can be changed later if needed.
 
@@ -61,7 +61,8 @@ class Score:
             The deserialized score object.
         """
         score = cls(serialization_path=serialization_path, is_persist=False)
-        score.score_df = pd.read_csv(serialization_path)
+        if serialization_path is not None:  
+            score.score_df = pd.read_csv(serialization_path)
         score._col_percentile = cn.COL_P10  # Default to p10; can be changed later if needed.
         return score
 

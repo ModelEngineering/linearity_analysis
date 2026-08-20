@@ -1,7 +1,7 @@
 """Tests for src/score.py: Score class."""
 
 import src.constants as cn  # type: ignore
-from src.score import Score  # type: ignore
+from src.score import Score # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
 
 import matplotlib.pyplot as plt  # type: ignore
@@ -41,8 +41,8 @@ class TestScoreInit(unittest.TestCase):
 
     def test_empty_string_uses_default(self) -> None:
         """Empty string serialization path falls back to default."""
-        score = Score(serialization_path="")
-        self.assertEqual(score.serialization_path, "score.csv")
+        score = Score()
+        self.assertEqual(score.serialization_path, Score.SERIALIZATION_PATH)
 
     def test_score_df_empty_dataframe(self) -> None:
         """score_df starts as an empty DataFrame."""

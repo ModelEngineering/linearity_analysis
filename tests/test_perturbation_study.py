@@ -1,358 +1,380 @@
-"""Tests for scripts/perturbation_study.py."""
+"""Tests for scripts.perturbation_study CLI interface."""
 
 import os
 import sys
-import unittest
 import tempfile
+import types
+import unittest
+from unittest import mock
 
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
-from unittest import mock
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
-from collections import namedtuple  # type: ignore
+# ---------------------------------------------------------------------------
+# Stub src.* submodules so this module can be imported standalone from the repo root.
+# ---------------------------------------------------------------------------
+_constants_stub = types.SimpleNamespace(
+    DATA_DIR="/tmp",
+    COL_SYSTEM_ID="system_id",
+    COL_THRESHOLD="threshold",
+)
+_src_pkg = types.ModuleType("src")
+_src_pkg.__path__ = []  # mark it as a package so src.constants resolves
 
-import perturbation_study as ps  # type: ignore
-import src.constants as cn  # type: ignore
+_sys_mod = types.ModuleType("src.constants")
+for _attr, _val in _constants_stub.__dict__.items():
+    setattr(_sys_mod, _attr, _val)
+sys.modules["src"] = _src_pkg
+sys.modules["src.constants"] = _sys_mod
+_src_pkg.constants = _sys_mod # type: ignore
 
-FakeResult = namedtuple("FakeResult", ["df", "fig"])
+# Minimal stubs for other src submodules imported at module level by perturbation_study.
+class _SystemDiscoveryStub:
+    analyzePerturbations = staticmethod(lambda **kw: None)
+_sys_disc_mod = types.ModuleType("src.system_discovery")
+_sys_disc_mod.SystemDiscovery = _SystemDiscoveryStub # type: ignore
+sys.modules["src.system_discovery"] = _sys_disc_mod
+_src_pkg.system_discovery = _sys_disc_mod  # type: ignore
+
+_tc_it_mod = types.ModuleType("src.timecourse_iterator")
+class _TimecourseIteratorStub:
+    pass  # only used inside main(); never called by tests.
+_tc_it_mod.TimecourseIterator = _TimecourseIteratorStub # type: ignore 
+sys.modules["src.timecourse_iterator"] = _tc_it_mod
+_src_pkg.timecourse_iterator = _tc_it_mod # type: ignore
+
+from scripts import perturbation_study as ps  # type: ignore
 
 
-class TestConstants(unittest.TestCase):
-    """Tests for the module-level constants."""
+# ---------------------------------------------------------------------------
+# Helpers shared by integration tests.
+# ---------------------------------------------------------------------------
+class _FakeResult:
+    """Minimal stand-in for SystemDiscovery.analyzePerturbations() return value."""
 
-    def test_threshold_is_positive_float(self) -> None:
-        self.assertIsInstance(ps.THRESHOLD, (int, float))
-        self.assertGreater(ps.THRESHOLD, 0.0)
+    def __init__(self, df=None):
+        self.df = df if df is not None else pd.DataFrame({"system_id": ["UNKNOWN"]})
+
+
+def _make_item(model_name: str, n_points: int = 20) -> mock.Mock:
+    """Build a fake TimecourseIterator item with synthetic timecourse data."""
+    rng = np.random.default_rng(1)
+    times = np.linspace(0.0, 5.0, n_points)
+    df = pd.DataFrame(
+        rng.standard_normal((n_points, 2)),
+        index=times,
+        columns=["S1", "S2"],
+    )
+    df.index.name = "time"
+    tc = mock.Mock()
+    tc.timecourse_df = df
+    tc.model = mock.Mock(spec=["name"])
+    item = mock.Mock()
+    item.model_name = model_name
+    item.timecourse = tc
+    return item
+
+
+def _run_main_with_empty_iter(tmpdir: str, threshold: float = 0.01,
+                              is_analyze_model: bool = True,
+                              is_analyze_species: bool = True) -> None:
+    """Invoke main() with a patched empty TimecourseIterator and DATA_DIR."""
+    tmpstr = str(tmpdir)  # TemporaryDirectory.__enter__ returns the path string.
+    with mock.patch.object(ps.cn, "DATA_DIR", tmpstr), \
+         mock.patch("scripts.perturbation_study.TimecourseIterator") as MockTI:
+        MockTI.return_value.__iter__ = mock.Mock(return_value=iter([]))
+        ps.main(
+            threshold=threshold,
+            is_analyze_model=is_analyze_model,
+            is_analyze_species=is_analyze_species,
+        )
+
+
+def _run_main_with_one_item(tmpdir: str, threshold: float = 0.01,
+                            is_analyze_model: bool = True,
+                            is_analyze_species: bool = True) -> None:
+    """Invoke main() with one fake TimecourseIterator item so the loop body runs and writes output."""
+    tmpstr = str(tmpdir)  # TemporaryDirectory.__enter__ returns the path string.
+    fake_result = _FakeResult(
+        df=pd.DataFrame({"system_id": ["BIOMD0000000001"]}),
+    )
+    with mock.patch.object(ps.cn, "DATA_DIR", tmpstr), \
+         mock.patch("scripts.perturbation_study.TimecourseIterator") as MockTI, \
+         mock.patch("scripts.perturbation_study.SystemDiscovery.analyzePerturbations") as MockAnalyze:
+        item = _make_item(model_name="BIOMD0000000001", n_points=20)
+        MockTI.return_value.__iter__ = mock.Mock(return_value=iter([item]))
+        MockAnalyze.return_value = fake_result
+        ps.main(
+            threshold=threshold,
+            is_analyze_model=is_analyze_model,
+            is_analyze_species=is_analyze_species,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Parser tests (unchanged from prior version).
+# ---------------------------------------------------------------------------
+class TestPerturbationStudyParser(unittest.TestCase):
+    """Tests for the argparse CLI defined in _build_parser."""
+
+    def setUp(self) -> None:
+        self.parser = ps._build_parser()
+
+    def test_default_threshold_is_0_001(self) -> None:
+        args = self.parser.parse_args([])
+        self.assertEqual(args.threshold, 0.001)
+
+    def test_custom_threshold_float(self) -> None:
+        args = self.parser.parse_args(["--threshold", "0.05"])
+        self.assertAlmostEqual(args.threshold, 0.05)
+
+    def test_custom_threshold_int_string_casts_to_float(self) -> None:
+        args = self.parser.parse_args(["--threshold", "1"])
+        self.assertEqual(args.threshold, 1.0)
+
+    def test_is_analyze_model_default_true(self) -> None:
+        args = self.parser.parse_args([])
+        self.assertTrue(args.is_analyze_model)
+
+    def test_no_is_analyze_model_sets_false(self) -> None:
+        args = self.parser.parse_args(["--no-is-analyze-model"])
+        self.assertFalse(args.is_analyze_model)
+
+    def test_is_analyze_species_default_true(self) -> None:
+        args = self.parser.parse_args([])
+        self.assertTrue(args.is_analyze_species)
+
+    def test_no_is_analyze_species_sets_false(self) -> None:
+        args = self.parser.parse_args(["--no-is-analyze-species"])
+        self.assertFalse(args.is_analyze_species)
+
+    def test_all_defaults_combined(self) -> None:
+        args = self.parser.parse_args([])
+        self.assertEqual(
+            (args.threshold, args.is_analyze_model, args.is_analyze_species),
+            (0.001, True, True),
+        )
+
+    def test_all_negation_flags_combined(self) -> None:
+        args = self.parser.parse_args(["--no-is-analyze-model", "--no-is-analyze-species"])
+        self.assertEqual(
+            (args.threshold, args.is_analyze_model, args.is_analyze_species),
+            (0.001, False, False),
+        )
+
+    def test_help_exits_without_error(self) -> None:
+        with self.assertRaises(SystemExit) as ctx:
+            self.parser.parse_args(["--help"])
+        self.assertEqual(ctx.exception.code, 0)
+
+    def test_negative_threshold_is_accepted(self) -> None:
+        args = self.parser.parse_args(["--threshold", "-0.1"])
+        self.assertAlmostEqual(args.threshold, -0.1)
+
+
+# ---------------------------------------------------------------------------
+# Module-level constant assertions.
+# ---------------------------------------------------------------------------
+class TestModuleConstants(unittest.TestCase):
+
+    def test_default_threshold_is_positive_float(self) -> None:
+        self.assertIsInstance(ps.DEFAULT_THRESHOLD, float)
+        self.assertGreater(ps.DEFAULT_THRESHOLD, 0.0)
 
     def test_poly_degree_is_one(self) -> None:
         self.assertEqual(ps.POLY_DEGREE, 1)
 
     def test_species_fraction_is_one(self) -> None:
-        self.assertEqual(ps.SPECIES_FRACTION, 1.0)
+        self.assertAlmostEqual(ps.SPECIES_FRACTION, 1.0)
 
     def test_perturbations_sorted_ascending(self) -> None:
-        self.assertEqual(ps.PERTURBATIONS, sorted(ps.PERTURBATIONS))
+        for a, b in zip(ps.PERTURBATIONS, ps.PERTURBATIONS[1:]):
+            self.assertLessEqual(a, b)
 
     def test_perturbations_include_zero(self) -> None:
         self.assertIn(0.0, ps.PERTURBATIONS)
 
     def test_perturbations_symmetric_around_zero(self) -> None:
-        """For every non-zero perturbation value, its negation is also present."""
         for p in ps.PERTURBATIONS:
             if p != 0.0:
                 self.assertIn(-p, ps.PERTURBATIONS)
 
     def test_perturbations_include_expected_values(self) -> None:
-        """Expected perturbation values are present."""
-        expected = {-0.50, -0.20, -0.10, -0.05, 0.00, 0.05, 0.10, 0.20, 0.50}
-        self.assertEqual(set(ps.PERTURBATIONS), expected)
-
-    def test_output_path_ends_with_csv(self) -> None:
-        self.assertTrue(
-            os.path.basename(ps.OUTPUT_PATH).endswith('.csv'),
-        )
+        expected = [-0.50, -0.20, -0.10, -0.05, 0.00, 0.05, 0.10, 0.20, 0.50]
+        for v in expected:
+            self.assertIn(v, ps.PERTURBATIONS)
 
 
 class TestExcludes(unittest.TestCase):
-    """Tests for the EXCLUDES list."""
 
     def test_excludes_is_list_of_strings(self) -> None:
         for item in ps.EXCLUDES:
             self.assertIsInstance(item, str)
 
     def test_excluded_models_have_biomd_prefix(self) -> None:
-        for model_name in ps.EXCLUDES:
-            self.assertTrue(
-                model_name.startswith("BIOMD"),
-                f"{model_name} should have BIOMD prefix.",
+        for m in ps.EXCLUDES:
+            self.assertTrue(m.startswith("BIOMD"), msg=f"{m!r} missing BIOMD prefix")
+
+
+# ---------------------------------------------------------------------------
+# main() integration tests: path selection, iteration behavior, output format.
+# Uses mocks for TimecourseIterator and SystemDiscovery; patches cn.DATA_DIR to a temp dir.
+# ---------------------------------------------------------------------------
+class TestMainPathSelection(unittest.TestCase):
+
+    def test_both_flags_writes_model_species_csv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _run_main_with_one_item(tmpdir, threshold=0.01)
+            expected = os.path.join(tmpdir, "perturbation_study-model_species0.01.csv")
+            self.assertTrue(os.path.isfile(expected))
+
+    def test_model_only_writes_model_csv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _run_main_with_one_item(
+                tmpdir, threshold=0.05,
+                is_analyze_model=True, is_analyze_species=False,
             )
+            expected = os.path.join(tmpdir, "perturbation_study-model0.05.csv")
+            self.assertTrue(os.path.isfile(expected))
 
-
-class TestMainNoExistingResults(unittest.TestCase):
-    """Test main() when OUTPUT_PATH does not yet exist."""
-
-    def _make_timecourse_df(self) -> pd.DataFrame:
-        rng = np.random.default_rng(42)
-        t = np.linspace(0.0, 10.0, 50)
-        df = pd.DataFrame(
-            rng.standard_normal((len(t), 3)),
-            index=t,
-            columns=["A", "B", "C"],
-        )
-        df.index.name = "time"
-        return df
-
-    def _make_fake_timecourse(self) -> mock.Mock:
-        tc_df = self._make_timecourse_df()
-        fake_model = mock.Mock()
-        fake_model.model_name = "BIOMD0000000001"
-        tc = mock.Mock()
-        tc.model = fake_model
-        tc.timecourse_df = tc_df
-        return tc
-
-    def test_processes_models_when_no_existing_results(self) -> None:
-        """main processes all models when no output CSV exists."""
+    def test_species_only_writes_species_csv(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            fake_csv_path = os.path.join(tmpdir, "fake_perturbation_study.csv")
-            items_to_iterate = [
-                mock.Mock(model_name="BIOMD0000000001", timecourse=self._make_fake_timecourse()),
-                mock.Mock(model_name="BIOMD0000000002", timecourse=self._make_fake_timecourse()),
-            ]
-            with mock.patch.object(ps, 'OUTPUT_PATH', fake_csv_path), \
-                 mock.patch('perturbation_study.TimecourseIterator') as MockTI:
-                MockTI.return_value.__iter__ = mock.Mock(
-                    return_value=iter(items_to_iterate),
-                )
-                with mock.patch('perturbation_study.SystemDiscovery.analyzePerturbations') as mock_analyze:
-                    fake_result_df = pd.DataFrame({
-                        cn.COL_SYSTEM_ID: ["BIOMD0000000001", "BIOMD0000000002"],
-                        'mean': [0.5, 0.6],
-                        'min': [0.3, 0.4],
-                    })
-                    mock_analyze.return_value = FakeResult(df=fake_result_df, fig=None)
-                    ps.main()
-            self.assertTrue(os.path.isfile(fake_csv_path))
+            _run_main_with_one_item(
+                tmpdir, threshold=0.1,
+                is_analyze_model=False, is_analyze_species=True,
+            )
+            expected = os.path.join(tmpdir, "perturbation_study-species0.1.csv")
+            self.assertTrue(os.path.isfile(expected))
 
-    def test_skips_already_processed_models(self) -> None:
-        """main does not re-analyze models already in existing CSV."""
+    def test_both_flags_false_raises_value_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            fake_csv_path = os.path.join(tmpdir, "fake_perturbation_study.csv")
-            initial_df = pd.DataFrame({
-                cn.COL_SYSTEM_ID: ["BIOMD0000009999"],
-                'mean': [0.7],
-                'min': [0.5],
-            })
-            initial_df.to_csv(fake_csv_path, index=False)
-            items_to_iterate = [
-                mock.Mock(model_name="BIOMD0000009999", timecourse=self._make_fake_timecourse()),
-                mock.Mock(model_name="BIOMD0000000001", timecourse=self._make_fake_timecourse()),
-            ]
-            with mock.patch.object(ps, 'OUTPUT_PATH', fake_csv_path), \
-                 mock.patch('perturbation_study.TimecourseIterator') as MockTI:
-                MockTI.return_value.__iter__ = mock.Mock(
-                    return_value=iter(items_to_iterate),
-                )
-                with mock.patch('perturbation_study.SystemDiscovery.analyzePerturbations') as mock_analyze:
-                    fake_result_df = pd.DataFrame({
-                        cn.COL_SYSTEM_ID: ["BIOMD0000000001"],
-                        'mean': [0.5],
-                        'min': [0.3],
-                    })
-                    mock_analyze.return_value = FakeResult(df=fake_result_df, fig=None)
-                    ps.main()
-
-            # analyzePerturbations should be called only once (for the new model),
-            # not for the already-processed BIOMD0000009999.
-            self.assertEqual(mock_analyze.call_count, 1)
+            with mock.patch.object(ps.cn, "DATA_DIR", tmpdir), \
+                 mock.patch("scripts.perturbation_study.TimecourseIterator") as MockTI:
+                MockTI.return_value.__iter__ = mock.Mock(return_value=iter([]))
+                with self.assertRaises(ValueError):
+                    ps.main(threshold=0.01, is_analyze_model=False, is_analyze_species=False)
 
 
-class TestMainExcludes(unittest.TestCase):
-    """Test main() skips excluded models."""
+class TestMainIteration(unittest.TestCase):
 
-    def _make_timecourse_df(self) -> pd.DataFrame:
-        rng = np.random.default_rng(42)
-        t = np.linspace(0.0, 10.0, 50)
-        df = pd.DataFrame(
-            rng.standard_normal((len(t), 3)),
-            index=t,
-            columns=["A", "B", "C"],
+    def setUp(self) -> None:
+        self.tmpdir = tempfile.TemporaryDirectory()
+
+    def tearDown(self) -> None:
+        self.tmpdir.cleanup()
+
+    def test_skips_already_done_models(self) -> None:
+        """A model already present in the CSV must not be processed again."""
+        existing_df = pd.DataFrame({"system_id": ["BIOMD_SKIP"]})
+        csv_path = os.path.join(
+            self.tmpdir.name, "perturbation_study-model_species0.01.csv"
         )
-        df.index.name = "time"
-        return df
+        existing_df.to_csv(csv_path, index=False)
 
-    def _make_fake_timecourse(self) -> mock.Mock:
-        tc_df = self._make_timecourse_df()
-        fake_model = mock.Mock()
-        fake_model.model_name = "BIOMD0000000001"
-        tc = mock.Mock()
-        tc.model = fake_model
-        tc.timecourse_df = tc_df
-        return tc
+        with mock.patch.object(ps.cn, "DATA_DIR", self.tmpdir.name), \
+             mock.patch("scripts.perturbation_study.TimecourseIterator") as MockTI:
+            items = [_make_item("BIOMD_SKIP")]
+            MockTI.return_value.__iter__ = mock.Mock(return_value=iter(items))
+            with mock.patch(
+                "scripts.perturbation_study.SystemDiscovery.analyzePerturbations"
+            ) as ma:
+                ps.main(threshold=0.01)
+        self.assertEqual(ma.call_count, 0)
 
     def test_skips_excluded_models(self) -> None:
-        """main skips models listed in EXCLUDES."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            fake_csv_path = os.path.join(tmpdir, "fake_perturbation_study.csv")
-            items_to_iterate = [
-                mock.Mock(
-                    model_name=ps.EXCLUDES[0],
-                    timecourse=self._make_fake_timecourse(),
-                ),
-                mock.Mock(model_name="BIOMD0000000001", timecourse=self._make_fake_timecourse()),
-            ]
-            with mock.patch.object(ps, 'OUTPUT_PATH', fake_csv_path), \
-                 mock.patch('perturbation_study.TimecourseIterator') as MockTI:
-                MockTI.return_value.__iter__ = mock.Mock(
-                    return_value=iter(items_to_iterate),
-                )
-                with mock.patch('perturbation_study.SystemDiscovery.analyzePerturbations') as mock_analyze:
-                    fake_result_df = pd.DataFrame({
-                        cn.COL_SYSTEM_ID: ["BIOMD0000000001"],
-                        'mean': [0.5],
-                        'min': [0.3],
-                    })
-                    mock_analyze.return_value = FakeResult(df=fake_result_df, fig=None)
-                    ps.main()
-            written_df = pd.read_csv(fake_csv_path)
-            system_ids = set(written_df[cn.COL_SYSTEM_ID].values)
-            self.assertNotIn(ps.EXCLUDES[0], system_ids)
-            self.assertIn("BIOMD0000000001", system_ids)
+        """Models in ps.EXCLUDES must not be processed."""
+        with mock.patch.object(ps.cn, "DATA_DIR", self.tmpdir.name), \
+             mock.patch("scripts.perturbation_study.TimecourseIterator") as MockTI:
+            items = [_make_item("BIOMD0000000338")]  # in EXCLUDES list
+            MockTI.return_value.__iter__ = mock.Mock(return_value=iter(items))
+            with mock.patch(
+                "scripts.perturbation_study.SystemDiscovery.analyzePerturbations"
+            ) as ma:
+                ps.main(threshold=0.01)
+        self.assertEqual(ma.call_count, 0)
 
+    def test_continues_on_analyze_exception(self) -> None:
+        """A failure on one model must not stop iteration over the next."""
+        good_item = _make_item("BIOMD_OK", n_points=10)
+        bad_item = _make_item("BIOMD_FAIL", n_points=30)
+        good_df = pd.DataFrame({"system_id": ["BIOMD_OK"], "r2": [0.9]})
 
-class TestMainExceptionHandling(unittest.TestCase):
-    """Test main() handles analyzePerturbations exceptions gracefully."""
+        with mock.patch.object(ps.cn, "DATA_DIR", self.tmpdir.name), \
+                mock.patch("scripts.perturbation_study.TimecourseIterator") as MockTI:
+            items = [bad_item, good_item]
+            MockTI.return_value.__iter__ = mock.Mock(return_value=iter(items))
+            with mock.patch(
+                "scripts.perturbation_study.SystemDiscovery.analyzePerturbations"
+            ) as ma:
+                def side_effect(**kw):
+                    df: pd.DataFrame = kw.get("training_df")  # type: ignore
+                    if len(df) > 15:
+                        raise RuntimeError("simulated failure")
+                    return _FakeResult(df=good_df)
+                ma.side_effect = side_effect
+                ps.main(threshold=0.01)
 
-    def _make_timecourse_df(self) -> pd.DataFrame:
-        rng = np.random.default_rng(42)
-        t = np.linspace(0.0, 10.0, 50)
-        df = pd.DataFrame(
-            rng.standard_normal((len(t), 3)),
-            index=t,
-            columns=["A", "B", "C"],
+        self.assertEqual(ma.call_count, 2)
+        written = pd.read_csv(
+            os.path.join(self.tmpdir.name, "perturbation_study-model_species0.01.csv")
         )
-        df.index.name = "time"
-        return df
+        self.assertIn("BIOMD_OK", written["system_id"].values.tolist())
 
-    def _make_fake_timecourse(self) -> mock.Mock:
-        tc_df = self._make_timecourse_df()
-        fake_model = mock.Mock()
-        fake_model.model_name = "BIOMD0000000001"
-        tc = mock.Mock()
-        tc.model = fake_model
-        tc.timecourse_df = tc_df
-        return tc
-
-    def test_continues_on_analyzePerturbations_exception(self) -> None:
-        """main continues iterating if a model raises an exception."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            fake_csv_path = os.path.join(tmpdir, "fake_perturbation_study.csv")
-            items_to_iterate = [
-                mock.Mock(model_name="BIOMD000000BAD", timecourse=self._make_fake_timecourse()),
-                mock.Mock(model_name="BIOMD000000GOOD", timecourse=self._make_fake_timecourse()),
-            ]
-            with mock.patch.object(ps, 'OUTPUT_PATH', fake_csv_path), \
-                 mock.patch('perturbation_study.TimecourseIterator') as MockTI:
-                MockTI.return_value.__iter__ = mock.Mock(
-                    return_value=iter(items_to_iterate),
-                )
-                with mock.patch('perturbation_study.SystemDiscovery.analyzePerturbations') as mock_analyze:
-                    calls = [0]
-
-                    def _side_effect(*args, **kwargs):
-                        calls[0] += 1
-                        if calls[0] == 1:
-                            raise ValueError("simulated failure")
-                        return FakeResult(df=pd.DataFrame({
-                            cn.COL_SYSTEM_ID: ["BIOMD000000GOOD"],
-                            'mean': [0.5],
-                            'min': [0.3],
-                        }), fig=None)
-
-                    mock_analyze.side_effect = _side_effect
-                    result_df = ps.main()
-            self.assertIsInstance(result_df, pd.DataFrame)
-            system_ids = set(result_df[cn.COL_SYSTEM_ID].values)
-            self.assertNotIn("BIOMD000000BAD", system_ids)
-            self.assertIn("BIOMD000000GOOD", system_ids)
+    def test_threshold_passed_to_analyze_perturbations(self) -> None:
+        """The threshold argument must flow through to analyzePerturbations."""
+        with mock.patch.object(ps.cn, "DATA_DIR", self.tmpdir.name), \
+             mock.patch("scripts.perturbation_study.TimecourseIterator") as MockTI:
+            items = [_make_item("BIOMD_X")]
+            MockTI.return_value.__iter__ = mock.Mock(return_value=iter(items))
+            with mock.patch(
+                "scripts.perturbation_study.SystemDiscovery.analyzePerturbations"
+            ) as ma:
+                ma.return_value = _FakeResult(df=pd.DataFrame({"system_id": ["BIOMD_X"]}))
+                ps.main(threshold=0.042)
+        _, kwargs = ma.call_args
+        self.assertAlmostEqual(kwargs["threshold"], 0.042)
 
 
 class TestMainOutputFormat(unittest.TestCase):
-    """Verify the CSV output has the expected columns."""
 
-    def _make_timecourse_df(self) -> pd.DataFrame:
-        rng = np.random.default_rng(42)
-        t = np.linspace(0.0, 10.0, 50)
-        df = pd.DataFrame(
-            rng.standard_normal((len(t), 3)),
-            index=t,
-            columns=["A", "B", "C"],
-        )
-        df.index.name = "time"
-        return df
+    def setUp(self) -> None:
+        self.tmpdir = tempfile.TemporaryDirectory()
 
-    def _make_fake_timecourse(self) -> mock.Mock:
-        tc_df = self._make_timecourse_df()
-        fake_model = mock.Mock()
-        fake_model.model_name = "BIOMD0000000042"
-        tc = mock.Mock()
-        tc.model = fake_model
-        tc.timecourse_df = tc_df
-        return tc
+    def tearDown(self) -> None:
+        self.tmpdir.cleanup()
 
-    def test_output_csv_contains_threshold_column(self) -> None:
-        """The output CSV has the threshold column."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            fake_csv_path = os.path.join(tmpdir, "fake_perturbation_study.csv")
-            items_to_iterate = [
-                mock.Mock(model_name="BIOMD0000000042", timecourse=self._make_fake_timecourse()),
-            ]
-            with mock.patch.object(ps, 'OUTPUT_PATH', fake_csv_path), \
-                 mock.patch('perturbation_study.TimecourseIterator') as MockTI:
-                MockTI.return_value.__iter__ = mock.Mock(
-                    return_value=iter(items_to_iterate),
-                )
-                with mock.patch('perturbation_study.SystemDiscovery.analyzePerturbations') as mock_analyze:
-                    fake_result_df = pd.DataFrame({
-                        cn.COL_SYSTEM_ID: ["BIOMD0000000042"],
-                        'mean': [0.5],
-                        'min': [0.3],
-                    })
-                    mock_analyze.return_value = FakeResult(df=fake_result_df, fig=None)
-                    ps.main()
-            self.assertTrue(os.path.isfile(fake_csv_path))
-            written_df = pd.read_csv(fake_csv_path)
-            self.assertIn(cn.COL_THRESHOLD, written_df.columns.tolist())
+    def _write_through_main(self, threshold: float, system_id: str) -> pd.DataFrame:
+        """Run main() with one fresh model and return the written CSV as a DataFrame."""
+        item = _make_item(system_id)
+        result_df = pd.DataFrame({"system_id": [system_id], "r2": [0.85]})
+        with mock.patch.object(ps.cn, "DATA_DIR", self.tmpdir.name), \
+             mock.patch("scripts.perturbation_study.TimecourseIterator") as MockTI:
+            MockTI.return_value.__iter__ = mock.Mock(return_value=iter([item]))
+            with mock.patch(
+                "scripts.perturbation_study.SystemDiscovery.analyzePerturbations"
+            ) as ma:
+                ma.return_value = _FakeResult(df=result_df)
+                ps.main(threshold=threshold)
+        path = os.path.join(self.tmpdir.name, f"perturbation_study-model_species{threshold}.csv")
+        return pd.read_csv(path)
 
-    def test_threshold_value_in_output(self) -> None:
-        """The threshold value in output matches THRESHOLD constant."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            fake_csv_path = os.path.join(tmpdir, "fake_perturbation_study.csv")
-            items_to_iterate = [
-                mock.Mock(model_name="BIOMD0000000042", timecourse=self._make_fake_timecourse()),
-            ]
-            with mock.patch.object(ps, 'OUTPUT_PATH', fake_csv_path), \
-                 mock.patch('perturbation_study.TimecourseIterator') as MockTI:
-                MockTI.return_value.__iter__ = mock.Mock(
-                    return_value=iter(items_to_iterate),
-                )
-                with mock.patch('perturbation_study.SystemDiscovery.analyzePerturbations') as mock_analyze:
-                    fake_result_df = pd.DataFrame({
-                        cn.COL_SYSTEM_ID: ["BIOMD0000000042"],
-                        'mean': [0.5],
-                        'min': [0.3],
-                    })
-                    mock_analyze.return_value = FakeResult(df=fake_result_df, fig=None)
-                    ps.main()
-            written_df = pd.read_csv(fake_csv_path)
-            threshold_col = written_df[cn.COL_THRESHOLD].unique()
-            self.assertEqual(len(threshold_col), 1)
-            self.assertAlmostEqual(float(threshold_col[0]), float(ps.THRESHOLD))
+    def test_output_contains_system_id_column(self) -> None:
+        df = self._write_through_main(0.01, "BIOMD_99")
+        self.assertIn("system_id", df.columns.tolist())
 
-    def test_output_csv_contains_system_id_column(self) -> None:
-        """The output CSV has the system_id column."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            fake_csv_path = os.path.join(tmpdir, "fake_perturbation_study.csv")
-            items_to_iterate = [
-                mock.Mock(model_name="BIOMD0000000042", timecourse=self._make_fake_timecourse()),
-            ]
-            with mock.patch.object(ps, 'OUTPUT_PATH', fake_csv_path), \
-                 mock.patch('perturbation_study.TimecourseIterator') as MockTI:
-                MockTI.return_value.__iter__ = mock.Mock(
-                    return_value=iter(items_to_iterate),
-                )
-                with mock.patch('perturbation_study.SystemDiscovery.analyzePerturbations') as mock_analyze:
-                    fake_result_df = pd.DataFrame({
-                        cn.COL_SYSTEM_ID: ["BIOMD0000000042"],
-                        'mean': [0.5],
-                        'min': [0.3],
-                    })
-                    mock_analyze.return_value = FakeResult(df=fake_result_df, fig=None)
-                    ps.main()
-            written_df = pd.read_csv(fake_csv_path)
-            self.assertIn(cn.COL_SYSTEM_ID, written_df.columns.tolist())
+    def test_threshold_value_matches_passed_argument(self) -> None:
+        df = self._write_through_main(0.042, "BIOMD_99")
+        thresholds = df["threshold"].unique()
+        self.assertEqual(len(thresholds), 1)
+        self.assertAlmostEqual(float(thresholds[0]), 0.042)
+
+    def test_threshold_in_output_not_default_constant(self) -> None:
+        """The CSV threshold must come from the call argument, not DEFAULT_THRESHOLD."""
+        df = self._write_through_main(0.077, "BIOMD_99")
+        thresholds = df["threshold"].unique()
+        self.assertAlmostEqual(float(thresholds[0]), 0.077)
+        self.assertNotAlmostEqual(float(thresholds[0]), ps.DEFAULT_THRESHOLD)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

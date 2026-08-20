@@ -23,6 +23,12 @@ from typing import Optional
 
 NUM_POINT = 1000
 
+################ Data #####################
+path = os.path.join(cn.DATA_DIR, "perturbation_study-0.001.csv")
+df = pd.read_csv(path)
+DF_P_DCT = {p: df[p] for p in ['min', 'p10', 'p50']}
+#
+
 ############### Helper Functions####################
 
 def doPlot(model_num: int, poly_degree=1, threshold=0.001, species_names: Optional[list[str]] = None,
@@ -34,6 +40,13 @@ def doPlot(model_num: int, poly_degree=1, threshold=0.001, species_names: Option
             plot_species_names=species_names, is_plot=IS_PLOT, subtitle=f"BioModel {model_num}",
             is_plot_heatmap=False, is_print_equations=False, is_plot_comparisons=True, is_print_accuracy=False)
     return sdr
+
+def plotPerturbation(col: str):
+    dff = DF_P_DCT[col]
+    dff["aggregation_type"] = "model"
+    score = Score.deserialize()
+    score.score_df = dff
+    score.plotCDF([-0.5, -0.1, 0, 0.10, 0.50], title="CDF: " + col)
 
 ################################################
 # Linear Fits
@@ -71,3 +84,4 @@ apr.fig.savefig(os.path.join(cn.PAPER_DIR, "perturbation_fit_1004.pdf"), bbox_in
 apr = SystemDiscovery.analyzePerturbations(968, perturbations=[-50, -10, 0, 10, 50], frac_scatter_skip=0.05,
         subtitle=f"BioModel 968", plot_species_names= ["SOCS1", "IL7IL7RJAK1"])
 apr.fig.savefig(os.path.join(cn.PAPER_DIR, "perturbation_fit_968.pdf"), bbox_inches="tight", dpi=300) # type: ignore
+
