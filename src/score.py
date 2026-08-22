@@ -256,28 +256,20 @@ class Score:
         kwargs.setdefault("title", title)
         kwargs.setdefault("xlabel", "accuracy")
         kwargs.setdefault("ylabel", "fraction")
-        ##
+        #
         plotted_any = False
         missing_metrics = []
-        def doPlot(value_arr: np.ndarray):
-            ax = plt.gca()
-            sorted_arr = np.sort(value_arr)
-            length = len(sorted_arr)
-            yv = np.array(range(length))/length
-            ax.grid(True)
-            ax.plot(sorted_arr, yv)
-            if not is_plot:
-                plt.close()
-        ##
         plot_options = PlotOptions(**kwargs)
         legend = []
         if is_plot_model:
             for mname in metric_names:
                 model_df = df[df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL]
                 if not model_df.empty and mname in model_df.columns:
-                    legend.append(f"{mname} (model)")
+                    suffix = "(model)" if is_plot_species else ""
+                    legend.append(f"{mname} {suffix}")
                     value_arr = np.array(model_df[mname].values)
-                    doPlot(value_arr)
+                    #doPlot(value_arr)
+                    self.plotCDFArray(value_arr, is_plot=is_plot)
                     plotted_any = True
                 else:
                     missing_metrics.append(f"model: {mname}")
@@ -285,9 +277,11 @@ class Score:
                 for mname in metric_names:
                     species_df = df[df[cn.COL_AGGREGATION_TYPE] != cn.COL_AGGREGATION_TYPE_MODEL]
                     if not species_df.empty and mname in species_df.columns:
-                        legend.append(f"{mname} (species)")
+                        suffix = "(species)" if is_plot_model else ""
+                        legend.append(f"{mname} {suffix}")
                         value_arr = np.array(species_df[mname].values)
-                        doPlot(value_arr)
+                        self.plotCDFArray(value_arr, is_plot=is_plot)
+                        #doPlot(value_arr)
                         plotted_any = True
                     else:
                         missing_metrics.append(f"species: {mname}")
@@ -300,3 +294,27 @@ class Score:
         plot_options.apply()
         #
         return plot_options
+
+    @staticmethod
+    def plotCDFArray(value_arr: np.ndarray, ax = None, is_plot: bool = True):
+        """
+        Plots the CDF for a given array of values.
+
+        Args:
+            value_arr (np.ndarray): Array of values to plot.
+            is_plot (bool): If True, the plot will be displayed; if False, it will be closed.
+        """
+        if ax is None:
+            ax = plt.gca()
+        sorted_arr = np.sort(value_arr)
+        length = len(sorted_arr)
+        yv = np.array(range(length))/length
+        ax.grid(True)
+        ax.plot(sorted_arr, yv)
+        ax.set_ylim(0, 1)
+        ax.set_xlim(0, 1)
+        ax.set_xlabel("accuracy")
+        ax.set_ylabel("fraction")
+        if not is_plot:
+            plt.close()
+        return ax

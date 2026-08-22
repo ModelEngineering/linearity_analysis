@@ -250,18 +250,6 @@ class SystemDiscovery:
             return 0.0
         return max(0.0, min(1.0, rsq))
 
-    @staticmethod
-    def _perturbation_col(p: float) -> str:
-        """Map a perturbation fraction to its CSV column name.
-
-        Examples: 0.0 → 'r2_0', 0.05 → 'r2_+05', -0.20 → 'r2_-20'.
-        """
-        pct = round(p * 100)
-        if pct == 0:
-            return "r2_0"
-        sign = "+" if pct > 0 else "-"
-        return f"r2_{sign}{abs(pct):02d}"
-
     def _require_fitted(self) -> None:
         if not self.is_fitted:
             raise RuntimeError("Call `.fit()` before using this method.")

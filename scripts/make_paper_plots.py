@@ -10,6 +10,7 @@ from src.timecourse import Timecourse
 from src.timecourse_iterator import TimecourseIterator
 
 IS_PLOT = False
+IS_ALL = True
 
 import constants as cn
 if not IS_PLOT:
@@ -24,8 +25,9 @@ from typing import Optional
 NUM_POINT = 1000
 
 ################ Data #####################
-path = os.path.join(cn.DATA_DIR, "perturbation_study-0.001.csv")
-df = pd.read_csv(path)
+threshold = 0.001
+filename = os.path.join(cn.DATA_DIR, f"perturbation_study-species{threshold}.csv")
+df = pd.read_csv(filename)
 DF_P_DCT = {p: df[p] for p in ['min', 'p10', 'p50']}
 #
 
@@ -41,47 +43,87 @@ def doPlot(model_num: int, poly_degree=1, threshold=0.001, species_names: Option
             is_plot_heatmap=False, is_print_equations=False, is_plot_comparisons=True, is_print_accuracy=False)
     return sdr
 
-def plotPerturbation(col: str):
-    dff = DF_P_DCT[col]
-    dff["aggregation_type"] = "model"
-    score = Score.deserialize()
-    score.score_df = dff
-    score.plotCDF([-0.5, -0.1, 0, 0.10, 0.50], title="CDF: " + col)
+def plotPerturbation(metric_name: str, threshold: float = 0.001, is_analyze_species: bool = True,
+        perturbations: list[float] = [-0.50, -0.10, 0.0, 0.10, 0.50],
+        is_plot: bool = True) -> None:
+    """Plots CDF for a specified metric.
+
+    Args:
+        metric_name (str): The name of the metric to plot.
+        threshold (float): The threshold for the perturbation study.
+        is_analyze_species (bool): If True, plots for species scores; if False, plots for species scores.
+    """
+    # Get the data
+    if is_analyze_species:
+        path = os.path.join(cn.DATA_DIR, f"perturbation_study-species{threshold}.csv")
+        aggregation_type = "species"
+    else:
+        path = os.path.join(cn.DATA_DIR, f"perturbation_study-model{threshold}.csv")
+        aggregation_type = "model"
+    full_df = pd.read_csv(path)
+    # Construct the plot
+    pivot_df = full_df.pivot(columns='perturbation', values=metric_name,
+            index=['system_id', 'aggregation_type'])
+    for perturbation in perturbations:
+        if perturbation not in pivot_df.columns:
+            raise ValueError(f"Perturbation {perturbation} not found in data.")
+        value_arr = pivot_df[perturbation].dropna().to_numpy()
+        if len(value_arr) == 0:
+            raise ValueError(f"No data found for perturbation {perturbation}.")
+        _ = Score.plotCDFArray(value_arr, is_plot=True)
+    plt.legend([str(v) for v in perturbations])
+    plt.title(f"{metric_name} {aggregation_type} CDF")
+    if is_plot:
+        plt.show()
 
 ################################################
 # Linear Fits
 ################################################
 ############### Time course ####################
-sdr = doPlot(968, species_names=["SOCS1", "IL7IL7RJAK1"])
-sdr.fig.savefig(os.path.join(cn.PAPER_DIR, "linear_fit_968.pdf"), bbox_inches="tight", dpi=300) # type: ignore
-##
-sdr = doPlot(1004, species_names= ["IL6ext", "STAT3mRNA"])
-sdr.fig.savefig(os.path.join(cn.PAPER_DIR, "linear_fit_1004.pdf"), bbox_inches="tight", dpi=300) # type: ignore
+if IS_ALL:
+    sdr = doPlot(968, species_names=["SOCS1", "IL7IL7RJAK1"])
+    sdr.fig.savefig(os.path.join(cn.PAPER_DIR, "linear_fit_968.pdf"), bbox_inches="tight", dpi=300) # type: ignore
+    ##
+    sdr = doPlot(1004, species_names= ["IL6ext", "STAT3mRNA"])
+    sdr.fig.savefig(os.path.join(cn.PAPER_DIR, "linear_fit_1004.pdf"), bbox_inches="tight", dpi=300) # type: ignore
 #
 ############### CDFs ####################
-path = os.path.join(cn.DATA_DIR, "linear_predictor_scores-0.001.csv")
-score = Score.deserialize(path)
-fig = score.plotCDF(["min", "p10", "p50", "max"], xlabel= "model accuracy", is_plot_species=False,
-        is_plot_model=True, title=f"BioModel Models").fig
-if IS_PLOT:
-    plt.show()
-fig.savefig(os.path.join(cn.PAPER_DIR, "linear_fit_model_cdf.pdf"), bbox_inches="tight", dpi=300) # type: ignore
-#
-fig = score.plotCDF(["min", "p10", "p50", "max"], xlabel= "model accuracy", is_plot_species=True,
-        is_plot_model=False, title=f"BioModel Species").fig
-fig.savefig(os.path.join(cn.PAPER_DIR, "linear_fit_species_cdf.pdf"), bbox_inches="tight", dpi=300) # type: ignore
-if IS_PLOT:
-    plt.show()
+if IS_ALL:
+    filename = os.path.join(cn.DATA_DIR, "linear_predictor_scores-0.001.csv")
+    score = Score.deserialize(filename)
+    fig = score.plotCDF(["min", "p10", "p50", "max"], xlabel= "model accuracy", is_plot_species=False,
+            is_plot_model=True, title=f"BioModel Models").fig
+    if IS_PLOT:
+        plt.show()
+    fig.savefig(os.path.join(cn.PAPER_DIR, "linear_fit_model_cdf.pdf"), bbox_inches="tight", dpi=300) # type: ignore
+    #
+    fig = score.plotCDF(["min", "p10", "p50", "max"], xlabel= "model accuracy", is_plot_species=True,
+            is_plot_model=False, title=f"BioModel Species").fig
+    fig.savefig(os.path.join(cn.PAPER_DIR, "linear_fit_species_cdf.pdf"), bbox_inches="tight", dpi=300) # type: ignore
+    if IS_PLOT:
+        plt.show()
 
 ################################################
 # Perturbations
 ################################################
 ############### Time course ####################
-apr = SystemDiscovery.analyzePerturbations(1004, perturbations=[-50, -10, 0, 10, 50], frac_scatter_skip=0.05,
-        subtitle="BioModel 1004", plot_species_names=["IL6ext","IL6int"])
-apr.fig.savefig(os.path.join(cn.PAPER_DIR, "perturbation_fit_1004.pdf"), bbox_inches="tight", dpi=300) # type: ignore
-#
-apr = SystemDiscovery.analyzePerturbations(968, perturbations=[-50, -10, 0, 10, 50], frac_scatter_skip=0.05,
-        subtitle=f"BioModel 968", plot_species_names= ["SOCS1", "IL7IL7RJAK1"])
-apr.fig.savefig(os.path.join(cn.PAPER_DIR, "perturbation_fit_968.pdf"), bbox_inches="tight", dpi=300) # type: ignore
-
+if IS_ALL:
+    apr = SystemDiscovery.analyzePerturbations(1004, perturbations=[-50, -10, 0, 10, 50], frac_scatter_skip=0.05,
+            subtitle="BioModel 1004", plot_species_names=["IL6ext","IL6int"])
+    apr.fig.savefig(os.path.join(cn.PAPER_DIR, "perturbation_fit_1004.pdf"), bbox_inches="tight", dpi=300) # type: ignore
+    #
+    apr = SystemDiscovery.analyzePerturbations(968, perturbations=[-50, -10, 0, 10, 50], frac_scatter_skip=0.05,
+            subtitle=f"BioModel 968", plot_species_names= ["SOCS1", "IL7IL7RJAK1"])
+    apr.fig.savefig(os.path.join(cn.PAPER_DIR, "perturbation_fit_968.pdf"), bbox_inches="tight", dpi=300) # type: ignore
+    #
+    for percentile in ["p10", "p50"]:
+        for aggregation in ["model", "species"]:
+            if aggregation == "species":
+                is_analyze_species = True
+            else:
+                is_analyze_species = False
+            plotPerturbation(percentile, is_analyze_species=is_analyze_species, is_plot=IS_PLOT)
+            fig = plt.gcf()
+            filename = f"perturbation_{aggregation}_{percentile}_cdf.pdf"
+            fig.savefig(os.path.join(cn.PAPER_DIR, filename), bbox_inches="tight", dpi=300) # type: ignore
+            plt.close()

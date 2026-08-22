@@ -492,7 +492,7 @@ class TestScoreBiomodel278(unittest.TestCase):
     _MODEL_NAME = "BIOMD0000000278"
     _SPECIES = ["R", "B", "C"]
     _END_TIME = 140.0
-    _NUM_POINTS = 100
+    _NUM_POINTS = 1000
     t: np.ndarray
     true_R: np.ndarray
     true_B: np.ndarray
@@ -644,7 +644,7 @@ class TestScoreBiomodel278(unittest.TestCase):
         score = Score(is_persist=False)
         score.add(self.true_df, self.pred_df, system_id=self._MODEL_NAME)
         result = score.plotCDF(
-            ["p50", "p10"], is_plot_model=True, is_plot_species=True, is_plot=True
+            ["p50", "p10"], is_plot_model=True, is_plot_species=True, is_plot=IS_PLOT,
         )
         self.assertIsInstance(result, PlotOptions)
         self.assertEqual(result.title, "CDFs")
