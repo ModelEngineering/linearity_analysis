@@ -5,9 +5,9 @@ import src.constants as cn
 from src.model import Model
 from src.score import Score
 from src.simulator import Simulator
-from src.system_discovery import SystemDiscovery, discoverNetwork
+from src.system_discovery import discoverNetwork
+from src.perturbation_analyzer import PerturbationAnalyzer
 from src.timecourse import Timecourse
-from src.timecourse_iterator import TimecourseIterator
 
 IS_PLOT = False
 IS_ALL = True
@@ -108,13 +108,14 @@ if IS_ALL:
 ################################################
 ############### Time course ####################
 if IS_ALL:
-    apr = SystemDiscovery.analyzePerturbations(1004, perturbations=[-50, -10, 0, 10, 50], frac_scatter_skip=0.05,
-            subtitle="BioModel 1004", plot_species_names=["IL6ext","IL6int"])
-    apr.fig.savefig(os.path.join(cn.PAPER_DIR, "perturbation_fit_1004.pdf"), bbox_inches="tight", dpi=300) # type: ignore
+    analyzer = PerturbationAnalyzer(1004, perturbations=[-50, -10, 0, 10, 50])
+    analyzer.plotTimeseries(subtitle="BioModel 1004", plot_species_names=["IL6ext","IL6int"])
+    analyzer.result.fig.savefig(os.path.join(cn.PAPER_DIR, "perturbation_fit_1004.pdf"), bbox_inches="tight", dpi=300) # type: ignore
     #
-    apr = SystemDiscovery.analyzePerturbations(968, perturbations=[-50, -10, 0, 10, 50], frac_scatter_skip=0.05,
-            subtitle=f"BioModel 968", plot_species_names= ["SOCS1", "IL7IL7RJAK1"])
-    apr.fig.savefig(os.path.join(cn.PAPER_DIR, "perturbation_fit_968.pdf"), bbox_inches="tight", dpi=300) # type: ignore
+    analyzer = PerturbationAnalyzer(968, perturbations=[-50, -10, 0, 10, 50])
+    analyzer.plotTimeseries(frac_scatter_skip=0.05,
+            subtitle=f"BioModel 968", plot_species_names=["SOCS1", "IL7IL7RJAK1"])
+    analyzer.result.fig.savefig(os.path.join(cn.PAPER_DIR, "perturbation_fit_968.pdf"), bbox_inches="tight", dpi=300) # type: ignore
     #
     for percentile in ["p10", "p50"]:
         for aggregation in ["model", "species"]:

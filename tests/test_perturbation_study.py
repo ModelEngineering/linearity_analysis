@@ -28,6 +28,8 @@ sys.modules["src"] = _src_pkg
 sys.modules["src.constants"] = _sys_mod
 _src_pkg.constants = _sys_mod # type: ignore
 
+class _PerturbationAnalyzerStub:
+    analyze_perturbations = staticmethod(lambda **kw: None)
 # Minimal stubs for other src submodules imported at module level by perturbation_study.
 class _SystemDiscoveryStub:
     analyzePerturbations = staticmethod(lambda **kw: None)
@@ -41,6 +43,11 @@ class _TimecourseIteratorStub:
     pass  # only used inside main(); never called by tests.
 _tc_it_mod.TimecourseIterator = _TimecourseIteratorStub # type: ignore 
 sys.modules["src.timecourse_iterator"] = _tc_it_mod
+
+_pa_mod = types.ModuleType("src.perturbation_analyzer")
+_pa_mod.PerturbationAnalyzer = _PerturbationAnalyzerStub  # type: ignore
+sys.modules["src.perturbation_analyzer"] = _pa_mod
+_src_pkg.perturbation_analyzer = _pa_mod  # type: ignore
 _src_pkg.timecourse_iterator = _tc_it_mod # type: ignore
 
 from scripts import perturbation_study as ps  # type: ignore
@@ -48,7 +55,7 @@ from scripts import perturbation_study as ps  # type: ignore
 # Remove stubs from sys.modules so other test files get the real src package.
 # perturbation_study already holds direct references to the stub objects, so
 # removing them here doesn't affect its behavior.
-for _key in ["src", "src.constants", "src.system_discovery", "src.timecourse_iterator"]:
+for _key in ["src", "src.constants", "src.system_discovery", "src.perturbation_analyzer", "src.timecourse_iterator"]:
     sys.modules.pop(_key, None)
 
 
@@ -56,7 +63,7 @@ for _key in ["src", "src.constants", "src.system_discovery", "src.timecourse_ite
 # Helpers shared by integration tests.
 # ---------------------------------------------------------------------------
 class _FakeResult:
-    """Minimal stand-in for SystemDiscovery.analyzePerturbations() return value."""
+    """Minimal stand-in for PerturbationAnalyzer().analyze_perturbations() return value."""
 
     def __init__(self, df=None):
         self.df = df if df is not None else pd.DataFrame({"system_id": ["UNKNOWN"]})
@@ -106,10 +113,10 @@ def _run_main_with_one_item(tmpdir: str, threshold: float = 0.01,
     )
     with mock.patch.object(ps.cn, "DATA_DIR", tmpstr), \
          mock.patch("scripts.perturbation_study.TimecourseIterator") as MockTI, \
-         mock.patch("scripts.perturbation_study.SystemDiscovery.analyzePerturbations") as MockAnalyze:
+         mock.patch("scripts.perturbation_study.PerturbationAnalyzer") as MockPA:
         item = _make_item(model_name="BIOMD0000000001", n_points=20)
         MockTI.return_value.__iter__ = mock.Mock(return_value=iter([item]))
-        MockAnalyze.return_value = fake_result
+        MockPA.return_value.result = fake_result  # type: ignore[union-attr]
         ps.main(
             threshold=threshold,
             is_analyze_model=is_analyze_model,
@@ -282,7 +289,7 @@ class TestMainIteration(unittest.TestCase):
             items = [_make_item("BIOMD_SKIP")]
             MockTI.return_value.__iter__ = mock.Mock(return_value=iter(items))
             with mock.patch(
-                "scripts.perturbation_study.SystemDiscovery.analyzePerturbations"
+                "scripts.perturbation_study.PerturbationAnalyzer"
             ) as ma:
                 ps.main(threshold=0.01)
         self.assertEqual(ma.call_count, 0)
@@ -294,7 +301,7 @@ class TestMainIteration(unittest.TestCase):
             items = [_make_item("BIOMD0000000338")]  # in EXCLUDES list
             MockTI.return_value.__iter__ = mock.Mock(return_value=iter(items))
             with mock.patch(
-                "scripts.perturbation_study.SystemDiscovery.analyzePerturbations"
+                "scripts.perturbation_study.PerturbationAnalyzer"
             ) as ma:
                 ps.main(threshold=0.01)
         self.assertEqual(ma.call_count, 0)
@@ -310,14 +317,17 @@ class TestMainIteration(unittest.TestCase):
             items = [bad_item, good_item]
             MockTI.return_value.__iter__ = mock.Mock(return_value=iter(items))
             with mock.patch(
-                "scripts.perturbation_study.SystemDiscovery.analyzePerturbations"
+                "scripts.perturbation_study.PerturbationAnalyzer"
             ) as ma:
-                def side_effect(**kw):
-                    df: pd.DataFrame = kw.get("training_df")  # type: ignore
+                def side_effect_constructor(*args, **kwargs):
+                    df: pd.DataFrame = kwargs.get("training_df")  # type: ignore
                     if len(df) > 15:
                         raise RuntimeError("simulated failure")
-                    return _FakeResult(df=good_df)
-                ma.side_effect = side_effect
+                    inst = mock.Mock()
+                    inst.result = _FakeResult(df=good_df)  # type: ignore[union-attr]
+                    return inst
+
+                ma.side_effect = side_effect_constructor
                 ps.main(threshold=0.01)
 
         self.assertEqual(ma.call_count, 2)
@@ -327,15 +337,15 @@ class TestMainIteration(unittest.TestCase):
         self.assertIn("BIOMD_OK", written["system_id"].values.tolist())
 
     def test_threshold_passed_to_analyze_perturbations(self) -> None:
-        """The threshold argument must flow through to analyzePerturbations."""
+        """The threshold argument must flow through to PerturbationAnalyzer."""
         with mock.patch.object(ps.cn, "DATA_DIR", self.tmpdir.name), \
              mock.patch("scripts.perturbation_study.TimecourseIterator") as MockTI:
             items = [_make_item("BIOMD_X")]
             MockTI.return_value.__iter__ = mock.Mock(return_value=iter(items))
             with mock.patch(
-                "scripts.perturbation_study.SystemDiscovery.analyzePerturbations"
+                "scripts.perturbation_study.PerturbationAnalyzer"
             ) as ma:
-                ma.return_value = _FakeResult(df=pd.DataFrame({"system_id": ["BIOMD_X"]}))
+                ma.return_value.result = _FakeResult(df=pd.DataFrame({"system_id": ["BIOMD_X"]}))  # type: ignore[union-attr]
                 ps.main(threshold=0.042)
         _, kwargs = ma.call_args
         self.assertAlmostEqual(kwargs["threshold"], 0.042)
@@ -357,9 +367,9 @@ class TestMainOutputFormat(unittest.TestCase):
              mock.patch("scripts.perturbation_study.TimecourseIterator") as MockTI:
             MockTI.return_value.__iter__ = mock.Mock(return_value=iter([item]))
             with mock.patch(
-                "scripts.perturbation_study.SystemDiscovery.analyzePerturbations"
+                "scripts.perturbation_study.PerturbationAnalyzer"
             ) as ma:
-                ma.return_value = _FakeResult(df=result_df)
+                ma.return_value.result = _FakeResult(df=result_df)  # type: ignore[union-attr]
                 ps.main(threshold=threshold)
         path = os.path.join(self.tmpdir.name, f"perturbation_study-model_species{threshold}.csv")
         return pd.read_csv(path)

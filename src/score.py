@@ -17,6 +17,8 @@ import pandas as pd  # type: ignore
 from typing import List, Optional  # type: ignore
 import warnings  # type: ignore
 
+MIN_SIGNIFICANT_VALUE = 1e-5  # Minimum value considered significant for true values; below this, accuracy is undefined.
+
 
 class Score:
     """Scores prediction timecourses against true timecourses using zero-floor Accuracy.
@@ -99,7 +101,7 @@ class Score:
             # Then mark undefined/zero-true values as -1 sentinel AFTER clipping.
             # This must happen after clip so that the -1 sentinel is not converted
             # to 0 by clip(lower=0), which would mask bad predictions from aggregation.
-            invalid_mask = (np.isclose(true_df, 0, atol=1e-2)) | ~np.isfinite(ape_df)
+            invalid_mask = (np.isclose(true_df, 0, atol=MIN_SIGNIFICANT_VALUE)) | ~np.isfinite(ape_df)
             accuracy_df = 1 - ape_df
             accuracy_df = accuracy_df.where(~invalid_mask, other=-1.0)
         max_value = accuracy_df.max().max()

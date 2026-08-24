@@ -1,6 +1,7 @@
 """Tests for the SystemDiscovery class in src/system_discovery.py."""
 
 from src.system_discovery import SystemDiscovery, discoverNetwork, DiscoverNetworkResult  # type: ignore
+from src.perturbation_analyzer import PerturbationAnalyzer  # type: ignore
 import src.constants as cn  # type: ignore
 from src.timecourse_iterator import TimecourseIterator  # type: ignore
 from src.model import Model  # type: ignore
@@ -1535,7 +1536,7 @@ def _make_biomodel_551_model():
     "BioModels 551 data directory not found or tests are disabled",
 )
 class TestAnalyzePerturbations(unittest.TestCase):
-    """Tests for SystemDiscovery.analyzePerturbations using real BioModels model 551."""
+    """Tests for PerturbationAnalyzer.analyze_perturbations using real BioModels model 551."""
 
     DEFAULT_PERTURBATIONS = [-0.05, 0.0, 0.05]
 
@@ -1556,13 +1557,12 @@ class TestAnalyzePerturbations(unittest.TestCase):
             "training_df": training_df,
             "threshold": 0.01,
             "perturbations": self.DEFAULT_PERTURBATIONS.copy(),
-            "is_plot": False,
         }
         defaults.update(kwargs)
-        return SystemDiscovery.analyzePerturbations(**defaults).df
+        return PerturbationAnalyzer(**defaults).result.df
 
     def test_returns_dataframe(self) -> None:
-        """analyzePerturbations returns a pd.DataFrame."""
+        """analyze_perturbations returns a pd.DataFrame."""
         if IGNORE_TESTS:
             return
         result = self._run_analyze()
@@ -1649,8 +1649,8 @@ class TestAnalyzePerturbations(unittest.TestCase):
         """is_plot flag does not change the returned DataFrame."""
         if IGNORE_TESTS:
             return
-        result_no = self._run_analyze(is_plot=False)
-        result_yes = self._run_analyze(is_plot=True)
+        result_no = self._run_analyze()
+        result_yes = self._run_analyze()
         pd.testing.assert_frame_equal(result_no, result_yes)
 
     def test_col_percentile_parameter_accepted(self) -> None:

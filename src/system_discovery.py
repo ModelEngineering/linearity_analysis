@@ -35,7 +35,6 @@ Usage
 """
 
 import constants as cn # type: ignore
-from src.model import Model  # type: ignore
 from src.scaler import Scaler  # type: ignore
 from src.timecourse import Timecourse  # type: ignore
 from src.timecourse_iterator import TimecourseIterator  # type: ignore
@@ -66,26 +65,17 @@ MAX_TIME_FRACTIONAL_DEVIATION = 0.001
 ODE_RTOL: float = 1e-6
 ODE_ATOL: float = 1e-8
 
-# Scatter-plot density step for perturbation analysis
-DEFAULT_FRAC_KEEP: float = 0.2
-
 # Default number of true points to plot in trajectory comparison figures
 DEFAULT_NUM_TRUE_POINT: int = 20
 
-# Columns in dataframes
-COL_FRACTION_SPECIES_PERTURBABLE: str = "fraction_species_perturbable"
 
+# Columns in dataframes
 
 MAX_SPECIES: int = 200
 DifferentiationMethod = Literal["smooth", "finite", "spectral"]
 
+DiscoverNetworkResult = namedtuple("DiscoverNetworkResult", ["sd", "fig"])
 
-
-# ---------------------------------------------------------------------------
-# Named tuples
-# ---------------------------------------------------------------------------
-AnalyzePerturbationsResult = namedtuple("AnalyzePerturbationsResult", ["df", "fig"])
-DiscoverNetworkResult = namedtuple("DiscoverNetworkResult",["sd", "fig"])
 
 # ---------------------------------------------------------------------------
 # Main class
@@ -394,200 +384,6 @@ class SystemDiscovery:
         # Denormalize back to physical units.
         return self._scaler.denormalize(zpred_arr)
 
-    @classmethod
-    def analyzePerturbations(
-        cls,
-        model: Model | int,
-        training_df: pd.DataFrame = NULL_DF,
-        threshold: float = 0.001,
-        perturbations: list[float] = [-0.5, -0.2, -0.1, 0.0, 0.1, 0.2, 0.5],
-        col_percentile: str = cn.COL_P10,
-        perturbation_species_fraction: float = 1.0,
-        figsize: tuple[float, float] | None = None,
-        poly_degree: int = 1,
-        frac_scatter_skip: float = 0.2,
-        plot_species_names: list[str] | None = None,
-        subtitle: str = "Perturbation Analysis",
-        is_analyze_model: bool = True,
-        is_analyze_species: bool = True,
-        is_plot: bool = True,
-    ) -> AnalyzePerturbationsResult:
-        '''Fit on training_df; evaluate timecourse accuracy on perturbed timecourses.
-
-        For each value in *perturbations* a fresh Timecourse is simulated from
-        *model* with that ``perturbation_value_fraction``.  The SINDy model
-        (fitted on the unperturbed *training_df*) is evaluated against each
-        perturbed timecourse using absolute relative error (ARE) accuracy.
-
-        When *is_analyze_model* and/or *is_analyze_species* are True, the returned DataFrame
-        includes rows at that level of aggregation:
-            - ``COL_AGGREGATION_TYPE == 'model'``  -- one model-level row per
-              perturbation value with aggregated statistics across species.
-            - Species-level rows (aggregation type = species name) -- one row
-              per species per perturbation with per-species ARE values.
-
-        By default both levels are included. Set ``is_analyze_model=False`` or
-        ``is_analyze_species=False`` to drop the corresponding level from the output.
-
-        When *is_plot* is True, a trajectory comparison figure is also shown
-        (the chosen percentile accuracy shown in the legend for visual context).
-
-        Parameters
-        ----------
-        model : Model
-            Used to simulate ground-truth timecourses for each perturbation.
-        training_df : pd.DataFrame
-            Unperturbed timecourse used to fit the SINDy model.
-        threshold : float
-            STLSQ sparsity threshold.
-        perturbations : list[float]
-            Signed fractional perturbation values (e.g. [-0.05, 0.0, 0.05]).
-        col_percentile : str
-            The column name in the accuracy dataframe
-        perturbation_species_fraction : float
-            Fraction of species whose initial values are perturbed if their initial value > 0.
-        figsize : tuple, optional
-            Figure size in inches.  Auto-sized when None.
-        poly_degree : int
-            Degree of the polynomial library.
-        frac_scatter_skip : float
-            Scatter-plot density: num_skip = max(1, int(n_points * frac_scatter_skip)).
-        is_plot : bool
-            Show a trajectory comparison figure when True.
-        is_analyze_model : bool
-            Include model-level rows (aggregation_type='model') in the returned DataFrame.
-        is_analyze_species : bool
-            Include per-species rows (aggregation_type=species name) in the returned DataFrame.
-        plot_species_names : list[str] | None
-            List of species to plot. If None, all species are plotted.
-
-        Returns
-        -------
-        AnalyzePerturbationsResult
-            A named tuple containing the accuracy metrics and the plot figure.
-                pd.DataFrame: Accuracy metrics (one row per perturbation at each requested aggregation level)
-                fig
-        '''
-        if isinstance(model, int):
-            model = Model.makeBiomodel(model_num=model)
-        if training_df is NULL_DF:
-            training_df = TimecourseIterator().getTimecourse(model.model_name).timecourse_df
-        # Initializations
-        fig = None
-        modifable_species_names = model.getModifableSpecies()
-        if model.num_species == 0:
-            fraction_species_perturbable = 0.0
-        else:
-            fraction_species_perturbable = len(modifable_species_names) / model.num_species
-        start_time = float(training_df.index[0])
-        end_time = float(training_df.index[-1])
-        num_point = len(training_df)
-
-        disc = cls(training_df, threshold=threshold, poly_degree=poly_degree)
-        if plot_species_names is None:
-            plot_species_names = disc.species_names
-        disc.fit()
-
-        plot_records: list[
-            tuple[float, pd.DataFrame, pd.DataFrame | None, pd.Series]
-        ] = []
-        score = Score(serialization_path="", is_persist=False)
-        for p in perturbations:
-            tc = Timecourse(
-                model=model,
-                start_time=start_time,
-                end_time=end_time,
-                num_point=num_point,
-                perturbation_value_fraction=p,
-                perturbation_species_fraction=perturbation_species_fraction,
-            )
-            test_df = tc.timecourse_df
-            disc._checkColumns(test_df.columns.tolist())
-            pred_df = None
-            try:
-                pred_df = disc.predict(test_df)
-                score.add(test_df, pred_df, system_id=str(p))
-            except Exception:
-                pass
-            if is_plot and pred_df is not None:
-                new_df = score.score_df[score.score_df[cn.COL_SYSTEM_ID] == str(p)]
-                new_ser = new_df[col_percentile]
-                new_ser.index = new_df[cn.COL_AGGREGATION_TYPE]
-                plot_records.append((p, test_df, pred_df, new_ser))
-        # Build per-row records so each row carries its own perturbation value.
-        _META_COLS = [cn.COL_PERTURBATION, COL_FRACTION_SPECIES_PERTURBABLE, cn.COL_SYSTEM_ID]
-
-        rows: list[dict] = []
-        if not score.score_df.empty:
-            for p in perturbations:
-                if is_analyze_model:
-                    model_row_df = (
-                        score.score_df[
-                            (score.score_df[cn.COL_SYSTEM_ID] == str(p)) &
-                            (score.score_df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL)
-                        ]
-                    )
-                    if not model_row_df.empty:
-                        for _, r in model_row_df.iterrows():
-                            rec = {**r.to_dict(), **{cn.COL_PERTURBATION: p,
-                                    COL_FRACTION_SPECIES_PERTURBABLE: fraction_species_perturbable,
-                                    cn.COL_SYSTEM_ID: model.model_name}}
-                            rows.append(rec)
-                if is_analyze_species:
-                    species_row_df = (
-                        score.score_df[
-                            (score.score_df[cn.COL_SYSTEM_ID] == str(p)) &
-                            (score.score_df[cn.COL_AGGREGATION_TYPE] != cn.COL_AGGREGATION_TYPE_MODEL)
-                        ]
-                    )
-                    if not species_row_df.empty:
-                        for _, r in species_row_df.iterrows():
-                            rec = {**r.to_dict(), **{cn.COL_PERTURBATION: p,
-                                    COL_FRACTION_SPECIES_PERTURBABLE: fraction_species_perturbable,
-                                    cn.COL_SYSTEM_ID: model.model_name}}
-                            rows.append(rec)
-        accuracy_df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=list(dict.fromkeys(_META_COLS + list(score.score_df.columns))))
-        # Construct plots
-        if is_plot and plot_records:
-            n = len(plot_species_names)
-            ncols = min(n, 3)
-            nrows = (n + ncols - 1) // ncols
-            if figsize is None:
-                figsize = (5 * ncols, 3.5 * nrows)
-            fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
-            fig.suptitle(subtitle, fontsize=14)
-            num_skip = max(1, int(num_point * frac_scatter_skip))
-            for pos_idx, sp_name in enumerate(plot_species_names):
-                sp_idx = disc.species_names.index(sp_name)
-                ax_row, ax_col = divmod(pos_idx, ncols)
-                ax = axes[ax_row][ax_col]
-                sp_col = disc.species_cols[sp_idx]
-                for p_idx, (p, test_df, pred_df, accuracy_ser) in enumerate(plot_records):
-                    acc = f"{accuracy_ser.loc[sp_name]:.3f}" if np.isfinite(accuracy_ser.loc[sp_name]) else "0"
-                    color = f"C{p_idx}"
-                    ax.scatter(
-                        test_df.index[::num_skip],
-                        test_df[sp_col][::num_skip],
-                        s=10, color=color, alpha=0.6,
-                        label=f"vfrac={p:.2f}, Accuracy={acc}",
-                    )
-                    if pred_df is not None:
-                        ax.plot(
-                            pred_df.index, pred_df[sp_name],
-                            linestyle="--", color=color, lw=1.5,
-                        )
-                ax.set_title(sp_name)
-                ax.set_xlabel("Time")
-                ax.set_ylabel("Concentration")
-                ax.legend(fontsize=8)
-                ax.grid(True, alpha=0.3)
-            for idx in range(n, nrows * ncols):
-                ax_row, ax_col = divmod(idx, ncols)
-                axes[ax_row][ax_col].set_visible(False)
-            fig.tight_layout()
-            plt.show()
-            plt.close(fig)
-        return AnalyzePerturbationsResult(df=accuracy_df, fig=fig)
 
     def calculateSpeciesScores(self, score_type: str = "timecourse",
             test_df: pd.DataFrame = NULL_DF,
@@ -969,10 +765,9 @@ class SystemDiscovery:
             species.  Raises ``RuntimeError`` if the ODE integrator fails.
             columns: species names; index: time points
         """
-        if not test_df.empty:
-            self._checkColumns(test_df.columns.tolist())
         self._require_fitted()
-        if test_df is not NULL_DF:
+        if (not test_df.empty) and (test_df is not NULL_DF):
+            self._checkColumns(test_df.columns.tolist())
             x0 = test_df.to_numpy(dtype=float)[0, :]
             time_arr = test_df.index.to_numpy(dtype=float)
         else:

@@ -16,7 +16,7 @@ import sys
 import pandas as pd  # type: ignore
 
 import src.constants as cn
-from src.system_discovery import SystemDiscovery
+from src.perturbation_analyzer import PerturbationAnalyzer
 from src.timecourse_iterator import TimecourseIterator
 
 DEFAULT_THRESHOLD = 0.001
@@ -136,17 +136,16 @@ def main(is_initialize: bool = False, is_analyze_model: bool = True,
             continue
         print(f"Processing {item.model_name}...", flush=True)
         try:
-            analyze_df = SystemDiscovery.analyzePerturbations(
+            analyze_df = PerturbationAnalyzer(
                 model=item.timecourse.model,
                 training_df=item.timecourse.timecourse_df,
                 threshold=threshold,
                 perturbations=PERTURBATIONS,
                 perturbation_species_fraction=SPECIES_FRACTION,
                 poly_degree=POLY_DEGREE,
-                is_plot=False,
                 is_analyze_model=is_analyze_model,
                 is_analyze_species=is_analyze_species,
-            ).df
+            ).result.df
         except Exception as exc:
             print(f"  [error] {item.model_name}: {exc}", file=sys.stderr)
             continue
