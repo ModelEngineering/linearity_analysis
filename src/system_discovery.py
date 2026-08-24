@@ -125,7 +125,7 @@ class SystemDiscovery:
 
     def __init__(
         self,
-        df: pd.DataFrame,
+        training_df: pd.DataFrame,
         threshold: float = 0.01,
         alpha: float = 0.05,
         differentiation: DifferentiationMethod = "smooth",
@@ -135,7 +135,7 @@ class SystemDiscovery:
         bias_species: list[str] | None = None,
         is_normalize: bool = True,
     ) -> None:
-        self.df = df
+        self.training_df = training_df
         self.threshold = threshold
         self.alpha = alpha
         self.differentiation = differentiation
@@ -143,7 +143,7 @@ class SystemDiscovery:
         self.include_bias = include_bias
 
         # Extract time and concentration arrays
-        species_cols = self.df.columns.to_list()
+        species_cols = self.training_df.columns.to_list()
         if len(species_cols) > MAX_SPECIES:
             raise ValueError(
                 f"DataFrame contains {len(species_cols)} species columns; "
@@ -152,8 +152,8 @@ class SystemDiscovery:
 
         self.species_cols = species_cols
         self.num_species = len(species_cols)
-        self._time_arr = self.df.index.to_numpy(dtype=float)
-        self._X_arr: np.ndarray = self.df[species_cols].to_numpy(dtype=float)
+        self._time_arr = self.training_df.index.to_numpy(dtype=float)
+        self._X_arr: np.ndarray = self.training_df[species_cols].to_numpy(dtype=float)
         self._Xdot_arr: np.ndarray = np.diff(self._X_arr, axis=0) / np.diff(self._time_arr).reshape(-1,1)
         self.Xdot_df = pd.DataFrame(self._Xdot_arr, index=self._time_arr[1:], columns=species_cols)
         #
@@ -168,7 +168,7 @@ class SystemDiscovery:
         self.species_names = [n[1:-1] if n.startswith("[") else n for n in self.species_names]
         # Build Scaler with species_names as column labels so Scaler keys match
         # the feature names PySINDy generates from species_names.
-        self._scaler = Scaler(self.df, is_null_scaler=not is_normalize)
+        self._scaler = Scaler(self.training_df, is_null_scaler=not is_normalize)
 
         if bias_species is not None:
             invalid = set(bias_species) - set(self.species_names)
@@ -496,14 +496,14 @@ class SystemDiscovery:
         score_df = pd.DataFrame()
         if score_type == "derivative":
             if test_df is NULL_DF:
-                test_df = self.df
+                test_df = self.training_df
             pred_arr = self.predictAllDerivatives(test_df.to_numpy(dtype=float))
             pred_df = pd.DataFrame(pred_arr[:-1], index=test_df.index[1:],
                     columns=self.species_names)
             score_df = score.add(self.Xdot_df, pred_df)
         elif score_type == "timecourse":
             pred_df = self.predict()
-            score_df =score.add(self.df, pred_df)
+            score_df =score.add(self.training_df, pred_df)
         else:
             raise ValueError(f"Invalid score_type '{score_type}'. Must be 'derivative' or 'timecourse'.")
         #
@@ -744,7 +744,7 @@ class SystemDiscovery:
 
     def _checkColumns(self, candidate_columns: list[str]) -> None:
         """Check that the candidate columns are present in the DataFrame."""
-        differences = set(candidate_columns).symmetric_difference(set(self.df.columns))
+        differences = set(candidate_columns).symmetric_difference(set(self.training_df.columns))
         if differences:
             raise ValueError(f"Mismatched columns in DataFrame: {differences}")    
 

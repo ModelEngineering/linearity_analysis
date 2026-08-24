@@ -8,6 +8,7 @@ simulation so tests run in under a second without needing BioModels files on dis
 import unittest
 from unittest import mock
 
+import os
 import matplotlib  # type: ignore
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # type: ignore
@@ -309,8 +310,15 @@ class TestPlotTimeseriesSmoke(unittest.TestCase):
 
 _BIOMD_968 = 968
 _BIOMD_968_MODEL_NAME = "BIOMD0000000968"
+_HAS_BIOMODELS_968 = os.path.isdir(cn.BIOMODELS_DIR) and os.path.isdir(
+    os.path.join(cn.BIOMODELS_DIR, "BIOMD0000000968")
+)
 
 
+@unittest.skipUnless(
+    _HAS_BIOMODELS_968,
+    "BioModels 968 data directory not found or tests are disabled",
+)
 class TestBioModel968EndToEnd(unittest.TestCase):
     """Exercise PerturbationAnalyzer against the real BioModel BIOMD0000000968."""
 

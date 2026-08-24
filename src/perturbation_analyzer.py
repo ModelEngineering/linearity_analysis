@@ -3,13 +3,13 @@
 This module analyzes how well a discovered ODE system generalizes to perturbed
 initial conditions, quantifying robustness of the model across different starting values.
 """
-from collections import namedtuple
 
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 from typing import List, Tuple  # type: ignore
 
+from collections import namedtuple
 import src.constants as cn  # type: ignore
 from src.model import Model  # type: ignore
 from src.score import Score  # type: ignore
