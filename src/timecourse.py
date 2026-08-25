@@ -231,7 +231,8 @@ class Timecourse(object):
         return plot_options
 
     @classmethod
-    def makeBiomodelDF(cls, model_name: str, num_point: int = 1000) -> "Timecourse":
+    def makeBiomodelDF(cls, model_name: str, num_point: int = 1000,
+            end_time: Optional[float] = None) -> "Timecourse":
         """Create a dataframe for a BioModel.
 
         Parameters
@@ -246,7 +247,7 @@ class Timecourse(object):
         Timecourse
         """
         model = Model.makeBiomodel(model_name)
-        timecourse = cls(model=model, num_point=num_point)
+        timecourse = cls(model=model, num_point=num_point, end_time=end_time)
         return timecourse
     
     @classmethod

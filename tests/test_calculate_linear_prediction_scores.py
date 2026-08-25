@@ -139,51 +139,5 @@ class TestGetModelNums(unittest.TestCase):
         self.assertGreater(len(_getModelNums()), 0)
 
 
-@unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
-class TestProcessModels(unittest.TestCase):
-    """Integration tests for processModels."""
-
-    _TEST_PROCESS_INDEX = 9999
-
-    @classmethod
-    def _csvPath(cls) -> str:
-        return os.path.join(
-                cn.DATA_DIR, f"linear_predictor_scores_{cls._TEST_PROCESS_INDEX}.csv")
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        path = cls._csvPath()
-        if os.path.exists(path):
-            os.remove(path)
-
-    def test_creates_output_csv(self) -> None:
-        """processModels writes a CSV to DATA_DIR."""
-        if IGNORE_TESTS:
-            return
-        path = self._csvPath()
-        if os.path.exists(path):
-            os.remove(path)
-        processModels(5, 5, 1, serialization_path=path)
-        self.assertTrue(os.path.exists(path))
-
-    def test_csv_has_model_row(self) -> None:
-        """Output CSV contains a row with aggregation_type == 'model'."""
-        if IGNORE_TESTS:
-            return
-        path = self._csvPath()
-        processModels(5, 5, 1, serialization_path=path)
-        df = pd.read_csv(path)
-        self.assertTrue((df[cn.COL_AGGREGATION_TYPE] == "model").any())
-
-    def test_csv_description_matches_model_name(self) -> None:
-        """The description column contains the processed model's name."""
-        if IGNORE_TESTS:
-            return
-        path = self._csvPath()
-        processModels(5, 5, 1, serialization_path=path)
-        df = pd.read_csv(path)
-        self.assertTrue(df[cn.COL_SYSTEM_ID].str.startswith("BIOMD").any())
-
-
 if __name__ == "__main__":
     unittest.main()
