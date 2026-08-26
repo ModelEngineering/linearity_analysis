@@ -17,9 +17,10 @@ class PlotOptions(object):
             xlim: Optional[Tuple[float, float]] = None,
             ylim: Optional[Tuple[float, float]] = None,
             model_name: str = "",
+            figsize: Tuple[float, float] = (8, 6),
             ):
         if ax is None and fig is None:
-            fig, ax = plt.subplots()
+            fig, ax = plt.subplots(figsize=figsize)
         self.ax = ax
         self.fig = fig
         self.title = title
@@ -29,6 +30,7 @@ class PlotOptions(object):
         self.xlim = xlim
         self.ylim = ylim
         self.model_name = model_name
+        self.figsize = figsize
 
     def to_dict(self):
         return self.__dict__

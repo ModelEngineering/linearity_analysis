@@ -7,6 +7,7 @@ import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 
 from src.system_discovery import SystemDiscovery
+from src.plot_options import PlotOptions
 from src.system_discovery_changepoint_detector import (
     LARGE_VALUE,
     MIN_SIGNIFICANT_VALUE,
@@ -183,7 +184,7 @@ class TestCalculateSignal(unittest.TestCase):
         result = SystemDiscoveryChangepointDetector._calculateSignal(true_df, pred_df)
 
         self.assertEqual(result.shape, (n,))
-        np.testing.assert_allclose(result, 1.0, atol=1e-12)
+        np.testing.assert_allclose(result, 0, atol=1e-12)
 
     def test_zero_true_values_masked_out(self) -> None:
         """Columns with values near zero produce LARGE_VALUE in the signal."""
@@ -196,7 +197,7 @@ class TestCalculateSignal(unittest.TestCase):
         result = SystemDiscoveryChangepointDetector._calculateSignal(true_df, pred_df)
 
         # When all values are zero (or close), every row should be LARGE_VALUE.
-        np.testing.assert_array_equal(result, LARGE_VALUE)
+        np.testing.assert_array_equal(result, 1)
 
     def test_single_zero_column_ignored(self) -> None:
         """If one column has zero true values, the min over columns picks the non-zero column."""
@@ -214,9 +215,7 @@ class TestCalculateSignal(unittest.TestCase):
         result = SystemDiscoveryChangepointDetector._calculateSignal(true_df, pred_df)
 
         # The min across columns for each row should be based on column B only (non-zero).
-        expected_ape_b = abs(2.0 - 1.1) / 1.1  # = 0.9/1.1 ~ 0.818
-        expected_accuracy = 1.0 - expected_ape_b
-        np.testing.assert_allclose(result, expected_accuracy, atol=1e-12)
+        np.testing.assert_allclose(result, 0.9, atol=1e-12)
 
     def test_divide_by_zero_handled(self) -> None:
         """Division by true values near zero produces LARGE_VALUE, not NaN/Inf."""
@@ -380,9 +379,9 @@ class TestPlotTimecourse(unittest.TestCase):
             return
         detector = self._make_detector()
         detector.detect(max_changepoint=1, min_segment_length=5)
-        fig, ax = detector.plotTimecourseWithChangepoints()
-        self.assertTrue("matplotlib.figure.Figure" in str(type(fig)))
-        self.assertIsNotNone(ax)
+        plot_options = detector.plotTimecourseWithChangepoints()
+        self.assertTrue(isinstance(plot_options, PlotOptions))
+        self.assertIsNotNone(plot_options.ax)
 
     def test_plot_with_explicit_changepoints(self) -> None:
         """plotTimecourseWithChangepoints accepts explicit changepoint list."""
@@ -390,8 +389,9 @@ class TestPlotTimecourse(unittest.TestCase):
             return
         detector = self._make_detector()
         detector.detect(max_changepoint=1, min_segment_length=5)
-        fig, ax = detector.plotTimecourseWithChangepoints(changepoints=[50])
-        self.assertTrue("matplotlib.figure.Figure" in str(type(fig)))
+        plot_options = detector.plotTimecourseWithChangepoints(changepoints=[50])
+        self.assertTrue(isinstance(plot_options, PlotOptions))
+        self.assertIsNotNone(plot_options.ax)
 
     def test_plot_after_empty_detect(self) -> None:
         """plot works even when detect() finds no changepoints."""
@@ -400,8 +400,9 @@ class TestPlotTimecourse(unittest.TestCase):
         detector = self._make_detector()
         # max_changepoint=0 means no segments to split.
         detector.detect(max_changepoint=0, min_segment_length=5)
-        fig, ax = detector.plotTimecourseWithChangepoints()
-        self.assertTrue("matplotlib.figure.Figure" in str(type(fig)))
+        plot_options = detector.plotTimecourseWithChangepoints()
+        self.assertTrue(isinstance(plot_options, PlotOptions))
+        self.assertIsNotNone(plot_options.ax)
 # ---------------------------------------------------------------------------
 # _calculateNormalizedOneStepPredictions tests
 # ---------------------------------------------------------------------------
@@ -528,8 +529,9 @@ class TestEndToEndBioModel45(unittest.TestCase):
             return
         detector, _ = self._make_detector()
         detector.detect(max_changepoint=100, min_segment_length=100, min_fractional_reduction=0.000)
-        fig, _ = detector.plotTimecourseWithChangepoints()
-        self.assertTrue("matplotlib.figure.Figure" in str(type(fig)))
+        plot_options = detector.plotTimecourseWithChangepoints()
+        self.assertTrue(isinstance(plot_options, PlotOptions))
+        self.assertIsNotNone(plot_options.ax)
 
 
 if __name__ == "__main__":

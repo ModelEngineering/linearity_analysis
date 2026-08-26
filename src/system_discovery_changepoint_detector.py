@@ -4,10 +4,11 @@
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
-from typing import List, Optional, Tuple  # type: ignore
+from typing import List, Optional, Tuple, cast  # type: ignore
 
 from src.change_point_detector import ChangePointDetector  # type: ignore
 import src.constants as cn  # type: ignore
+from src.plot_options import PlotOptions  # type: ignore
 from src.score import Score  # type: ignore
 from src.system_discovery import NULL_DF, SystemDiscovery  # type: ignore
 
@@ -86,7 +87,8 @@ class SystemDiscoveryChangepointDetector(object):
         """
         return self.change_point_detector is not None
 
-    def plotTimecourseWithChangepoints(self, changepoints: Optional[List[int]] = None):
+    def plotTimecourseWithChangepoints(self, changepoints: Optional[List[int]] = None,
+                **plot_kwargs) -> PlotOptions:
         """Plot the timecourse with detected changepoints and log10(ASS) per segment.
 
         For each subsequence delimited by consecutive change points (or start/end of
@@ -97,15 +99,31 @@ class SystemDiscoveryChangepointDetector(object):
         Args:
             changepoints (List[int], optional): Indices representing detected change points.
                 If ``None``, uses stored ``self.changepoints`` from a prior ``detect()`` call.
+            plot_kwargs: Additional keyword arguments to customize the plot
+                (e.g., title, xlabel, ylabel, legend, xlim, ylim).
 
         Returns:
-            Tuple[plt.Figure, plt.Axes]: The figure and axes for the plot.
+            PlotOptions: The options for the plot.
         """
+        plot_kwargs = dict(plot_kwargs)
         if self.change_point_detector is None:
             raise RuntimeError(
                 "ChangepointDetector must be fit before plotting; call detect() first.")
-
-        fig, ax = plt.subplots(figsize=(10, 6))
+        if not 'figsize' in plot_kwargs:
+            plot_kwargs['figsize'] = (10, 6)
+        if not 'xlabel' in plot_kwargs:
+            plot_kwargs['xlabel'] = 'Time'
+        if not 'ylabel' in plot_kwargs:
+            plot_kwargs['ylabel'] = 'Value'
+        if not 'title' in plot_kwargs:
+            plot_kwargs['title'] = 'Timecourse with Detected Changepoints'
+        if not 'xlim' in plot_kwargs:
+            plot_kwargs['xlim'] = (self.training_df.index[0], self.training_df.index[-1])
+        if not 'ylim' in plot_kwargs:
+            plot_kwargs['ylim'] = (self.training_df.min().min(), self.training_df.max().max())
+        plot_options = PlotOptions(**plot_kwargs)
+        ax = cast(plt.Axes, plot_options.ax)  # type: ignore
+        fig = cast(plt.Figure, plot_options.fig)  # type: ignore
         time_arr = self.training_df.index.to_numpy()
         ax.plot(time_arr, self.training_df.values, label='Timecourse')
 
@@ -133,15 +151,11 @@ class SystemDiscoveryChangepointDetector(object):
             y_offset = ylim_bot - 1.7 * increment
             ax.text(mid_time, y_offset, label, rotation=90,    # type: ignore
                     ha="center", va="bottom", fontsize=10, color="blue")
-
-        ax.set_title('Timecourse with Detected Changepoints')
-        ax.set_xlabel('Time')
-        ax.set_ylabel('Value')
-        ax.set_xlim(time_arr[0], time_arr[-1])
+        plot_options.apply()
         legend = self.training_df.columns.tolist() + ['Changepoint']
         ax.legend(legend, loc='upper right', fontsize=10)
         fig.tight_layout()
-        return fig, ax
+        return plot_options
 
     @staticmethod 
     def _calculateSignal(true_df: pd.DataFrame,
@@ -163,10 +177,12 @@ class SystemDiscoveryChangepointDetector(object):
             A one-dimensional array representing the signal of accuracy of one-step prediction of derivatives.
         """
         with np.errstate(divide='ignore', invalid='ignore'):
-            ape_df = (prediction_df - true_df) / true_df
+            #ape_df = (prediction_df - true_df) / true_df
+            ape_df = (prediction_df - true_df)
+            ape_df = ape_df.fillna(0)
             ape_df = ape_df.abs()
-            invalid_mask = (np.isclose(true_df, 0, atol=MIN_SIGNIFICANT_VALUE)) | ~np.isfinite(ape_df)
-            accuracy_df = 1 - ape_df
-            accuracy_df = accuracy_df.where(~invalid_mask, other=LARGE_VALUE)
-        result_arr = accuracy_df.min(axis=1).to_numpy()
+            #invalid_mask = (np.isclose(true_df, 0, atol=MIN_SIGNIFICANT_VALUE)) | ~np.isfinite(ape_df)
+            #accuracy_df = 1 - ape_df
+            #accuracy_df = accuracy_df.where(~invalid_mask, other=LARGE_VALUE)
+        result_arr = ape_df.min(axis=1).to_numpy()
         return result_arr
