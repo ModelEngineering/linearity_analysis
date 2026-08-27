@@ -27,7 +27,7 @@ class StatisticCalculator(object):
 
     """A container for storing statistics accumulated in a dictionary"""
     def __init__(self) -> None:
-        self.statistic_dct: dict = {n: [] for n in cn.STATISTICS}
+        self.statistic_dct: dict = {n: [] for n in cn.COLUMN_STATISTICS}
         self.statistic_dct[cn.COL_LABEL] = []
 
     @staticmethod
@@ -92,7 +92,7 @@ class StatisticCalculator(object):
             self.statistic_dct[cn.COL_MAX].append(np.nan)
             self.statistic_dct[cn.COL_COUNT].append(0)
             self.statistic_dct[cn.COL_INVALID_COUNT].append(invalid_count)
-            for p in [p for p in cn.STATISTICS if self._is_percentile(p)]:
+            for p in [p for p in cn.COLUMN_STATISTICS if self._is_percentile(p)]:
                 self.statistic_dct[p].append(np.nan)
             return
 
@@ -107,7 +107,7 @@ class StatisticCalculator(object):
         self.statistic_dct[cn.COL_MAX].append(float(np.nanmax(valid_arr)))
         self.statistic_dct[cn.COL_COUNT].append(count)
         self.statistic_dct[cn.COL_INVALID_COUNT].append(invalid_count)
-        percentiles = [p for p in cn.STATISTICS if self._is_percentile(p)]
+        percentiles = [p for p in cn.COLUMN_STATISTICS if self._is_percentile(p)]
         # FIXME: C percentile isn't computed accurately?
         for p in percentiles:
             self.statistic_dct[p].append(float(np.nanpercentile(valid_arr, self.extractPercentile(p))))

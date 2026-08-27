@@ -61,7 +61,7 @@ class TestStatisticCalculatorInit(unittest.TestCase):
     def test_default_initialization(self) -> None:
         """Default initialization creates empty lists for all statistics."""
         calc = StatisticCalculator()
-        for stat in cn.STATISTICS:
+        for stat in cn.COLUMN_STATISTICS:
             self.assertIn(stat, calc.statistic_dct)
             self.assertEqual(calc.statistic_dct[stat], [])
         self.assertIn(cn.COL_LABEL, calc.statistic_dct)
@@ -69,7 +69,7 @@ class TestStatisticCalculatorInit(unittest.TestCase):
     def test_statistic_dct_keys_match_constants(self) -> None:
         """All keys from cn.STATISTICS plus COL_LABEL are present."""
         calc = StatisticCalculator()
-        expected_keys = set(cn.STATISTICS) | {cn.COL_LABEL}
+        expected_keys = set(cn.COLUMN_STATISTICS) | {cn.COL_LABEL}
         actual_keys = set(calc.statistic_dct.keys())
         self.assertEqual(expected_keys, actual_keys)
 
@@ -195,7 +195,7 @@ class TestAddEmptyAllInvalid(unittest.TestCase):
         arr = self._make_arr([])
         self.calc.add(label="empty", value_arr=arr)
         dct = self.calc.statistic_dct
-        for p in cn.STATISTICS:
+        for p in cn.COLUMN_STATISTICS:
             if self.calc._is_percentile(p):
                 self.assertTrue(np.isnan(dct[p][0]))
 
@@ -378,7 +378,7 @@ class TestDataframeProperty(unittest.TestCase):
         """DataFrame has columns matching cn.STATISTICS + COL_LABEL."""
         calc = StatisticCalculator()
         df = calc.dataframe
-        expected_cols = set(cn.STATISTICS) | {cn.COL_LABEL}
+        expected_cols = set(cn.COLUMN_STATISTICS) | {cn.COL_LABEL}
         actual_cols = set(df.columns)
         self.assertEqual(expected_cols, actual_cols)
 

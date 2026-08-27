@@ -4,7 +4,7 @@
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
-from typing import List, Optional, Tuple, cast  # type: ignore
+from typing import List, Union, Optional, Tuple, cast  # type: ignore
 
 from src.change_point_detector import ChangePointDetector  # type: ignore
 import src.constants as cn  # type: ignore
@@ -25,9 +25,9 @@ class SystemDiscoveryChangepointDetector(object):
         self._scaler = system_discovery._scaler
         #
         self.changepoints: List[int] = []  # List of indices representing detected changepoints
-        self.change_point_detector: ChangePointDetector | None = None  # Instance of ChangePointDetector for detecting changepoints
+        self.change_point_detector: Union[ChangePointDetector, None] = None  # Instance of ChangePointDetector for detecting changepoints
 
-    def detect(self, max_changepoint: int, min_segment_length: int = 5,
+    def fit(self, max_changepoint: int, min_segment_length: int = 5,
             min_fractional_reduction: float = 0.01) -> List[int]:
         """Detect changepoints in the timecourse based on changes in the accuracy of one-step prediction of derivatives.
 
@@ -162,7 +162,6 @@ class SystemDiscoveryChangepointDetector(object):
             prediction_df: pd.DataFrame) -> np.ndarray:
         """
         Calculates a one-dimensional signal related to the accuracy of one-step prediction of derivatives.
-        Unlike accuracy, the result is not clipped. Also, undefined values are ignored.
 
         Parameters
         ----------
@@ -176,13 +175,8 @@ class SystemDiscoveryChangepointDetector(object):
         np.ndarray
             A one-dimensional array representing the signal of accuracy of one-step prediction of derivatives.
         """
-        with np.errstate(divide='ignore', invalid='ignore'):
-            #ape_df = (prediction_df - true_df) / true_df
-            ape_df = (prediction_df - true_df)
-            ape_df = ape_df.fillna(0)
-            ape_df = ape_df.abs()
-            #invalid_mask = (np.isclose(true_df, 0, atol=MIN_SIGNIFICANT_VALUE)) | ~np.isfinite(ape_df)
-            #accuracy_df = 1 - ape_df
-            #accuracy_df = accuracy_df.where(~invalid_mask, other=LARGE_VALUE)
-        result_arr = ape_df.min(axis=1).to_numpy()
+        ape_df = prediction_df - true_df
+        ape_df = ape_df.fillna(0)
+        ape_df = ape_df.abs()
+        result_arr = ape_df.max(axis=1).to_numpy()
         return result_arr

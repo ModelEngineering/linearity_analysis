@@ -48,7 +48,7 @@ import pysindy as ps # type: ignore
 from scipy.linalg import expm  # type: ignore
 from pysindy.feature_library import PolynomialLibrary # type: ignore
 from scipy.integrate import solve_ivp # type: ignore
-from typing import Literal, Dict
+from typing import Literal, Dict, Union, Optional
 import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -128,11 +128,11 @@ class SystemDiscovery:
         training_df: pd.DataFrame,
         threshold: float = 0.01,
         alpha: float = 0.05,
-        differentiation: DifferentiationMethod = "smooth",
+        differentiation: Union[Literal["smooth"], Literal["finite"], Literal["spectral"]] = "smooth",
         poly_degree: int = 1,
         include_bias: bool = True,
-        species_names: list[str] | None = None,
-        bias_species: list[str] | None = None,
+        species_names: Union[list[str], None] = None,
+        bias_species: Union[list[str], None] = None,
         is_normalize: bool = True,
     ) -> None:
         self.training_df = training_df
@@ -177,9 +177,9 @@ class SystemDiscovery:
                     f"`bias_species` contains names not in species_names: {sorted(invalid)}"
                 )
             self.include_bias = True
-        self.bias_species: list[str] | None = bias_species
+        self.bias_species: Union[list[str], None] = bias_species
 
-        self._differentiator = self._build_differentiator()
+        self._differentiator = self._buildDifferentiator()
 
         library = PolynomialLibrary(
             degree=self.poly_degree,
@@ -220,7 +220,7 @@ class SystemDiscovery:
                     if abs(coefs[i, j]) < norm_thresh:
                         coefs[i, j] = 0.0
 
-    def _build_differentiator(self):
+    def _buildDifferentiator(self):
         if self.differentiation == "smooth":
             return ps.SmoothedFiniteDifference()
         elif self.differentiation == "finite":
@@ -233,20 +233,13 @@ class SystemDiscovery:
                 "Choose from: 'smooth', 'finite', 'spectral'."
             )
 
-    @staticmethod
-    def _normalize_rsq(rsq: float) -> float:
-        """Normalize R² to [0, 1] and handle NaN."""
-        if np.isnan(rsq):
-            return 0.0
-        return max(0.0, min(1.0, rsq))
-
-    def _require_fitted(self) -> None:
+    def _requireFitted(self) -> None:
         if not self.is_fitted:
             raise RuntimeError("Call `.fit()` before using this method.")
 
     def _simulate(self,
-            x0: np.ndarray | None = None,
-            time_arr: np.ndarray | None = None) -> np.ndarray:
+            x0: Union[np.ndarray, None] = None,
+            time_arr: Union[np.ndarray, None] = None) -> np.ndarray:
         """
         Chooses the simulation method based on the model's configuration
         (matrix exponential for linear systems, otherwise general ODE integration).
@@ -386,7 +379,7 @@ class SystemDiscovery:
 
 
     def calculateSpeciesScores(self, score_type: str = "timecourse",
-            test_df: pd.DataFrame = NULL_DF,
+            test_df: Optional[pd.DataFrame] = NULL_DF,
             col_percentile: str = cn.COL_P10) -> dict[str, float]:
         """Compute accuracies for each species in the fitted model.
 
@@ -413,17 +406,18 @@ class SystemDiscovery:
         -------
         dict mapping species name → R² (clamped to [0, 1])
         """
-        if not col_percentile in cn.STATISTICS:
-            raise ValueError(f"Invalid percentile '{col_percentile}'. Must be one of {cn.STATISTICS}.")  
+        if test_df is None:
+            test_df = NULL_DF
+        if not col_percentile in cn.COLUMN_STATISTICS:
+            raise ValueError(f"Invalid percentile '{col_percentile}'. Must be one of {cn.COLUMN_STATISTICS}.")  
         #
-        self._require_fitted()
+        self._requireFitted()
         detail_df = self.getScoreDetails(test_df=test_df, score_type=score_type)
         species_ser = detail_df[detail_df[cn.COL_AGGREGATION_TYPE] != cn.COL_AGGREGATION_TYPE_MODEL].copy()
         result: dict[str, float] = {}
         for i, sp_name in enumerate(self.species_names):
             if i < len(species_ser):
-                raw = float(species_ser.iloc[i][col_percentile])
-                result[sp_name] = self._normalize_rsq(raw)
+                result[sp_name]= float(species_ser.iloc[i][col_percentile])
             else:
                 result[sp_name] = 0.0
         return result
@@ -439,7 +433,7 @@ class SystemDiscovery:
         # Fit the normalized value
         with warnings.catch_warnings(record=True) as _caught:
             warnings.simplefilter("always")
-            self.model.fit(Z, t=self._time_arr, feature_names=self.species_names)
+            self.model.fit(Z, t=self._time_arr, feature_names=self.species_names)  # type: ignore
         if _caught:
             print("Warnings from model.fit():")
             for w in _caught:
@@ -460,13 +454,13 @@ class SystemDiscovery:
 
     def getEquations(self) -> Dict[str, str]:
         """Return a dict mapping species name → string representation of its ODE."""
-        self._require_fitted()
+        self._requireFitted()
         equation_dct = {self.species_names[n]: eq for n, eq in enumerate(self.model.equations())}
         return equation_dct
 
     def getNonzeroTerms(self) -> dict[str, int]:
         """Return a dict mapping species name → number of non-zero terms in its ODE."""
-        self._require_fitted()
+        self._requireFitted()
         coefs = self.model.coefficients()  # shape (n_species, n_features)
         return {
             sp_name: np.sum(np.abs(coefs[i]) > 1e-10)  # type: ignore
@@ -529,7 +523,7 @@ class SystemDiscovery:
         dict[str, float]
             Dictionary containing aggregated model-level scores for mean, min, max, median
         """
-        self._require_fitted()
+        self._requireFitted()
         df = self.getScoreDetails(test_df=test_df, score_type=score_type)
         species_df = df[df[cn.COL_AGGREGATION_TYPE] != cn.COL_AGGREGATION_TYPE_MODEL]
         if species_df.empty:
@@ -548,7 +542,7 @@ class SystemDiscovery:
         *,
         threshold: float = 0.01,
         poly_degree: int = 1,
-        timecourse: Timecourse | None = None,
+        timecourse: Union[Timecourse, None] = None,
     ) -> "SystemDiscovery":
         """Create a SystemDiscovery from a BioModel timecourse.
 
@@ -570,12 +564,12 @@ class SystemDiscovery:
 
     def plotResult(
         self,
-        test_df: pd.DataFrame = NULL_DF,
-        figsize: tuple[float, float] | None = None,
-        xlim: tuple[float, float] | None = None,
+        test_df: Optional[pd.DataFrame] = NULL_DF,
+        figsize: Union[tuple[float, float], None] = None,
+        xlim: Union[tuple[float, float], None] = None,
         is_plot: bool = True,
         num_true_point: int = 30,
-        plot_species_names: list[str] | None = None,
+        plot_species_names: Union[list[str], None] = None,
         subtitle: str = "",
     ) -> plt.Figure:  # type: ignore
         """Plot observed vs. model-simulated trajectories for each species.
@@ -598,6 +592,8 @@ class SystemDiscovery:
         -------
         matplotlib.figure.Figure
         """
+        if test_df is None:
+            test_df = NULL_DF
         if plot_species_names is None:
             plot_species_names = self.species_names
         if test_df is not NULL_DF:
@@ -608,7 +604,7 @@ class SystemDiscovery:
             time_arr = self._time_arr
             test_df = pd.DataFrame(X, index=time_arr, columns=self.species_names)
         #
-        self._require_fitted()
+        self._requireFitted()
 
         #n = len(self.species_names)
         n = len(plot_species_names)
@@ -682,9 +678,9 @@ class SystemDiscovery:
             plt.show()
         return fig
 
-    def plot_coefficient_heatmap(
+    def plotCoefficientHeatmap(
         self,
-        figsize: tuple[float, float] | None = None,
+        figsize: Union[tuple[float, float], None] = None,
         is_plot: bool = True,
     ) -> plt.Figure:  # type: ignore
         """Visualise the coefficient matrix as a heatmap.
@@ -703,7 +699,7 @@ class SystemDiscovery:
         -------
         matplotlib.figure.Figure
         """
-        self._require_fitted()
+        self._requireFitted()
 
         df_coef = self.summary().T
         if df_coef.empty:
@@ -765,7 +761,7 @@ class SystemDiscovery:
             species.  Raises ``RuntimeError`` if the ODE integrator fails.
             columns: species names; index: time points
         """
-        self._require_fitted()
+        self._requireFitted()
         if (not test_df.empty) and (test_df is not NULL_DF):
             self._checkColumns(test_df.columns.tolist())
             x0 = test_df.to_numpy(dtype=float)[0, :]
@@ -796,7 +792,7 @@ class SystemDiscovery:
         else:
             if X.ndim == 1:
                 X = X.reshape(1, -1) 
-        self._require_fitted()
+        self._requireFitted()
         Z = self._scaler.normalize(X)
         dZ_dt = self.model.predict(Z)
         return np.array(self._scaler.denormalize(dZ_dt), dtype=float)  # type: ignore
@@ -815,12 +811,12 @@ class SystemDiscovery:
         np.ndarray
             Derivative dx/dt at `x`, in physical units, shape (n_species,).
         """
-        self._require_fitted()
+        self._requireFitted()
         z = self._scaler.normalize(x)
         dz_dt = self.model.predict(z.reshape(1, -1))[0]
         return np.array(self._scaler.denormalize(dz_dt), dtype=float)
 
-    def get_derivatives(self, test_df: pd.DataFrame | None = None) -> pd.DataFrame:
+    def getDerivatives(self, test_df: Union[pd.DataFrame, None] = None) -> pd.DataFrame:
         """Return the differentiated values computed by PySINDy's differentiation method.
 
         After fitting, this returns the numerical time derivatives of each species
@@ -854,10 +850,10 @@ class SystemDiscovery:
         Example
         -------
         >>> disc.fit()
-        >>> X_dot = disc.get_derivatives()   # training data derivatives
-        >>> X_dot_test = disc.get_derivatives(test_df)  # for new data
+        >>> X_dot = disc.getDerivatives()   # training data derivatives
+        >>> X_dot_test = disc.getDerivatives(test_df)  # for new data
         """
-        self._require_fitted()
+        self._requireFitted()
         if test_df is None:
             return self.Xdot_df.copy()
         if not test_df.empty:
@@ -879,7 +875,7 @@ class SystemDiscovery:
         """Pretty-print the discovered ODE equations."""
         print(self.__str__())
 
-    def score(self, score_type: str = "derivative", score_column: str = "p50") -> float:
+    def score(self, score_type: str = "timecourse", score_column: str = "p50") -> float:
         """
         Calculates a single measure of model performance.
             derivative: minimum value of R² across all species
@@ -939,7 +935,7 @@ class SystemDiscovery:
         -------
         pd.DataFrame
         """
-        self._require_fitted()
+        self._requireFitted()
         feature_names = self.model.get_feature_names()
         coefs = self.model.coefficients()          # shape (n_species, n_features)
         col_names = [f"d{n}/dt" for n in self.species_names]
@@ -965,18 +961,18 @@ class SystemDiscovery:
 # Convenience factory
 # ---------------------------------------------------------------------------
 def discoverNetwork(
-    df: pd.DataFrame | list[pd.DataFrame],
-    test_df: pd.DataFrame = NULL_DF,
+    training_df: Optional[Union[pd.DataFrame, list[pd.DataFrame]]] = None,
+    test_df: Union[pd.DataFrame, None] = None,
     threshold: float = 0.01,
     alpha: float = 0.05,
     differentiation: DifferentiationMethod = "smooth",
     poly_degree: int = 1,
     include_bias: bool = True,
-    species_names: list[str] | None = None,
+    species_names: Union[list[str], None] = None,
     is_plot_comparisons: bool = True,
     is_plot_heatmap: bool = True,
-    xlim: tuple[float, float] | None = None,
-    plot_species_names: list[str] | None = None,
+    xlim: Union[tuple[float, float], None] = None,
+    plot_species_names: Union[list[str], None] = None,
     subtitle: str = "",
     is_plot: bool = True,
     is_print_equations: bool = True,
@@ -986,8 +982,10 @@ def discoverNetwork(
 
     Parameters
     ----------
-    df : pd.DataFrame or list[pd.DataFrame]
+    training_df : pd.DataFrame or list[pd.DataFrame]
         One trajectory or a list of trajectories (see :class:`SystemDiscovery`).
+    test_df : pd.DataFrame or None
+        Test data for evaluating the model.
     threshold : float
         STLSQ sparsity threshold.
     alpha : float
@@ -1026,7 +1024,7 @@ def discoverNetwork(
     >>> summary = disc.summary()
     """
     disc = SystemDiscovery(
-        df,   # type: ignore
+        training_df,   # type: ignore
         threshold=threshold,
         alpha=alpha,
         differentiation=differentiation,
@@ -1035,8 +1033,8 @@ def discoverNetwork(
         species_names=species_names,
         is_normalize=True,
     )
-    if not test_df.empty:
-            disc._checkColumns(test_df.columns.tolist())
+    if test_df is not None and not test_df.empty:  # type: ignore
+            disc._checkColumns(test_df.columns.tolist()) # type: ignore
     disc.fit()
     if is_print_equations:
         print("Discovered equations:")
@@ -1060,7 +1058,7 @@ def discoverNetwork(
         fig = disc.plotResult(test_df, xlim=xlim, plot_species_names=plot_species_names, is_plot=is_plot
                 , subtitle=subtitle)
     if is_plot_heatmap:
-        disc.plot_coefficient_heatmap(is_plot=is_plot)
+        disc.plotCoefficientHeatmap(is_plot=is_plot)
 
     return DiscoverNetworkResult(sd=disc, fig=fig)  # type: ignore[return-value]
 

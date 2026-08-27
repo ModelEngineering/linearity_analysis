@@ -111,7 +111,7 @@ class TestIsDetected(unittest.TestCase):
         if IGNORE_TESTS:
             return
         detector = self._make_detector()
-        detector.detect(max_changepoint=1, min_segment_length=5)
+        detector.fit(max_changepoint=1, min_segment_length=5)
         self.assertTrue(detector.is_detected())
 # ---------------------------------------------------------------------------
 # Constructor tests
@@ -215,7 +215,7 @@ class TestCalculateSignal(unittest.TestCase):
         result = SystemDiscoveryChangepointDetector._calculateSignal(true_df, pred_df)
 
         # The min across columns for each row should be based on column B only (non-zero).
-        np.testing.assert_allclose(result, 0.9, atol=1e-12)
+        np.testing.assert_allclose(result, 1, atol=1e-12)
 
     def test_divide_by_zero_handled(self) -> None:
         """Division by true values near zero produces LARGE_VALUE, not NaN/Inf."""
@@ -280,7 +280,7 @@ class TestIntegration(unittest.TestCase):
         disc.fit()
 
         detector = SystemDiscoveryChangepointDetector(disc)
-        result = detector.detect(max_changepoint=3, min_segment_length=5,
+        result = detector.fit(max_changepoint=3, min_segment_length=5,
                                  min_fractional_reduction=0.001)
 
         # We expect at least one changepoint to be found (the true boundary).
@@ -307,7 +307,7 @@ class TestDetect(unittest.TestCase):
         if IGNORE_TESTS:
             return
         detector = self._make_detector()
-        result = detector.detect(max_changepoint=1, min_segment_length=5)
+        result = detector.fit(max_changepoint=1, min_segment_length=5)
         self.assertIsInstance(result, list)
         self.assertTrue(all(isinstance(cp, int) for cp in result))
 
@@ -316,7 +316,7 @@ class TestDetect(unittest.TestCase):
         if IGNORE_TESTS:
             return
         detector = self._make_detector()
-        detector.detect(max_changepoint=1, min_segment_length=5)
+        detector.fit(max_changepoint=1, min_segment_length=5)
         self.assertIsNotNone(detector.change_point_detector)
 
     def test_detect_sets_is_detected(self) -> None:
@@ -324,7 +324,7 @@ class TestDetect(unittest.TestCase):
         if IGNORE_TESTS:
             return
         detector = self._make_detector()
-        detector.detect(max_changepoint=1, min_segment_length=5)
+        detector.fit(max_changepoint=1, min_segment_length=5)
         self.assertTrue(detector.is_detected())
 
     def test_detect_max_zero_returns_empty(self) -> None:
@@ -332,7 +332,7 @@ class TestDetect(unittest.TestCase):
         if IGNORE_TESTS:
             return
         detector = self._make_detector()
-        result = detector.detect(max_changepoint=0, min_segment_length=5)
+        result = detector.fit(max_changepoint=0, min_segment_length=5)
         self.assertEqual(result, [])
 
     def test_detect_with_no_real_change(self) -> None:
@@ -340,7 +340,7 @@ class TestDetect(unittest.TestCase):
         if IGNORE_TESTS:
             return
         detector = self._make_detector()
-        result = detector.detect(max_changepoint=5, min_segment_length=10)
+        result = detector.fit(max_changepoint=5, min_segment_length=10)
         # At minimum we should get a valid list.
         self.assertIsInstance(result, list)
 
@@ -349,7 +349,7 @@ class TestDetect(unittest.TestCase):
         if IGNORE_TESTS:
             return
         detector = self._make_detector()
-        result = detector.detect(max_changepoint=1, min_segment_length=5)
+        result = detector.fit(max_changepoint=1, min_segment_length=5)
         self.assertEqual(result, detector.changepoints)
 # ---------------------------------------------------------------------------
 # plotTimecourseWithChangepoints tests
@@ -378,7 +378,7 @@ class TestPlotTimecourse(unittest.TestCase):
         if IGNORE_TESTS:
             return
         detector = self._make_detector()
-        detector.detect(max_changepoint=1, min_segment_length=5)
+        detector.fit(max_changepoint=1, min_segment_length=5)
         plot_options = detector.plotTimecourseWithChangepoints()
         self.assertTrue(isinstance(plot_options, PlotOptions))
         self.assertIsNotNone(plot_options.ax)
@@ -388,7 +388,7 @@ class TestPlotTimecourse(unittest.TestCase):
         if IGNORE_TESTS:
             return
         detector = self._make_detector()
-        detector.detect(max_changepoint=1, min_segment_length=5)
+        detector.fit(max_changepoint=1, min_segment_length=5)
         plot_options = detector.plotTimecourseWithChangepoints(changepoints=[50])
         self.assertTrue(isinstance(plot_options, PlotOptions))
         self.assertIsNotNone(plot_options.ax)
@@ -399,7 +399,7 @@ class TestPlotTimecourse(unittest.TestCase):
             return
         detector = self._make_detector()
         # max_changepoint=0 means no segments to split.
-        detector.detect(max_changepoint=0, min_segment_length=5)
+        detector.fit(max_changepoint=0, min_segment_length=5)
         plot_options = detector.plotTimecourseWithChangepoints()
         self.assertTrue(isinstance(plot_options, PlotOptions))
         self.assertIsNotNone(plot_options.ax)
@@ -487,7 +487,7 @@ class TestEndToEndBioModel45(unittest.TestCase):
         if IGNORE_TESTS or not HAS_REAL_BIOMODELS_DATA:
             return
         detector, tc = self._make_detector()
-        result = detector.detect(max_changepoint=5, min_segment_length=10)
+        result = detector.fit(max_changepoint=5, min_segment_length=10)
         self.assertIsInstance(result, list)
         for cp in result:
             self.assertGreaterEqual(cp, 0)
@@ -498,7 +498,7 @@ class TestEndToEndBioModel45(unittest.TestCase):
         if IGNORE_TESTS or not HAS_REAL_BIOMODELS_DATA:
             return
         detector, _ = self._make_detector()
-        detector.detect(max_changepoint=5, min_segment_length=10)
+        detector.fit(max_changepoint=5, min_segment_length=10)
         self.assertTrue(detector.is_detected())
 
     def test_e2e_normalized_predictions_shape(self) -> None:
@@ -528,7 +528,7 @@ class TestEndToEndBioModel45(unittest.TestCase):
         if IGNORE_TESTS or not HAS_REAL_BIOMODELS_DATA:
             return
         detector, _ = self._make_detector()
-        detector.detect(max_changepoint=100, min_segment_length=100, min_fractional_reduction=0.000)
+        detector.fit(max_changepoint=100, min_segment_length=100, min_fractional_reduction=0.000)
         plot_options = detector.plotTimecourseWithChangepoints()
         self.assertTrue(isinstance(plot_options, PlotOptions))
         self.assertIsNotNone(plot_options.ax)

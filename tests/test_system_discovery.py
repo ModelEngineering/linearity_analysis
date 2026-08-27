@@ -242,16 +242,6 @@ class TestSystemDiscoveryConstructor(unittest.TestCase):
 class TestSystemDiscoveryStaticMethods(unittest.TestCase):
     """Tests for static utility methods."""
 
-    def test_normalize_rsq_valid(self) -> None:
-        """_normalize_rsq clamps values to [0, 1]."""
-        self.assertAlmostEqual(SystemDiscovery._normalize_rsq(0.5), 0.5)
-        self.assertAlmostEqual(SystemDiscovery._normalize_rsq(-0.3), 0.0)
-        self.assertAlmostEqual(SystemDiscovery._normalize_rsq(1.5), 1.0)
-
-    def test_normalize_rsq_nan(self) -> None:
-        """_normalize_rsq returns 0 for NaN."""
-        self.assertAlmostEqual(SystemDiscovery._normalize_rsq(float("nan")), 0.0)
-
     def _make_disc_for_parse(self) -> SystemDiscovery:
         """Helper to create a minimal instance for calling instance methods."""
         df = pd.DataFrame(
@@ -274,7 +264,7 @@ class TestBuildDifferentiator(unittest.TestCase):
             return
         df = _make_linear_df()
         disc = SystemDiscovery(df, differentiation="smooth", is_normalize=False)
-        diff = disc._build_differentiator()
+        diff = disc._buildDifferentiator()
         self.assertIsNotNone(diff)
 
     def test_finite(self) -> None:
@@ -282,7 +272,7 @@ class TestBuildDifferentiator(unittest.TestCase):
             return
         df = _make_linear_df()
         disc = SystemDiscovery(df, differentiation="finite", is_normalize=False)
-        diff = disc._build_differentiator()
+        diff = disc._buildDifferentiator()
         self.assertIsNotNone(diff)
 
     def test_spectral(self) -> None:
@@ -290,7 +280,7 @@ class TestBuildDifferentiator(unittest.TestCase):
             return
         df = _make_linear_df()
         disc = SystemDiscovery(df, differentiation="spectral", is_normalize=False)
-        diff = disc._build_differentiator()
+        diff = disc._buildDifferentiator()
         self.assertIsNotNone(diff)
 
     def test_invalid_method_raises(self) -> None:
@@ -759,7 +749,7 @@ class TestScoreDetails(unittest.TestCase):
         df = _make_linear_df(noise_std=0.01)
         disc = self._make_fitted_disc(df)
         result = disc.getScoreDetails(score_type="derivative")
-        expected_cols = set(cn.STATISTICS + [cn.COL_AGGREGATION_TYPE, cn.COL_SYSTEM_ID])
+        expected_cols = set(cn.COLUMN_STATISTICS + [cn.COL_AGGREGATION_TYPE, cn.COL_SYSTEM_ID])
         self.assertEqual(set(result.columns), expected_cols)
 
     def test_get_score_details_has_model_and_species_rows(self) -> None:
@@ -1100,7 +1090,7 @@ class TestPlotting(unittest.TestCase):
 
         df = _make_linear_df(n_points=50, noise_std=0.01)
         disc = self._make_fitted_disc(df)
-        fig = disc.plot_coefficient_heatmap(is_plot=False)
+        fig = disc.plotCoefficientHeatmap(is_plot=False)
         self.assertIsNotNone(fig)
         plt.close(fig)
 
@@ -1590,7 +1580,7 @@ class TestAnalyzePerturbations(unittest.TestCase):
             return
         result = self._run_analyze()
         expected_cols = (
-            set(cn.STATISTICS) | {cn.COL_SYSTEM_ID, cn.COL_AGGREGATION_TYPE, "perturbation"}
+            set(cn.COLUMN_STATISTICS) | {cn.COL_SYSTEM_ID, cn.COL_AGGREGATION_TYPE, "perturbation"}
         )
         self.assertTrue(expected_cols.issubset(set(result.columns)))
 
@@ -1638,7 +1628,7 @@ class TestAnalyzePerturbations(unittest.TestCase):
         if IGNORE_TESTS:
             return
         result = self._run_analyze()
-        for col in cn.STATISTICS:
+        for col in cn.COLUMN_STATISTICS:
             with self.subTest(col=col):
                 self.assertTrue(
                     result[col].apply(np.isfinite).all(),
