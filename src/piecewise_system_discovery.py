@@ -8,6 +8,7 @@ The approach is:
 """
 
 import src.constants as cn
+from src.model import Model  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
 from src.system_discovery import SystemDiscovery, NULL_DF  # type: ignore
 from src.system_discovery_changepoint_detector import SystemDiscoveryChangepointDetector as _SCPD
@@ -34,6 +35,7 @@ class PiecewiseSystemDiscovery(object):
         min_fractional_reduction: float = 0.1,  
         min_subsequence_length: int = 100,
         predict_kernel_bandwidth: float = 0.5,
+        model_name: str = "",
         **sd_kwargs: Any,
     ) -> None:
         """Construct a piecewise-linear ODE discovery pipeline.
@@ -50,6 +52,7 @@ class PiecewiseSystemDiscovery(object):
         self.species_names = list(training_df.columns)
         self.num_species = len(self.species_names)
         self.num_point = training_df.shape[0]
+        self.model_name = model_name
         self.max_changepoint = max_changepoint
         self.min_fractional_reduction = min_fractional_reduction
         self.min_subsequence_length = min_subsequence_length
@@ -242,6 +245,7 @@ class PiecewiseSystemDiscovery(object):
                 vlines: Optional[List[float]] = None, **plt_options) -> None:
             po = PlotOptions(**plt_options)
             ax = po.ax
+            ymax = actual_arr.min().min()
             for idx, name in enumerate(self.species_names):
                 color = f"C{idx}"
                 ax.scatter(  # type: ignore
@@ -257,7 +261,13 @@ class PiecewiseSystemDiscovery(object):
                 for t in vlines:
                     ax.axvline(t, color="black", linestyle="--", lw=1.0, alpha=0.6)  # type: ignore
             ax.grid(True, alpha=0.3)  # type: ignore
-            po.title = plt_options.get("title", "") + f" (Mean accuracy={score:.3f})"
+            if self.model_name.startswith("BIOMD"):
+                model_num_str = str(int(self.model_name[6:]))
+            else:
+                model_num_str = self.model_name
+            po.title = model_num_str + ": " + plt_options.get("title", "") + f" (Mean accuracy={score:.3f})"
+            if ymax > 0.0:
+                po.ylim = (0.0, ymax)
             po.apply()
         ##
         _draw(fig=fig, ax=ax_top, pred_df=baseline_pred_df, score=baseline_score,

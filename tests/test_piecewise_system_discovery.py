@@ -541,7 +541,7 @@ class TestPlotPiecewise(unittest.TestCase):
 
 _IGNORE_TESTS_BIOMODEL = False
 BIOMODEL_NUM = 1058
-BIOMODEL_NUM = 904
+BIOMODEL_NUM = 663
 BIOMODEL_NUM_POINT = 1000
 BIOMODEL_NAME = Model.getBiomodelName(BIOMODEL_NUM)
 _HAS_BIOMODEL = os.path.isdir(cn.BIOMODELS_DIR) and os.path.isdir(
@@ -637,10 +637,12 @@ class TestEndToEndBioModels45(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_biomodel_timecourse_df()
-        psd = PiecewiseSystemDiscovery(df, max_changepoint=10, min_subsequence_length=30,
-                                        min_fractional_reduction=0.000)
+        psd = PiecewiseSystemDiscovery(df, max_changepoint=10, min_subsequence_length=50,
+                                        min_fractional_reduction=0.000,
+                                        model_name= str(BIOMODEL_NUM))
         psd.fit()
-        result = psd.plotPiecewise(legend=False, ylim=(0, 1.5), num_true_point=30)
+        result = psd.plotPiecewise(legend=False, num_true_point=30)
+        plt.show()
         self.assertIsInstance(result, PlotOptions)
 
 
