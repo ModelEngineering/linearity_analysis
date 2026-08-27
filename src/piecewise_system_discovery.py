@@ -72,9 +72,7 @@ class PiecewiseSystemDiscovery(object):
             raise RuntimeError(
                     "PiecewiseSystemDiscovery must be fit() before this operation.")
     
-    def fit(self, max_changepoint: int = 2,
-            min_fractional_reduction: float = 0.1,
-            min_subsequence_length: int = 100) -> "PiecewiseSystemDiscovery":
+    def fit(self) -> 'PiecewiseSystemDiscovery':
         """fit() steps 1-4: detect change points, fit per-subsequence models.
 
         Lazy-initializes the diagnostic global SystemDiscovery and changepoint detector on
@@ -84,9 +82,9 @@ class PiecewiseSystemDiscovery(object):
                 self.training_df, threshold=0.001, alpha=0.001, is_normalize=True)
             self.sys_disc.fit()
             self.detector = _SCPD(self.sys_disc)
-        self.detector.fit(max_changepoint=max_changepoint,
-                min_segment_length=min_subsequence_length,
-                min_fractional_reduction=min_fractional_reduction)
+        self.detector.fit(max_changepoint=self.max_changepoint,
+                min_segment_length=self.min_subsequence_length,
+                min_fractional_reduction=self.min_fractional_reduction)
         time_arr = self.training_df.index.to_numpy(dtype=float)
         boundary_index_arr = [0] + self.detector.changepoints + [self.num_point]
         # Construct the subsequence information
@@ -186,7 +184,8 @@ class PiecewiseSystemDiscovery(object):
             score_info[cn.COL_START_TIME] = start
             score_info[cn.COL_END_TIME] = end
             score_dfs.append(score_info)
-        return pd.concat(score_dfs, ignore_index=True)
+        result_df = pd.concat(score_dfs, ignore_index=True)
+        return result_df
 
     def __str__(self) -> str:
         block_list: List[str] = []
@@ -228,41 +227,26 @@ class PiecewiseSystemDiscovery(object):
             num_true_point = len(time_arr)
         num_skip = max(1, len(time_arr) // num_true_point)
 
-        # Cache the global-baseline model on first call so subsequent plotPiecewise()
-        # calls don't re-fit an expensive SystemDiscovery every time.
-        if not hasattr(self, '_baseline_model'):
-            try:
-                self._baseline_model = SystemDiscovery(
-                    self.training_df, **self._sd_kwargs).fit()
-            except Exception:
-                self._baseline_model = None
-
-        try:
-            baseline_pred_df = (
-                self._baseline_model.predict()
-                if self._baseline_model is not None else None
-            )
-        except Exception:
-            baseline_pred_df = None
-
-        try:
-            psd_pred_df = self.predict()
-        except Exception:
-            psd_pred_df = None
-
+        # Get the data
+        self.sys_disc = cast(SystemDiscovery, self.sys_disc)
+        baseline_score = self.sys_disc.score()
+        baseline_pred_df = self.sys_disc.predict()
+        psd_score = self.score()
+        psd_pred_df = self.predict()
+        # Construct the plot
         fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=figsize, sharex=True)
         change_point_times = [start for start, _ in self._subsequence_boundaries[1:]]
-
         plot_options = PlotOptions(fig=fig, ax=ax_bot, **plt_kwargs)
-
-        def _draw(po: PlotOptions, pred_df: Optional[pd.DataFrame] = None, title: str = "",
-                vlines: Optional[List[float]] = None) -> None:
+        ##
+        def _draw(pred_df: pd.DataFrame, score: float, 
+                vlines: Optional[List[float]] = None, **plt_options) -> None:
+            po = PlotOptions(**plt_options)
             ax = po.ax
             for idx, name in enumerate(self.species_names):
                 color = f"C{idx}"
-                ax.plot(  # type: ignore
+                ax.scatter(  # type: ignore
                     time_arr[::num_skip], actual_arr[::num_skip, idx],
-                    linestyle="-", color=color, label=f"{name} actual", zorder=3,
+                    marker="o", s=30, linestyle="-", color=color, label=f"{name} actual", zorder=3,
                 )
                 if pred_df is not None and name in pred_df.columns:
                     ax.plot(  # type: ignore
@@ -272,16 +256,15 @@ class PiecewiseSystemDiscovery(object):
             if vlines:
                 for t in vlines:
                     ax.axvline(t, color="black", linestyle="--", lw=1.0, alpha=0.6)  # type: ignore
-            ax.set_title(title, fontsize=11)  # type: ignore
             ax.grid(True, alpha=0.3)  # type: ignore
+            po.title = plt_options.get("title", "") + f" (Mean accuracy={score:.3f})"
             po.apply()
-
-        _draw(PlotOptions(fig=fig, ax=ax_top, **plt_kwargs), baseline_pred_df,
-                #f"0 change points, r2: {baseline_score.median:.3f}")
-                "0 change points")
-        _draw(plot_options, psd_pred_df,
-                f"{self.max_changepoint} change point(s)",
-                vlines=change_point_times)
+        ##
+        _draw(fig=fig, ax=ax_top, pred_df=baseline_pred_df, score=baseline_score,
+                title="0 change points", **plt_kwargs)
+        _draw(fig=fig, ax=ax_bot, pred_df=psd_pred_df, score=psd_score,
+                title=f"{self.max_changepoint} change points",
+                vlines=change_point_times, **plt_kwargs)
         fig.suptitle("Actual vs Predicted", fontsize=13, fontweight="bold")
         fig.tight_layout()
         return plot_options
@@ -290,3 +273,9 @@ class PiecewiseSystemDiscovery(object):
         """Pretty-print the discovered ODE for each subsequence."""
         self._requireFitted()
         print(str(self))
+
+    def score(self, test_df: Optional[pd.DataFrame] = None, score_type="timecourse") -> float:
+        """Return the average score across all subsequences."""
+        self._requireFitted()
+        score_df = self.getScoreDetails(test_df=test_df, score_type=score_type)
+        return float(score_df[cn.COL_MEAN].mean())

@@ -875,7 +875,8 @@ class SystemDiscovery:
         """Pretty-print the discovered ODE equations."""
         print(self.__str__())
 
-    def score(self, score_type: str = "timecourse", score_column: str = "p50") -> float:
+    def score(self, score_type: str = "timecourse", score_column: str = cn.COL_MEAN
+            ) -> float:
         """
         Calculates a single measure of model performance.
             derivative: minimum value of R² across all species
@@ -902,8 +903,8 @@ class SystemDiscovery:
             result = float(score_detail_df[model_sel][score_column].iloc[0])
             return result
         elif score_type == "timecourse":
-            species_sel = score_detail_df[cn.COL_AGGREGATION_TYPE] != "model"
-            vals = score_detail_df[species_sel][score_column].to_numpy(dtype=float)
+            model_sel = score_detail_df[cn.COL_AGGREGATION_TYPE] == "model"
+            vals = score_detail_df[model_sel][score_column].to_numpy(dtype=float)
             result = float(np.max(vals))
             return result
         else:

@@ -1,12 +1,15 @@
 """Tests for PiecewiseSystemDiscovery in src/piecewise_system_discovery.py."""
 
+import os
 import unittest
 
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 
+from src.model import Model  # type: ignore
 from src.constants import COL_END_TIME, COL_START_TIME  # type: ignore
+import src.constants as cn  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
 from src.system_discovery import SystemDiscovery, NULL_DF  # type: ignore
 from src.piecewise_system_discovery import PiecewiseSystemDiscovery
@@ -209,8 +212,8 @@ class TestFit(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(n_points=300)
-        psd = PiecewiseSystemDiscovery(df)  # fit params are independent of constructor
-        psd.fit(max_changepoint=0)   # pass override directly to fit()
+        psd = PiecewiseSystemDiscovery(df, max_changepoint=0)
+        psd.fit()   # pass override directly to fit()
 
         self.assertEqual(len(psd._subsequence_models), 1)
         t_start, t_end = psd._subsequence_boundaries[0]
@@ -329,10 +332,11 @@ class TestPredictPreconditions(unittest.TestCase):
 class TestPredict(unittest.TestCase):
     """Tests for the core prediction logic of PiecewiseSystemDiscovery."""
 
-    def _make_psd(self, df=None) -> PiecewiseSystemDiscovery:
+    def _make_psd(self, df=None, max_changepoint=2, min_subsequence_length=20) -> PiecewiseSystemDiscovery:
         if df is None:
             df = _make_small_piecewise_df()
-        return PiecewiseSystemDiscovery(df, min_subsequence_length=20)
+        return PiecewiseSystemDiscovery(df, min_subsequence_length=min_subsequence_length,
+                max_changepoint=max_changepoint)
 
     def test_default_prediction_returns_dataframe(self) -> None:
         """predict() with no arguments returns a DataFrame."""
@@ -379,8 +383,8 @@ class TestPredict(unittest.TestCase):
         """
         if IGNORE_TESTS:
             return
-        psd = self._make_psd()
-        psd.fit(max_changepoint=3, min_subsequence_length=10)
+        psd = self._make_psd(max_changepoint=3, min_subsequence_length=10)
+        psd.fit()
         result = psd.predict()
         if len(psd._subsequence_models) >= 2:
             self.assertFalse(
@@ -403,8 +407,8 @@ class TestPredict(unittest.TestCase):
         """The first segment's prediction includes the boundary row."""
         if IGNORE_TESTS:
             return
-        psd = self._make_psd()
-        psd.fit(max_changepoint=3, min_subsequence_length=10)
+        psd = self._make_psd(max_changepoint=3, min_subsequence_length=10)
+        psd.fit()
         result = psd.predict()
 
         if len(psd._subsequence_models) >= 2:
@@ -468,8 +472,8 @@ class TestGetScoreDetails(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_small_piecewise_df()
-        psd = PiecewiseSystemDiscovery(df, min_subsequence_length=20)
-        psd.fit(max_changepoint=3, min_subsequence_length=10)
+        psd = PiecewiseSystemDiscovery(df, min_subsequence_length=20, max_changepoint=3)
+        psd.fit()
         result = psd.getScoreDetails()
         expected_rows = (len(psd.species_names) * len(psd._subsequence_models)
                          + len(psd._subsequence_models))
@@ -527,6 +531,116 @@ class TestPlotPiecewise(unittest.TestCase):
         psd = self._make_psd()
         psd.fit()
         result = psd.plotPiecewise(legend=False)
+        self.assertIsInstance(result, PlotOptions)
+
+
+# ---------------------------------------------------------------------------
+# End-to-end tests using BioModels 45 (EC/Z/Y/X oscillator)
+# ---------------------------------------------------------------------------
+
+
+_IGNORE_TESTS_BIOMODEL = False
+BIOMODEL_NUM = 1058
+BIOMODEL_NUM = 904
+BIOMODEL_NUM_POINT = 1000
+BIOMODEL_NAME = Model.getBiomodelName(BIOMODEL_NUM)
+_HAS_BIOMODEL = os.path.isdir(cn.BIOMODELS_DIR) and os.path.isdir(
+    os.path.join(cn.BIOMODELS_DIR, BIOMODEL_NAME)
+)
+
+#_MODEL_45_SPECIES = ["EC", "Z", "Y", "X"]
+
+
+def _make_biomodel_timecourse_df(n_points: int = BIOMODEL_NUM_POINT) -> pd.DataFrame:
+    """Load and simulate BioModels model returning its timecourse."""
+    from src.model import Model  # type: ignore
+    from src.timecourse import Timecourse  # type: ignore
+
+    model = Model.makeBiomodel(BIOMODEL_NAME)
+    tc = Timecourse(model=model, num_point=n_points)
+    return tc.timecourse_df
+
+
+@unittest.skipUnless(
+    _HAS_BIOMODEL and not _IGNORE_TESTS_BIOMODEL,
+    "BioModels data directory not found or tests are disabled",
+)
+class TestEndToEndBioModels45(unittest.TestCase):
+    """End-to-end PiecewiseSystemDiscovery using real BioModels model 45.
+
+    BIOMD0000000045 is the EC/Z/Y/X oscillator (Stricker et al. 2008 feedback oscillator).
+    Four species with coupled nonlinear dynamics; used here to validate that the full
+    SBML -> simulate -> fit PSW -> predict pipeline runs end-to-end without errors.
+    """
+
+    def test_fit_produces_single_segment(self) -> None:
+        """fit() with a high min_subsequence_length yields one segment covering the full range."""
+        if IGNORE_TESTS:
+            return
+        df = _make_biomodel_timecourse_df()
+        psd = PiecewiseSystemDiscovery(df, max_changepoint=0)
+        psd.fit()
+        self.assertTrue(psd._is_fitted)
+        self.assertEqual(len(psd._subsequence_models), 1)
+        t_start, t_end = psd._subsequence_boundaries[0]
+        np.testing.assert_allclose(t_start, df.index.to_numpy(dtype=float)[0])
+        np.testing.assert_allclose(
+            t_end, df.index.to_numpy(dtype=float)[-1], atol=1e-9
+        )
+
+    def test_predict_returns_dataframe_with_correct_columns(self) -> None:
+        """predict() output has same shape and species columns as training data."""
+        if IGNORE_TESTS:
+            return
+        df = _make_biomodel_timecourse_df()
+        psd = PiecewiseSystemDiscovery(df, max_changepoint=0)
+        psd.fit()
+        result = psd.predict()
+        self.assertIsInstance(result, pd.DataFrame)
+        self.assertEqual(result.shape, df.shape)
+        self.assertEqual(list(result.columns), list(df.columns))
+
+    def test_predict_index_matches_training_time(self) -> None:
+        """predict() index equals the training time grid exactly."""
+        if IGNORE_TESTS:
+            return
+        df = _make_biomodel_timecourse_df()
+        psd = PiecewiseSystemDiscovery(df, max_changepoint=0)
+        psd.fit()
+        result = psd.predict()
+        np.testing.assert_array_equal(result.index.to_numpy(), df.index.to_numpy())
+
+    def test_predict_values_are_finite(self) -> None:
+        """All predicted values are finite (no NaN/Inf from integration)."""
+        if IGNORE_TESTS:
+            return
+        df = _make_biomodel_timecourse_df()
+        psd = PiecewiseSystemDiscovery(df, max_changepoint=0)
+        psd.fit()
+        result = psd.predict()
+        self.assertTrue(np.all(np.isfinite(result.to_numpy())))
+
+    def test_get_score_details_returns_dataframe(self) -> None:
+        """getScoreDetails() returns a DataFrame with start_time/end_time columns."""
+        if IGNORE_TESTS:
+            return
+        df = _make_biomodel_timecourse_df()
+        psd = PiecewiseSystemDiscovery(df, max_changepoint=0)
+        psd.fit()
+        score_df = psd.getScoreDetails()
+        self.assertIsInstance(score_df, pd.DataFrame)
+        self.assertIn(COL_START_TIME, score_df.columns)
+        self.assertIn(COL_END_TIME, score_df.columns)
+
+    def test_plot_piecewise_returns_plot_options(self) -> None:
+        """plotPiecewise() returns a PlotOptions object for BioModels 45 data."""
+        if IGNORE_TESTS:
+            return
+        df = _make_biomodel_timecourse_df()
+        psd = PiecewiseSystemDiscovery(df, max_changepoint=10, min_subsequence_length=30,
+                                        min_fractional_reduction=0.000)
+        psd.fit()
+        result = psd.plotPiecewise(legend=False, ylim=(0, 1.5), num_true_point=30)
         self.assertIsInstance(result, PlotOptions)
 
 

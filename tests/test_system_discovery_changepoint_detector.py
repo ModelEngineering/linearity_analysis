@@ -464,15 +464,17 @@ import os as _os
 _BIOMODELS_DIR = "/Users/jlheller/home/Technical/repos/temp-biomodels/final"
 if not _os.path.isdir(_BIOMODELS_DIR):
     HAS_REAL_BIOMODELS_DATA = False
+BIOMODEL_NAME = "BIOMD0000000045"
+BIOMODEL_NAME = "BIOMD0000001058"
 
 
 @unittest.skipUnless(HAS_REAL_BIOMODELS_DATA, "BioModels data directory not found")
 class TestEndToEndBioModel45(unittest.TestCase):
-    """End-to-end test using real BioModel BIOMD0000000045 timecourse."""
+    """End-to-end test using real BioModel timecourse."""
 
     def _make_detector(self):
         from src.timecourse import Timecourse
-        tc = Timecourse.makeBiomodelDF("BIOMD0000000045", num_point=1000, end_time=62)
+        tc = Timecourse.makeBiomodelDF(BIOMODEL_NAME, num_point=1000, end_time=62)
         disc = SystemDiscovery(
             tc.timecourse_df,
             threshold=0.001,
@@ -502,7 +504,7 @@ class TestEndToEndBioModel45(unittest.TestCase):
         self.assertTrue(detector.is_detected())
 
     def test_e2e_normalized_predictions_shape(self) -> None:
-        """Normalized one-step predictions have the expected shape for BIOMD45."""
+        """Normalized one-step predictions have the expected shape for BIOMODEL_NAME."""
         if IGNORE_TESTS or not HAS_REAL_BIOMODELS_DATA:
             return
         detector, tc = self._make_detector()
