@@ -34,7 +34,6 @@ class PiecewiseSystemDiscovery(object):
         max_changepoint: int = 2,
         min_fractional_reduction: float = 0.1,  
         min_segment_length: int = 100,
-        predict_kernel_bandwidth: float = 0.5,
         model_name: str = "",
         is_random_changepoints: bool = False,
         **sd_kwargs: Any,
@@ -46,7 +45,6 @@ class PiecewiseSystemDiscovery(object):
             max_changepoint (int, optional): Maximum number of change points to detect. Defaults to 2.
             min_fractional_reduction (float, optional): Minimum fractional reduction in ASS required. Defaults to 0.1.
             min_segment_length (int, optional): Minimum length of segments for splitting. Defaults to 100.
-            predict_kernel_bandwidth (float, optional): Gaussian kernel width used by :meth:`predict_derivative`. Defaults to 0.5.
             is_random_changepoints (bool, optional): Whether to use random change points. Defaults to False.
             **sd_kwargs: Arguments forwarded to each per-segment ``SystemDiscovery`` constructor.
         """
@@ -54,11 +52,11 @@ class PiecewiseSystemDiscovery(object):
         self.species_names = list(training_df.columns)
         self.num_species = len(self.species_names)
         self.num_point = training_df.shape[0]
+        self.is_random_changepoints = is_random_changepoints
         self.model_name = model_name
         self.max_changepoint = max_changepoint
         self.min_fractional_reduction = min_fractional_reduction
         self.min_segment_length = min_segment_length
-        self.predict_kernel_bandwidth = predict_kernel_bandwidth
         sd_kwargs["poly_degree"] = sd_kwargs.get("poly_degree", 1)
         self._sd_kwargs = sd_kwargs
 
@@ -66,29 +64,90 @@ class PiecewiseSystemDiscovery(object):
         self._subsequence_boundaries: List[Tuple[float, float]] = []
         self._subsequence_lengths: List[int] = []
         self._is_fitted: bool = False
+        # Baseline (whole-timecourse) SystemDiscovery model, fit lazily so construction stays cheap
+        # when ``fit()`` is never invoked.  Accessed via :meth:`_getBaselineSystemDiscovery`.
+        self._sys_disc: Optional[SystemDiscovery] = None
 
-        # Diagnostic global model and changepoint detector — initialized lazily in fit() so
-        # their hyper-parameters are not fixed at construction time.
-        self.sys_disc = SystemDiscovery(training_df, is_normalize=True, **self._sd_kwargs)
-        self.sys_disc.fit()
-        self.detector = SystemDiscoveryChangepointDetector(self.sys_disc,
-                max_changepoint=max_changepoint,
-                min_segment_length=min_segment_length,
-                min_fractional_reduction=min_fractional_reduction)
-        self.detector.fit()
+    def _getBaselineSystemDiscovery(self) -> SystemDiscovery:
+        """Lazily build and cache the whole-timecourse baseline ``SystemDiscovery`` model."""
+        if self._sys_disc is None:
+            self._sys_disc = SystemDiscovery(
+                self.training_df, is_normalize=True, **self._sd_kwargs).fit()
+        return cast(SystemDiscovery, self._sys_disc)
 
     def _requireFitted(self) -> None:
         if not self._is_fitted:
             raise RuntimeError(
                     "PiecewiseSystemDiscovery must be fit() before this operation.")
+
+    def _makeRandomChangepoints(self, seed: Optional[int] = None) -> List[int]:
+        """Generate random change points respecting ``max_changepoint`` and
+        ``min_segment_length``.
+
+        Indices are drawn uniformly from ``[1, num_point - 1)`; each new point is
+        rejected if it lies within ``min_segment_length`` of a previously chosen one.
+        If the constraint set cannot accommodate all ``max_changepoint`` placements,
+        fewer points are returned rather than raising — callers should treat the
+        returned length as an upper bound.
+
+        Parameters
+        ----------
+        seed : int or None
+            RNG seed for deterministic generation.  Defaults to a fresh random state.
+
+        Returns
+        -------
+        list[int]
+            Sorted, unique indices in ``[1, num_point - 1)`` with pairwise distance
+            at least ``min_segment_length`` (or fewer elements if constraints make
+            that impossible).
+        """
+        if self.max_changepoint <= 0:
+            return []
+        if self.max_changepoint >= self.num_point:
+            raise ValueError(
+                f"max_changepoint {self.max_changepoint} exceeds number of points "
+                f"{self.num_point}.")
+
+        rng = np.random.default_rng(seed)
+        changepoints: List[int] = []
+        candidates = list(range(1, self.num_point - 1))
+        for _ in range(self.max_changepoint):
+            if not candidates:
+                break
+            idx = int(rng.integers(0, len(candidates)))
+            changepoint = candidates[idx]
+            changepoints.append(changepoint)
+            # Reject future candidates within min_segment_length of the chosen point.
+            cutoff = self.min_segment_length
+            candidates = [c for c in candidates if abs(changepoint - c) >= cutoff]
+        return sorted(changepoints)
+
+    def _getChangepoints(self) -> List[int]:
+        """Return the list of detected change points."""
+        if self.is_random_changepoints:
+            changepoints = self._makeRandomChangepoints()
+        else:
+            # Find the changepoints
+            detector = SystemDiscoveryChangepointDetector(
+                self._getBaselineSystemDiscovery(),
+                max_changepoint=self.max_changepoint,
+                min_segment_length=self.min_segment_length,
+                min_fractional_reduction=self.min_fractional_reduction)
+            detector.fit()
+            changepoints = detector.changepoints
+        return changepoints
     
     def fit(self) -> 'PiecewiseSystemDiscovery':
-        """fit() steps 1-4: detect change points, fit per-subsequence models.
+        """Detect change points and fit a ``SystemDiscovery`` model to each segment.
 
-        Lazy-initializes the diagnostic global SystemDiscovery and changepoint detector on
-        first call so construction remains cheap when fit() is never invoked."""
+        After this call, :attr:`_subsequence_models`, :attr:`_subsequence_boundaries`,
+        and :attr:`_subsequence_lengths` are populated; :meth:`predict` is available.
+        The baseline whole-timecourse model is built lazily on first access.
+        """
         time_arr = self.training_df.index.to_numpy(dtype=float)
-        boundary_index_arr = [0] + self.detector.changepoints + [self.num_point]
+        changepoints = self._getChangepoints()
+        boundary_index_arr = [0] + changepoints + [self.num_point]
         # Construct the subsequence information
         self._subsequence_models = []
         self._subsequence_boundaries = []
@@ -229,10 +288,10 @@ class PiecewiseSystemDiscovery(object):
             num_true_point = len(time_arr)
         num_skip = max(1, len(time_arr) // num_true_point)
 
-        # Get the data
-        self.sys_disc = cast(SystemDiscovery, self.sys_disc)
-        baseline_score = self.sys_disc.score()
-        baseline_pred_df = self.sys_disc.predict()
+        # Get baseline vs. piecewise scores and predictions; lazily build the whole-timecourse model.
+        sys_disc = self._getBaselineSystemDiscovery()
+        baseline_score = sys_disc.score()
+        baseline_pred_df = sys_disc.predict()
         psd_score = self.score()
         psd_pred_df = self.predict()
         # Construct the plot

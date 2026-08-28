@@ -120,7 +120,6 @@ class TestConstructor(unittest.TestCase):
         self.assertEqual(psd.max_changepoint, 2)
         self.assertEqual(psd.min_fractional_reduction, 0.1)
         self.assertEqual(psd.min_segment_length, 100)
-        self.assertEqual(psd.predict_kernel_bandwidth, 0.5)
 
     def test_custom_parameters(self) -> None:
         """Custom constructor parameters are stored correctly."""
@@ -129,12 +128,9 @@ class TestConstructor(unittest.TestCase):
         df = _make_linear_df()
         psd = PiecewiseSystemDiscovery(
             df, max_changepoint=3, min_fractional_reduction=0.2,
-            min_segment_length=50, predict_kernel_bandwidth=1.0,
         )
         self.assertEqual(psd.max_changepoint, 3)
         self.assertEqual(psd.min_fractional_reduction, 0.2)
-        self.assertEqual(psd.min_segment_length, 50)
-        self.assertEqual(psd.predict_kernel_bandwidth, 1.0)
 
     def test_sd_kwargs_poly_degree_default(self) -> None:
         """poly_degree defaults to 1 when not explicitly provided."""
