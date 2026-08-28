@@ -93,11 +93,14 @@ def _make_piecewise_linear_df(
 class TestIsDetected(unittest.TestCase):
     """Tests for the is_detected() method."""
 
-    def _make_detector(self) -> SystemDiscoveryChangepointDetector:
+    def _make_detector(self, max_changepoint: int = 0, min_segment_length: int = 5,
+                       min_fractional_reduction: float = 0.01) -> SystemDiscoveryChangepointDetector:
         df = _make_linear_df()
         disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, is_normalize=False)
         disc.fit()
-        return SystemDiscoveryChangepointDetector(disc)
+        return SystemDiscoveryChangepointDetector(disc, max_changepoint=max_changepoint,
+                                                   min_segment_length=min_segment_length,
+                                                   min_fractional_reduction=min_fractional_reduction)
 
     def test_not_detected_before_fit(self) -> None:
         """is_detected returns False before detect()."""
@@ -110,8 +113,8 @@ class TestIsDetected(unittest.TestCase):
         """is_detected returns True after a successful detect()."""
         if IGNORE_TESTS:
             return
-        detector = self._make_detector()
-        detector.fit(max_changepoint=1, min_segment_length=5)
+        detector = self._make_detector(max_changepoint=1, min_segment_length=5)
+        detector.fit()
         self.assertTrue(detector.is_detected())
 # ---------------------------------------------------------------------------
 # Constructor tests
@@ -279,9 +282,10 @@ class TestIntegration(unittest.TestCase):
         # fit on first half only so the model matches phase 1 dynamics well
         disc.fit()
 
-        detector = SystemDiscoveryChangepointDetector(disc)
-        result = detector.fit(max_changepoint=3, min_segment_length=5,
-                                 min_fractional_reduction=0.001)
+        detector = SystemDiscoveryChangepointDetector(disc, max_changepoint=3,
+                                                       min_segment_length=5,
+                                                       min_fractional_reduction=0.001)
+        result = detector.fit()
 
         # We expect at least one changepoint to be found (the true boundary).
         self.assertIsInstance(result, list)
@@ -296,18 +300,21 @@ class TestIntegration(unittest.TestCase):
 class TestDetect(unittest.TestCase):
     """Tests for the detect() method."""
 
-    def _make_detector(self) -> SystemDiscoveryChangepointDetector:
+    def _make_detector(self, max_changepoint: int = 0, min_segment_length: int = 5,
+                       min_fractional_reduction: float = 0.01) -> SystemDiscoveryChangepointDetector:
         df = _make_linear_df(n_points=200, noise_std=0.01)
         disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, is_normalize=False)
         disc.fit()
-        return SystemDiscoveryChangepointDetector(disc)
+        return SystemDiscoveryChangepointDetector(disc, max_changepoint=max_changepoint,
+                                                   min_segment_length=min_segment_length,
+                                                   min_fractional_reduction=min_fractional_reduction)
 
     def test_detect_returns_list(self) -> None:
         """detect() returns a list of ints."""
         if IGNORE_TESTS:
             return
-        detector = self._make_detector()
-        result = detector.fit(max_changepoint=1, min_segment_length=5)
+        detector = self._make_detector(max_changepoint=1, min_segment_length=5)
+        result = detector.fit()
         self.assertIsInstance(result, list)
         self.assertTrue(all(isinstance(cp, int) for cp in result))
 
@@ -315,32 +322,32 @@ class TestDetect(unittest.TestCase):
         """After detect(), change_point_detector is set."""
         if IGNORE_TESTS:
             return
-        detector = self._make_detector()
-        detector.fit(max_changepoint=1, min_segment_length=5)
+        detector = self._make_detector(max_changepoint=1, min_segment_length=5)
+        detector.fit()
         self.assertIsNotNone(detector.change_point_detector)
 
     def test_detect_sets_is_detected(self) -> None:
         """After detect(), is_detected() returns True."""
         if IGNORE_TESTS:
             return
-        detector = self._make_detector()
-        detector.fit(max_changepoint=1, min_segment_length=5)
+        detector = self._make_detector(max_changepoint=1, min_segment_length=5)
+        detector.fit()
         self.assertTrue(detector.is_detected())
 
     def test_detect_max_zero_returns_empty(self) -> None:
         """With max_changepoint=0, no changepoints are detected."""
         if IGNORE_TESTS:
             return
-        detector = self._make_detector()
-        result = detector.fit(max_changepoint=0, min_segment_length=5)
+        detector = self._make_detector(max_changepoint=0, min_segment_length=5)
+        result = detector.fit()
         self.assertEqual(result, [])
 
     def test_detect_with_no_real_change(self) -> None:
         """On a consistent linear system with no real changepoints."""
         if IGNORE_TESTS:
             return
-        detector = self._make_detector()
-        result = detector.fit(max_changepoint=5, min_segment_length=10)
+        detector = self._make_detector(max_changepoint=5, min_segment_length=10)
+        result = detector.fit()
         # At minimum we should get a valid list.
         self.assertIsInstance(result, list)
 
@@ -348,8 +355,8 @@ class TestDetect(unittest.TestCase):
         """detect() populates self.changepoints."""
         if IGNORE_TESTS:
             return
-        detector = self._make_detector()
-        result = detector.fit(max_changepoint=1, min_segment_length=5)
+        detector = self._make_detector(max_changepoint=1, min_segment_length=5)
+        result = detector.fit()
         self.assertEqual(result, detector.changepoints)
 # ---------------------------------------------------------------------------
 # plotTimecourseWithChangepoints tests
@@ -359,11 +366,14 @@ class TestDetect(unittest.TestCase):
 class TestPlotTimecourse(unittest.TestCase):
     """Tests for the plotTimecourseWithChangepoints method."""
 
-    def _make_detector(self) -> SystemDiscoveryChangepointDetector:
+    def _make_detector(self, max_changepoint: int = 0, min_segment_length: int = 5,
+                       min_fractional_reduction: float = 0.01) -> SystemDiscoveryChangepointDetector:
         df = _make_linear_df(n_points=100, noise_std=0.01)
         disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, is_normalize=False)
         disc.fit()
-        return SystemDiscoveryChangepointDetector(disc)
+        return SystemDiscoveryChangepointDetector(disc, max_changepoint=max_changepoint,
+                                                   min_segment_length=min_segment_length,
+                                                   min_fractional_reduction=min_fractional_reduction)
 
     def test_raises_before_detect(self) -> None:
         """plotTimecourseWithChangepoints raises RuntimeError if detect() not called."""
@@ -377,8 +387,8 @@ class TestPlotTimecourse(unittest.TestCase):
         """After detect(), plot returns (Figure, Axes)."""
         if IGNORE_TESTS:
             return
-        detector = self._make_detector()
-        detector.fit(max_changepoint=1, min_segment_length=5)
+        detector = self._make_detector(max_changepoint=1, min_segment_length=5)
+        detector.fit()
         plot_options = detector.plotTimecourseWithChangepoints()
         self.assertTrue(isinstance(plot_options, PlotOptions))
         self.assertIsNotNone(plot_options.ax)
@@ -387,8 +397,8 @@ class TestPlotTimecourse(unittest.TestCase):
         """plotTimecourseWithChangepoints accepts explicit changepoint list."""
         if IGNORE_TESTS:
             return
-        detector = self._make_detector()
-        detector.fit(max_changepoint=1, min_segment_length=5)
+        detector = self._make_detector(max_changepoint=1, min_segment_length=5)
+        detector.fit()
         plot_options = detector.plotTimecourseWithChangepoints(changepoints=[50])
         self.assertTrue(isinstance(plot_options, PlotOptions))
         self.assertIsNotNone(plot_options.ax)
@@ -397,9 +407,9 @@ class TestPlotTimecourse(unittest.TestCase):
         """plot works even when detect() finds no changepoints."""
         if IGNORE_TESTS:
             return
-        detector = self._make_detector()
+        detector = self._make_detector(max_changepoint=0, min_segment_length=5)
         # max_changepoint=0 means no segments to split.
-        detector.fit(max_changepoint=0, min_segment_length=5)
+        detector.fit()
         plot_options = detector.plotTimecourseWithChangepoints()
         self.assertTrue(isinstance(plot_options, PlotOptions))
         self.assertIsNotNone(plot_options.ax)
@@ -472,7 +482,8 @@ BIOMODEL_NAME = "BIOMD0000001058"
 class TestEndToEndBioModel45(unittest.TestCase):
     """End-to-end test using real BioModel timecourse."""
 
-    def _make_detector(self):
+    def _make_detector(self, max_changepoint: int = 0, min_segment_length: int = 5,
+                       min_fractional_reduction: float = 0.01):
         from src.timecourse import Timecourse
         tc = Timecourse.makeBiomodelDF(BIOMODEL_NAME, num_point=1000, end_time=62)
         disc = SystemDiscovery(
@@ -482,14 +493,16 @@ class TestEndToEndBioModel45(unittest.TestCase):
             is_normalize=False,
         )
         disc.fit()
-        return SystemDiscoveryChangepointDetector(disc), tc
+        return SystemDiscoveryChangepointDetector(disc, max_changepoint=max_changepoint,
+                                                   min_segment_length=min_segment_length,
+                                                   min_fractional_reduction=min_fractional_reduction), tc
 
     def test_e2e_detects_changepoints_on_real_data(self) -> None:
         """Full pipeline: load BioModel, fit SystemDiscovery, detect changepoints."""
         if IGNORE_TESTS or not HAS_REAL_BIOMODELS_DATA:
             return
-        detector, tc = self._make_detector()
-        result = detector.fit(max_changepoint=5, min_segment_length=10)
+        detector, tc = self._make_detector(max_changepoint=5, min_segment_length=10)
+        result = detector.fit()
         self.assertIsInstance(result, list)
         for cp in result:
             self.assertGreaterEqual(cp, 0)
@@ -499,8 +512,8 @@ class TestEndToEndBioModel45(unittest.TestCase):
         """is_detected() returns True after a successful detect() on real BioModel data."""
         if IGNORE_TESTS or not HAS_REAL_BIOMODELS_DATA:
             return
-        detector, _ = self._make_detector()
-        detector.fit(max_changepoint=5, min_segment_length=10)
+        detector, _ = self._make_detector(max_changepoint=5, min_segment_length=10)
+        detector.fit()
         self.assertTrue(detector.is_detected())
 
     def test_e2e_normalized_predictions_shape(self) -> None:
@@ -529,8 +542,8 @@ class TestEndToEndBioModel45(unittest.TestCase):
         """plotTimecourseWithChangepoints works end-to-end on real BioModel data."""
         if IGNORE_TESTS or not HAS_REAL_BIOMODELS_DATA:
             return
-        detector, _ = self._make_detector()
-        detector.fit(max_changepoint=100, min_segment_length=100, min_fractional_reduction=0.000)
+        detector, _ = self._make_detector(max_changepoint=100, min_segment_length=100, min_fractional_reduction=0.000)
+        detector.fit()
         plot_options = detector.plotTimecourseWithChangepoints()
         self.assertTrue(isinstance(plot_options, PlotOptions))
         self.assertIsNotNone(plot_options.ax)

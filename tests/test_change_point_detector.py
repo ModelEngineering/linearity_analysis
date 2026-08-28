@@ -16,8 +16,8 @@ class TestChangePointDetector(unittest.TestCase):
             return
         # Sequence: 10 zeros, 10 ones
         data = np.array([0.0]*10 + [1.0]*10)
-        detector = ChangePointDetector(data)
-        detector.fit(max_change_point=1, min_fractional_reduction=0.0)
+        detector = ChangePointDetector(data, max_changepoint=1, min_fractional_reduction=0.0)
+        detector.fit()
 
         # Expected change point at index 10
         self.assertEqual(len(detector.subsequences), 2)
@@ -34,8 +34,8 @@ class TestChangePointDetector(unittest.TestCase):
             return
         # Sequence: 5 zeros, 5 ones, 5 zeros
         data = np.array([0.0]*5 + [1.0]*5 + [0.0]*5)
-        detector = ChangePointDetector(data)
-        detector.fit(max_change_point=2, min_fractional_reduction=0.0)
+        detector = ChangePointDetector(data, max_changepoint=2, min_fractional_reduction=0.0)
+        detector.fit()
 
         # Expected partitions: [0,5), [5,10), [10,15) — ends at 5, 10, 15
         self.assertEqual(len(detector.subsequences), 3)
@@ -49,8 +49,8 @@ class TestChangePointDetector(unittest.TestCase):
             return
         # Sequence: 5 zeros, 5 ones, 5 zeros
         data = np.array([0.0]*5 + [1.0]*5 + [0.0]*5)
-        detector = ChangePointDetector(data)
-        detector.fit(max_change_point=1, min_fractional_reduction=0.0)
+        detector = ChangePointDetector(data, max_changepoint=1, min_fractional_reduction=0.0)
+        detector.fit()
 
         # Should only find 1 change point
         self.assertEqual(len(detector.subsequences), 2)
@@ -67,19 +67,21 @@ class TestChangePointDetector(unittest.TestCase):
         # Relative reduction = 0.025 / 0.025 = 1.0
 
         # min_fractional_reduction=0.1 → relative threshold 0.1 < 1.0 → should split
-        detector.fit(max_change_point=1, min_fractional_reduction=0.1)
-        self.assertEqual(len(detector.subsequences), 2)
+        detector_01 = ChangePointDetector(data, max_changepoint=1, min_fractional_reduction=0.1)
+        detector_01.fit()
+        self.assertEqual(len(detector_01.subsequences), 2)
 
         # min_fractional_reduction=1.1 → relative threshold 1.1 > 1.0 → should NOT split
-        detector.fit(max_change_point=1, min_fractional_reduction=1.1)
-        self.assertEqual(len(detector.subsequences), 1)
+        detector_11 = ChangePointDetector(data, max_changepoint=1, min_fractional_reduction=1.1)
+        detector_11.fit()
+        self.assertEqual(len(detector_11.subsequences), 1)
 
     def test_empty_data(self) -> None:
         if IGNORE_TESTS:
             return
         data = np.array([])
-        detector = ChangePointDetector(data)
-        detector.fit(max_change_point=5, min_fractional_reduction=0.0)
+        detector = ChangePointDetector(data, max_changepoint=5, min_fractional_reduction=0.0)
+        detector.fit()
         self.assertEqual(detector.subsequences, [])
         self.assertEqual(detector.total_reduction, 0.0)
 
@@ -87,8 +89,8 @@ class TestChangePointDetector(unittest.TestCase):
         if IGNORE_TESTS:
             return
         data = np.array([1.0])
-        detector = ChangePointDetector(data)
-        detector.fit(max_change_point=5, min_fractional_reduction=0.0)
+        detector = ChangePointDetector(data, max_changepoint=5, min_fractional_reduction=0.0)
+        detector.fit()
         self.assertEqual(len(detector.subsequences), 1)
         self.assertEqual(detector.subsequences[0], (0, 1, 0.0))
 
@@ -98,8 +100,8 @@ class TestPlot(unittest.TestCase):
 
     def setUp(self) -> None:
         data = np.array([0.0] * 10 + [1.0] * 10)
-        self.detector = ChangePointDetector(data)
-        self.detector.fit(max_change_point=1, min_fractional_reduction=0.0)
+        self.detector = ChangePointDetector(data, max_changepoint=1, min_fractional_reduction=0.0)
+        self.detector.fit()
 
     def tearDown(self) -> None:
         plt.close("all")
@@ -143,8 +145,8 @@ class TestPlot(unittest.TestCase):
     def test_no_vlines_without_change_points(self) -> None:
         if IGNORE_TESTS:
             return
-        detector = ChangePointDetector(np.ones(10))
-        detector.fit(max_change_point=1, min_fractional_reduction=0.0)
+        detector = ChangePointDetector(np.ones(10), max_changepoint=1, min_fractional_reduction=0.0)
+        detector.fit()
         po = detector.plot()
         self.assertEqual(len(self._dashed_lines(po.ax)), 0)
 
@@ -152,8 +154,8 @@ class TestPlot(unittest.TestCase):
         if IGNORE_TESTS:
             return
         data = np.array([0.0] * 5 + [1.0] * 5 + [0.0] * 5)
-        detector = ChangePointDetector(data)
-        detector.fit(max_change_point=2, min_fractional_reduction=0.0)
+        detector = ChangePointDetector(data, max_changepoint=2, min_fractional_reduction=0.0)
+        detector.fit()
         po = detector.plot()
         self.assertEqual(len(self._dashed_lines(po.ax)), 2)
 
@@ -178,23 +180,23 @@ class TestScaling(unittest.TestCase):
     def test_finds_one_change_point(self) -> None:
         if IGNORE_TESTS:
             return
-        detector = ChangePointDetector(_SCALE_DATA)
-        detector.fit(max_change_point=1, min_fractional_reduction=0.0)
+        detector = ChangePointDetector(_SCALE_DATA, max_changepoint=1, min_fractional_reduction=0.0)
+        detector.fit()
         self.assertEqual(len(detector.subsequences), 2)
 
     def test_change_point_near_true_boundary(self) -> None:
         if IGNORE_TESTS:
             return
-        detector = ChangePointDetector(_SCALE_DATA)
-        detector.fit(max_change_point=1, min_fractional_reduction=0.0)
+        detector = ChangePointDetector(_SCALE_DATA, max_changepoint=1, min_fractional_reduction=0.0)
+        detector.fit()
         split = detector.subsequences[0][1]  # end of first partition = change point index
         self.assertAlmostEqual(split, _SCALE_N, delta=50)
 
     def test_total_reduction_positive(self) -> None:
         if IGNORE_TESTS:
             return
-        detector = ChangePointDetector(_SCALE_DATA)
-        detector.fit(max_change_point=1, min_fractional_reduction=0.0)
+        detector = ChangePointDetector(_SCALE_DATA, max_changepoint=1, min_fractional_reduction=0.0)
+        detector.fit()
         self.assertGreater(detector.total_reduction, 0.0)
 
     def test_second_change_point_also_near_boundary(self) -> None:
@@ -202,8 +204,8 @@ class TestScaling(unittest.TestCase):
             return
         # With max_points=2 on a single-boundary dataset, the 2nd split
         # should land within one of the two noisy halves, not near 1000 again.
-        detector = ChangePointDetector(_SCALE_DATA)
-        detector.fit(max_change_point=2, min_fractional_reduction=0.1)
+        detector = ChangePointDetector(_SCALE_DATA, max_changepoint=2, min_fractional_reduction=0.1)
+        detector.fit()
         self.assertEqual(len(detector.subsequences), 2)
         splits = sorted(p[1] for p in detector.subsequences[:-1])
         # First split must still be near the true boundary

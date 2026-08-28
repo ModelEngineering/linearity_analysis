@@ -19,31 +19,36 @@ LARGE_VALUE = 1e8
 class SystemDiscoveryChangepointDetector(object):
     # Detects changepoints in the timecourse of the training data for the SystemDiscovery object.
 
-    def __init__(self, system_discovery: SystemDiscovery):
+    def __init__(self, system_discovery: SystemDiscovery, max_changepoint: int = 0,
+                min_segment_length: int = 5, min_fractional_reduction: float = 0.01):
+        """Initialize the detector with parameters set during construction."""
         self.system_discovery = system_discovery
         self.training_df = system_discovery.training_df
         self._scaler = system_discovery._scaler
-        #
+        # Change-point detection parameters set during construction.
+        self.max_changepoint = max_changepoint
+        self.min_segment_length = min_segment_length
+        self.min_fractional_reduction = min_fractional_reduction
+
         self.changepoints: List[int] = []  # List of indices representing detected changepoints
         self.change_point_detector: Union[ChangePointDetector, None] = None  # Instance of ChangePointDetector for detecting changepoints
 
-    def fit(self, max_changepoint: int, min_segment_length: int = 5,
-            min_fractional_reduction: float = 0.01) -> List[int]:
-        """Detect changepoints in the timecourse based on changes in the accuracy of one-step prediction of derivatives.
+    def fit(self) -> List[int]:
+        """Detect changepoints using parameters set during construction.
 
         Args:
-            max_changepoint (int): The maximum number of changepoints to detect.
-            min_segment_length (int): Minimum length of segments to consider for changepoint detection.
+            (none — uses self.max_changepoint, self.min_segment_length,
+            and self.min_fractional_reduction).
 
         Returns:
             List[int]: A list of detected changepoint indices into the training DataFrame.
         """
         true_df, pred_df = self._calculateNormalizedOneStepPredictions()
         signal_arr = self._calculateSignal(true_df, pred_df)
-        self.change_point_detector = ChangePointDetector(signal_arr)
-        self.change_point_detector.fit(max_change_point=max_changepoint,
-                min_fractional_reduction=min_fractional_reduction,
-                min_subsequence_length=min_segment_length)
+        self.change_point_detector = ChangePointDetector(signal_arr, max_changepoint=self.max_changepoint,
+                min_segment_length=self.min_segment_length,
+                min_fractional_reduction=self.min_fractional_reduction)
+        self.change_point_detector.fit()
         # First partition starts at index 0 (not a changepoint); subsequent partitions
         # start at the detected change-point indices.
         self._is_detected = True

@@ -11,7 +11,7 @@ import src.constants as cn
 from src.model import Model  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
 from src.system_discovery import SystemDiscovery, NULL_DF  # type: ignore
-from src.system_discovery_changepoint_detector import SystemDiscoveryChangepointDetector as _SCPD
+from src.system_discovery_changepoint_detector import SystemDiscoveryChangepointDetector
 
 import collections
 import matplotlib.pyplot as plt  # type: ignore
@@ -33,9 +33,10 @@ class PiecewiseSystemDiscovery(object):
         training_df:  pd.DataFrame,
         max_changepoint: int = 2,
         min_fractional_reduction: float = 0.1,  
-        min_subsequence_length: int = 100,
+        min_segment_length: int = 100,
         predict_kernel_bandwidth: float = 0.5,
         model_name: str = "",
+        is_random_changepoints: bool = False,
         **sd_kwargs: Any,
     ) -> None:
         """Construct a piecewise-linear ODE discovery pipeline.
@@ -44,8 +45,9 @@ class PiecewiseSystemDiscovery(object):
             training_df (pd.DataFrame): Time-series data with one column per species.
             max_changepoint (int, optional): Maximum number of change points to detect. Defaults to 2.
             min_fractional_reduction (float, optional): Minimum fractional reduction in ASS required. Defaults to 0.1.
-            min_subsequence_length (int, optional): Minimum length of segments for splitting. Defaults to 100.
+            min_segment_length (int, optional): Minimum length of segments for splitting. Defaults to 100.
             predict_kernel_bandwidth (float, optional): Gaussian kernel width used by :meth:`predict_derivative`. Defaults to 0.5.
+            is_random_changepoints (bool, optional): Whether to use random change points. Defaults to False.
             **sd_kwargs: Arguments forwarded to each per-segment ``SystemDiscovery`` constructor.
         """
         self.training_df = training_df
@@ -55,7 +57,7 @@ class PiecewiseSystemDiscovery(object):
         self.model_name = model_name
         self.max_changepoint = max_changepoint
         self.min_fractional_reduction = min_fractional_reduction
-        self.min_subsequence_length = min_subsequence_length
+        self.min_segment_length = min_segment_length
         self.predict_kernel_bandwidth = predict_kernel_bandwidth
         sd_kwargs["poly_degree"] = sd_kwargs.get("poly_degree", 1)
         self._sd_kwargs = sd_kwargs
@@ -67,8 +69,13 @@ class PiecewiseSystemDiscovery(object):
 
         # Diagnostic global model and changepoint detector — initialized lazily in fit() so
         # their hyper-parameters are not fixed at construction time.
-        self.sys_disc = None  # type: ignore[assignment]
-        self.detector = None  # type: ignore[assignment]
+        self.sys_disc = SystemDiscovery(training_df, is_normalize=True, **self._sd_kwargs)
+        self.sys_disc.fit()
+        self.detector = SystemDiscoveryChangepointDetector(self.sys_disc,
+                max_changepoint=max_changepoint,
+                min_segment_length=min_segment_length,
+                min_fractional_reduction=min_fractional_reduction)
+        self.detector.fit()
 
     def _requireFitted(self) -> None:
         if not self._is_fitted:
@@ -80,14 +87,6 @@ class PiecewiseSystemDiscovery(object):
 
         Lazy-initializes the diagnostic global SystemDiscovery and changepoint detector on
         first call so construction remains cheap when fit() is never invoked."""
-        if self.detector is None:
-            self.sys_disc = SystemDiscovery(
-                self.training_df, threshold=0.001, alpha=0.001, is_normalize=True)
-            self.sys_disc.fit()
-            self.detector = _SCPD(self.sys_disc)
-        self.detector.fit(max_changepoint=self.max_changepoint,
-                min_segment_length=self.min_subsequence_length,
-                min_fractional_reduction=self.min_fractional_reduction)
         time_arr = self.training_df.index.to_numpy(dtype=float)
         boundary_index_arr = [0] + self.detector.changepoints + [self.num_point]
         # Construct the subsequence information
@@ -200,7 +199,7 @@ class PiecewiseSystemDiscovery(object):
         return "\n\n".join(block_list)
 
     def plotPiecewise(self, num_true_point: int = -1, **plt_kwargs: Any) -> PlotOptions:
-        """Two-panel comparison: 0 change points (top) vs max_change_point (bottom).
+        """Two-panel comparison: 0 change points (top) vs max_changepoint (bottom).
 
         Both panels show actual (scatter) vs predicted (line) species concentrations.
         The bottom panel marks each detected change point with a vertical dashed line.

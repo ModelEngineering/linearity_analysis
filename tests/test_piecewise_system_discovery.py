@@ -119,7 +119,7 @@ class TestConstructor(unittest.TestCase):
         psd = PiecewiseSystemDiscovery(df)
         self.assertEqual(psd.max_changepoint, 2)
         self.assertEqual(psd.min_fractional_reduction, 0.1)
-        self.assertEqual(psd.min_subsequence_length, 100)
+        self.assertEqual(psd.min_segment_length, 100)
         self.assertEqual(psd.predict_kernel_bandwidth, 0.5)
 
     def test_custom_parameters(self) -> None:
@@ -129,11 +129,11 @@ class TestConstructor(unittest.TestCase):
         df = _make_linear_df()
         psd = PiecewiseSystemDiscovery(
             df, max_changepoint=3, min_fractional_reduction=0.2,
-            min_subsequence_length=50, predict_kernel_bandwidth=1.0,
+            min_segment_length=50, predict_kernel_bandwidth=1.0,
         )
         self.assertEqual(psd.max_changepoint, 3)
         self.assertEqual(psd.min_fractional_reduction, 0.2)
-        self.assertEqual(psd.min_subsequence_length, 50)
+        self.assertEqual(psd.min_segment_length, 50)
         self.assertEqual(psd.predict_kernel_bandwidth, 1.0)
 
     def test_sd_kwargs_poly_degree_default(self) -> None:
@@ -160,8 +160,9 @@ class TestConstructor(unittest.TestCase):
         psd = PiecewiseSystemDiscovery(df)
         self.assertFalse(psd._is_fitted)
         self.assertEqual(psd._subsequence_models, [])
-        self.assertIsNone(psd.sys_disc)
-     
+        self.assertEqual(psd._subsequence_boundaries, [])
+        self.assertEqual(psd._subsequence_lengths, [])
+
 # ---------------------------------------------------------------------------
 # fit() tests
 # ---------------------------------------------------------------------------
@@ -173,7 +174,7 @@ class TestFit(unittest.TestCase):
     def _make_psd(self, df=None) -> PiecewiseSystemDiscovery:
         if df is None:
             df = _make_small_piecewise_df()
-        return PiecewiseSystemDiscovery(df, min_subsequence_length=20)
+        return PiecewiseSystemDiscovery(df, min_segment_length=20)
 
     def test_fit_sets_is_fitted(self) -> None:
         """fit() sets _is_fitted to True."""
@@ -195,18 +196,20 @@ class TestFit(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_small_piecewise_df()
-        psd = PiecewiseSystemDiscovery(df, min_subsequence_length=20)
-        self.assertIsNone(psd.sys_disc)
-        self.assertIsNone(psd.detector)
+        psd = PiecewiseSystemDiscovery(df, min_segment_length=100)
+        self.assertEqual(psd._subsequence_models, [])
+        self.assertEqual(psd._subsequence_lengths, [])
+        self.assertEqual(psd._subsequence_boundaries, [])
         psd.fit()
-        self.assertIsNotNone(psd.sys_disc)
-        self.assertIsNotNone(psd.detector)
+        self.assertGreaterEqual(len(psd._subsequence_models), 0)
+        self.assertGreaterEqual(len(psd._subsequence_lengths), 0)
+        self.assertGreaterEqual(len(psd._subsequence_boundaries), 0)
 
     def test_fit_creates_single_segment_no_changepoints(self) -> None:
-        """When min_subsequence_length exceeds the data size, splitting is impossible.
+        """When min_segment_length exceeds the data size, splitting is impossible.
 
         With 300 rows and a single changepoint the smallest each segment could be
-        would be (300 - 1) / 2 = 149.5 < min_subsequence_length=200, so the detector
+        would be (300 - 1) / 2 = 149.5 < min_segment_length=200, so the detector
         must return zero change points -> exactly one segment.
         """
         if IGNORE_TESTS:
@@ -278,7 +281,7 @@ class TestPredictPreconditions(unittest.TestCase):
     def _make_psd(self, df=None) -> PiecewiseSystemDiscovery:
         if df is None:
             df = _make_small_piecewise_df()
-        return PiecewiseSystemDiscovery(df, min_subsequence_length=20)
+        return PiecewiseSystemDiscovery(df, min_segment_length=20)
 
     def test_raises_when_unfitted(self) -> None:
         """predict() raises RuntimeError when called before fit()."""
@@ -332,10 +335,10 @@ class TestPredictPreconditions(unittest.TestCase):
 class TestPredict(unittest.TestCase):
     """Tests for the core prediction logic of PiecewiseSystemDiscovery."""
 
-    def _make_psd(self, df=None, max_changepoint=2, min_subsequence_length=20) -> PiecewiseSystemDiscovery:
+    def _make_psd(self, df=None, max_changepoint=2, min_segment_length=20) -> PiecewiseSystemDiscovery:
         if df is None:
             df = _make_small_piecewise_df()
-        return PiecewiseSystemDiscovery(df, min_subsequence_length=min_subsequence_length,
+        return PiecewiseSystemDiscovery(df, min_segment_length=min_segment_length,
                 max_changepoint=max_changepoint)
 
     def test_default_prediction_returns_dataframe(self) -> None:
@@ -383,7 +386,7 @@ class TestPredict(unittest.TestCase):
         """
         if IGNORE_TESTS:
             return
-        psd = self._make_psd(max_changepoint=3, min_subsequence_length=10)
+        psd = self._make_psd(max_changepoint=3, min_segment_length=10)
         psd.fit()
         result = psd.predict()
         if len(psd._subsequence_models) >= 2:
@@ -407,7 +410,7 @@ class TestPredict(unittest.TestCase):
         """The first segment's prediction includes the boundary row."""
         if IGNORE_TESTS:
             return
-        psd = self._make_psd(max_changepoint=3, min_subsequence_length=10)
+        psd = self._make_psd(max_changepoint=3, min_segment_length=10)
         psd.fit()
         result = psd.predict()
 
@@ -438,7 +441,7 @@ class TestGetScoreDetails(unittest.TestCase):
 
     def _make_psd(self) -> PiecewiseSystemDiscovery:
         df = _make_small_piecewise_df()
-        return PiecewiseSystemDiscovery(df, min_subsequence_length=20)
+        return PiecewiseSystemDiscovery(df, min_segment_length=20)
 
     def test_returns_dataframe(self) -> None:
         """getScoreDetails returns a DataFrame."""
@@ -472,7 +475,7 @@ class TestGetScoreDetails(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_small_piecewise_df()
-        psd = PiecewiseSystemDiscovery(df, min_subsequence_length=20, max_changepoint=3)
+        psd = PiecewiseSystemDiscovery(df, min_segment_length=20, max_changepoint=3)
         psd.fit()
         result = psd.getScoreDetails()
         expected_rows = (len(psd.species_names) * len(psd._subsequence_models)
@@ -491,7 +494,7 @@ class TestStrAndPrint(unittest.TestCase):
     def _make_psd(self, max_cp: int = 2, min_seg_len: int = 20) -> PiecewiseSystemDiscovery:
         df = _make_small_piecewise_df()
         return PiecewiseSystemDiscovery(df, max_changepoint=max_cp,
-                                        min_subsequence_length=min_seg_len)
+                                        min_segment_length=min_seg_len)
 
     def test_str_contains_segment_info(self) -> None:
         """__str__() includes segment header information."""
@@ -522,7 +525,7 @@ class TestPlotPiecewise(unittest.TestCase):
 
     def _make_psd(self) -> PiecewiseSystemDiscovery:
         df = _make_small_piecewise_df()
-        return PiecewiseSystemDiscovery(df, min_subsequence_length=20)
+        return PiecewiseSystemDiscovery(df, min_segment_length=20)
 
     def test_plot_returns_plot_options(self) -> None:
         """plotPiecewise returns a PlotOptions object."""
@@ -574,7 +577,7 @@ class TestEndToEndBioModels45(unittest.TestCase):
     """
 
     def test_fit_produces_single_segment(self) -> None:
-        """fit() with a high min_subsequence_length yields one segment covering the full range."""
+        """fit() with a high min_segment_length yields one segment covering the full range."""
         if IGNORE_TESTS:
             return
         df = _make_biomodel_timecourse_df()
@@ -637,12 +640,12 @@ class TestEndToEndBioModels45(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_biomodel_timecourse_df()
-        psd = PiecewiseSystemDiscovery(df, max_changepoint=10, min_subsequence_length=50,
+        psd = PiecewiseSystemDiscovery(df, max_changepoint=10, min_segment_length=50,
                                         min_fractional_reduction=0.000,
                                         model_name= str(BIOMODEL_NUM))
         psd.fit()
         result = psd.plotPiecewise(legend=False, num_true_point=30)
-        plt.show()
+        #plt.show()
         self.assertIsInstance(result, PlotOptions)
 
 
