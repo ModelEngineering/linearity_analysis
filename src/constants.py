@@ -14,6 +14,7 @@ SERIALIZATION_DIR = os.path.join(PROJECT_DIR, "data", "serialize")
 TIMECOURSE_SERIALIZATION_DIR = os.path.join(SERIALIZATION_DIR,
         "timecourse")
 TIMECOURSE_ZIP_PATH = os.path.join(TIMECOURSE_SERIALIZATION_DIR, "timecourse.zip")
+PIECEWISE_PREDICTIONS_PATH = os.path.join(DATA_DIR, "piecewise_predictions.csv")
 PAPER_DIR = os.path.join(PROJECT_DIR, "paper")
 
 # Types
@@ -39,6 +40,10 @@ COL_ENDTIME = "end_time"
 COL_MODEL_NAME = "model_name"
 COL_ENDTIME_SOURCE = "end_time_source"  # How end_time was determined (e.g. "reciprocal_min_eigenvalue", "default")
 COL_INVALID_COUNT = "invalid_count"  # Number of invalid (sentinel -1) values excluded from aggregation.
+COL_NUM_CHANGEPOINT = "num_changepoint"
+COL_MIN_SEGMENT_LENGTH = "min_segment_length"
+COL_MIN_FRACTIONAL_REDUCTION = "min_fractional_reduction"
+COL_IS_RANDOM_CHANGPOINTS = "is_random_changepoints"
 COL_NUM_REACTION = "num_reaction"
 COL_PERTURBATION = "perturbation"  # Perturbation value fraction used in simulation
 COL_LABEL = "label"  # Unique identifier for the row of statistics, e.g. model name or species name.
@@ -62,7 +67,7 @@ COL_P99 = "p99"  # 99th percentile of the valid values used
 COL_PERCENTILES = [COL_P05,COL_P10, COL_P20, COL_P25, COL_P30, COL_P50, COL_P80, COL_P90, COL_P95, COL_P99]
 COL_START_TIME = "start_time"
 COL_SYSTEM_ID = "system_id"  # Unique identifier for the system, e.g. model name or species name.
-COL_THRESHOLD = "threshold"  # Threshold used in SystemDiscovery
+COL_COEFFICIENT_THRESHOLD = "coefficient_threshold"  # Threshold used in SystemDiscovery
 COLUMN_STATISTICS = [COL_MEAN, COL_MIN, COL_MAX, COL_COUNT, COL_INVALID_COUNT] + COL_PERCENTILES
 COLUMN_NAMES = [COL_MODEL_NAME, COL_MAXCV, COL_ENDTIME, COL_ENDTIME_SOURCE]
 

@@ -85,15 +85,19 @@ class Scaler(object):
         Returns:
             list[np.ndarray]: denormalized data
         """
-        denormalized_arr = normalized_arr * self._scale_arr
-        col_names = list(self._column_names)
-        constant_indices = [col_names.index(n) for n in self._constant_cols]
-        for icol in constant_indices:
-            mean_val = np.mean(self._matrix_arr[:, icol])
-            if denormalized_arr.ndim == 1:
-                denormalized_arr[icol] = mean_val
-            else:
-                denormalized_arr[:, icol] = mean_val
+        try:
+            denormalized_arr = normalized_arr * self._scale_arr
+            col_names = list(self._column_names)
+            constant_indices = [col_names.index(n) for n in self._constant_cols]
+            for icol in constant_indices:
+                mean_val = np.mean(self._matrix_arr[:, icol])
+                if denormalized_arr.ndim == 1:
+                    denormalized_arr[icol] = mean_val
+                else:
+                    denormalized_arr[:, icol] = mean_val
+        except Exception as e:
+            import pdb; pdb.set_trace()  # noqa: E702
+            raise e
         return denormalized_arr
 
 #    def deprecatedDenormalize(self, normalized_arr: np.ndarray) -> np.ndarray:

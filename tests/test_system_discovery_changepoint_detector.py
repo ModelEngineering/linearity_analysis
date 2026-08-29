@@ -96,7 +96,7 @@ class TestIsDetected(unittest.TestCase):
     def _make_detector(self, max_changepoint: int = 0, min_segment_length: int = 5,
                        min_fractional_reduction: float = 0.01) -> SystemDiscoveryChangepointDetector:
         df = _make_linear_df()
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, is_normalize=False)
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001, is_normalize=False)
         disc.fit()
         return SystemDiscoveryChangepointDetector(disc, max_changepoint=max_changepoint,
                                                    min_segment_length=min_segment_length,
@@ -126,7 +126,7 @@ class TestConstructor(unittest.TestCase):
 
     def _make_fitted_disc(self) -> SystemDiscovery:
         df = _make_linear_df()
-        return SystemDiscovery(df, threshold=0.001, alpha=0.001, is_normalize=False)
+        return SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001, is_normalize=False)
 
     def test_basic_construction(self) -> None:
         """Construction with a fitted SystemDiscovery succeeds."""
@@ -277,7 +277,7 @@ class TestIntegration(unittest.TestCase):
         df = _make_piecewise_linear_df(n_points=200, noise_std=0.15, seed=42)
 
         disc = SystemDiscovery(
-            df.iloc[:100], threshold=0.001, alpha=0.001, is_normalize=False
+            df.iloc[:100], coefficient_threshold=0.001, alpha=0.001, is_normalize=False
         )
         # fit on first half only so the model matches phase 1 dynamics well
         disc.fit()
@@ -303,7 +303,7 @@ class TestDetect(unittest.TestCase):
     def _make_detector(self, max_changepoint: int = 0, min_segment_length: int = 5,
                        min_fractional_reduction: float = 0.01) -> SystemDiscoveryChangepointDetector:
         df = _make_linear_df(n_points=200, noise_std=0.01)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, is_normalize=False)
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001, is_normalize=False)
         disc.fit()
         return SystemDiscoveryChangepointDetector(disc, max_changepoint=max_changepoint,
                                                    min_segment_length=min_segment_length,
@@ -369,7 +369,7 @@ class TestPlotTimecourse(unittest.TestCase):
     def _make_detector(self, max_changepoint: int = 0, min_segment_length: int = 5,
                        min_fractional_reduction: float = 0.01) -> SystemDiscoveryChangepointDetector:
         df = _make_linear_df(n_points=100, noise_std=0.01)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, is_normalize=False)
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001, is_normalize=False)
         disc.fit()
         return SystemDiscoveryChangepointDetector(disc, max_changepoint=max_changepoint,
                                                    min_segment_length=min_segment_length,
@@ -423,7 +423,7 @@ class TestCalculateNormalizedOneStepPredictions(unittest.TestCase):
 
     def _make_detector(self):
         df = _make_linear_df(n_points=100)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, is_normalize=False)
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001, is_normalize=False)
         disc.fit()
         return SystemDiscoveryChangepointDetector(disc), disc
 
@@ -488,7 +488,7 @@ class TestEndToEndBioModel45(unittest.TestCase):
         tc = Timecourse.makeBiomodelDF(BIOMODEL_NAME, num_point=1000, end_time=62)
         disc = SystemDiscovery(
             tc.timecourse_df,
-            threshold=0.001,
+            coefficient_threshold=0.001,
             alpha=0.001,
             is_normalize=False,
         )

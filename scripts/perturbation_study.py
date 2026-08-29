@@ -150,7 +150,7 @@ def main(is_initialize: bool = False, is_analyze_model: bool = True,
             print(f"  [error] {item.model_name}: {exc}", file=sys.stderr)
             continue
 
-        analyze_df[cn.COL_THRESHOLD] = threshold
+        analyze_df[cn.COL_COEFFICIENT_THRESHOLD] = threshold
         current_df = pd.read_csv(output_path) if os.path.isfile(output_path) else pd.DataFrame()
         # Ensure analyze_df is a DataFrame before concatenating/writing.
         if isinstance(analyze_df, pd.Series):

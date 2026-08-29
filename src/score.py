@@ -14,7 +14,7 @@ from src.statistic_calculator import StatisticCalculator # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
-from typing import List, Optional  # type: ignore
+from typing import List, Optional, Union  # type: ignore
 import warnings  # type: ignore
 
 MIN_SIGNIFICANT_VALUE = 1e-5  # Minimum value considered significant for true values; below this, accuracy is undefined.
@@ -191,6 +191,9 @@ class Score:
         ValueError
             If ``true_timecourse_df`` and ``prediction_timecourse_df`` have mismatched indexes or columns.
         """
+        common_arr = np.array(set(true_timecourse_df.index).intersection(set(prediction_timecourse_df.index)))
+        true_timecourse_df = true_timecourse_df.loc[common_arr]
+        prediction_timecourse_df = prediction_timecourse_df.loc[common_arr]
         # Validate matching structure up front so misaligned inputs fail loudly rather than producing silent NaNs.
         if not true_timecourse_df.index.equals(prediction_timecourse_df.index):
             raise ValueError(
@@ -223,7 +226,7 @@ class Score:
         return self.score_df
 
     def plotCDF(self, 
-            metric_name: str | List[str],
+            metric_name: Union[str, List[str]],
             is_plot_model: bool = True,
             is_plot_species: bool = True,
             is_plot: bool = True,

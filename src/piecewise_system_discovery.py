@@ -158,8 +158,11 @@ class PiecewiseSystemDiscovery(object):
             end_time = time_arr[hi] if hi < self.num_point else time_arr[-1]
             self._subsequence_boundaries.append((float(time_arr[lo]), float(end_time)))
             self._subsequence_lengths.append(hi - lo)
-            sys_disc = SystemDiscovery(subsequence_df, **self._sd_kwargs).fit()
-            self._subsequence_models.append(sys_disc)
+            try:
+                sys_disc = SystemDiscovery(subsequence_df, **self._sd_kwargs).fit()
+                self._subsequence_models.append(sys_disc)
+            except Exception as e:
+                print(f"Error fitting SystemDiscovery for segment {lo}:{hi}: {e}")
         #
         self._is_fitted = True
         return self

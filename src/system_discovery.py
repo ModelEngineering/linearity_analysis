@@ -111,6 +111,8 @@ class SystemDiscovery:
     species_names : list[str] | None
         Override species labels used in printed equations and plots.
         If ``None``, column names from *df* are used.
+    coefficient_threshold : float
+        Threshold for coefficient magnitude to consider a species as linear.
     bias_species : list[str] | None
         Names of species whose ODE is permitted to have a constant term.
         All other species have their constant coefficient forced to zero
@@ -126,7 +128,7 @@ class SystemDiscovery:
     def __init__(
         self,
         training_df: pd.DataFrame,
-        threshold: float = 0.01,
+        coefficient_threshold: float = 0.01,
         alpha: float = 0.05,
         differentiation: Union[Literal["smooth"], Literal["finite"], Literal["spectral"]] = "smooth",
         poly_degree: int = 1,
@@ -136,7 +138,7 @@ class SystemDiscovery:
         is_normalize: bool = True,
     ) -> None:
         self.training_df = training_df
-        self.threshold = threshold
+        self.coefficient_threshold = coefficient_threshold
         self.alpha = alpha
         self.differentiation = differentiation
         self.poly_degree = poly_degree
@@ -216,7 +218,7 @@ class SystemDiscovery:
             for j, feat_name in enumerate(feature_names):
                 if not np.isclose(coefs[i, j],  0.0):
                     norm_thresh = self._scaler.normalizeThreshold(
-                        sp_name, feat_name, self.threshold)
+                        sp_name, feat_name, self.coefficient_threshold)
                     if abs(coefs[i, j]) < norm_thresh:
                         coefs[i, j] = 0.0
 
@@ -1026,7 +1028,7 @@ def discoverNetwork(
     """
     disc = SystemDiscovery(
         training_df,   # type: ignore
-        threshold=threshold,
+        coefficient_threshold=threshold,
         alpha=alpha,
         differentiation=differentiation,
         poly_degree=poly_degree,

@@ -163,7 +163,7 @@ class PerturbationAnalyzer:
         self.plot_records: list[PlotRecord] = []
         # Create the SystemDiscovery
         self.system_discovery = SystemDiscovery(self.training_df,
-            threshold=self.threshold, poly_degree=self.poly_degree)
+            coefficient_threshold=self.threshold, poly_degree=self.poly_degree)
         self.system_discovery.fit()
         # Create the perturbation timecourses
         score = Score()

@@ -125,7 +125,7 @@ class TestSystemDiscoveryConstructor(unittest.TestCase):
             return
         df = _make_linear_df()
         disc = SystemDiscovery(df, is_normalize=False)
-        self.assertEqual(disc.threshold, 0.01)
+        self.assertEqual(disc.coefficient_threshold, 0.01)
         self.assertEqual(disc.alpha, 0.05)
         self.assertEqual(disc.differentiation, "smooth")
         self.assertEqual(disc.poly_degree, 1)
@@ -137,10 +137,10 @@ class TestSystemDiscoveryConstructor(unittest.TestCase):
             return
         df = _make_linear_df()
         disc = SystemDiscovery(
-            df, threshold=0.1, alpha=0.5, differentiation="finite",
+            df, coefficient_threshold=0.1, alpha=0.5, differentiation="finite",
             poly_degree=2, include_bias=False, is_normalize=False,
         )
-        self.assertEqual(disc.threshold, 0.1)
+        self.assertEqual(disc.coefficient_threshold, 0.1)
         self.assertEqual(disc.alpha, 0.5)
         self.assertEqual(disc.differentiation, "finite")
         self.assertEqual(disc.poly_degree, 2)
@@ -309,7 +309,7 @@ class TestSystemDiscoveryFit(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(noise_std=0.00)
-        disc = self._make_disc(df, threshold=0.001, alpha=0.001)
+        disc = self._make_disc(df, coefficient_threshold=0.001, alpha=0.001)
         disc.fit()
         self.assertTrue(disc.is_fitted)
 
@@ -318,7 +318,7 @@ class TestSystemDiscoveryFit(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(noise_std=0.00)
-        disc = self._make_disc(df, threshold=0.001, alpha=0.001, differentiation="smooth")
+        disc = self._make_disc(df, coefficient_threshold=0.001, alpha=0.001, differentiation="smooth")
         disc.fit()
         self.assertTrue(disc.is_fitted)
 
@@ -327,7 +327,7 @@ class TestSystemDiscoveryFit(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(noise_std=0.01)
-        disc = self._make_disc(df, threshold=0.001, alpha=0.001, differentiation="finite")
+        disc = self._make_disc(df, coefficient_threshold=0.001, alpha=0.001, differentiation="finite")
         disc.fit()
         self.assertTrue(disc.is_fitted)
 
@@ -336,7 +336,7 @@ class TestSystemDiscoveryFit(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_uniform_time_df(noise_std=0.01)
-        disc = self._make_disc(df, threshold=0.001, alpha=0.001, differentiation="spectral")
+        disc = self._make_disc(df, coefficient_threshold=0.001, alpha=0.001, differentiation="spectral")
         disc.fit()
         self.assertTrue(disc.is_fitted)
 
@@ -346,7 +346,7 @@ class TestSystemDiscoveryFit(unittest.TestCase):
             return
         df = _make_quadratic_df(noise_std=0.01)
         disc = self._make_disc(
-            df, threshold=0.001, alpha=0.001, poly_degree=2, include_bias=True
+            df, coefficient_threshold=0.001, alpha=0.001, poly_degree=2, include_bias=True
         )
         disc.fit()
         self.assertTrue(disc.is_fitted)
@@ -356,7 +356,7 @@ class TestSystemDiscoveryFit(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(noise_std=0.00)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001)
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001)
         disc.fit()
         self.assertTrue(disc.is_fitted)
 
@@ -365,7 +365,7 @@ class TestSystemDiscoveryFit(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(noise_std=0.00)
-        disc = self._make_disc(df, threshold=0.001, alpha=0.001)
+        disc = self._make_disc(df, coefficient_threshold=0.001, alpha=0.001)
         disc.fit()
         eqs = disc.getEquations()
         self.assertIsInstance(eqs, dict)
@@ -387,7 +387,7 @@ class TestSystemDiscoveryFit(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(noise_std=0.00)
-        disc = self._make_disc(df, threshold=0.001, alpha=0.001)
+        disc = self._make_disc(df, coefficient_threshold=0.001, alpha=0.001)
         disc.fit()
         nzt = disc.getNonzeroTerms()
         self.assertIsInstance(nzt, dict)
@@ -409,7 +409,7 @@ class TestSystemDiscoveryFit(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(noise_std=0.00)
-        disc = self._make_disc(df, threshold=0.001, alpha=0.001)
+        disc = self._make_disc(df, coefficient_threshold=0.001, alpha=0.001)
         disc.fit()
         s = str(disc)
         self.assertIn("A", s)
@@ -429,7 +429,7 @@ class TestSystemDiscoveryFit(unittest.TestCase):
             return
         df = _make_linear_df(noise_std=0.00)
         disc = self._make_disc(
-            df, threshold=0.001, alpha=0.001, bias_species=["A"], include_bias=True
+            df, coefficient_threshold=0.001, alpha=0.001, bias_species=["A"], include_bias=True
         )
         disc.fit()
         coefs = disc.model.coefficients()
@@ -459,11 +459,11 @@ class TestApplyThreshold(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(noise_std=0.00)
-        disc = SystemDiscovery(df, threshold=1e6, alpha=0.001, is_normalize=False)
+        disc = SystemDiscovery(df, coefficient_threshold=1e6, alpha=0.001, is_normalize=False)
         disc.fit()
         coefs_before = disc.model.coefficients().copy()
         # Set an extremely high threshold so everything gets pruned
-        disc.threshold = 1e6
+        disc.coefficient_threshold = 1e6
         disc._applyThreshold()
         coefs_after = disc.model.coefficients()
         # All should be zero now (or very close)
@@ -483,7 +483,7 @@ class TestSimulate(unittest.TestCase):
     def _make_fitted_disc(self, df: pd.DataFrame, **kwargs) -> SystemDiscovery:
         defaults = {"is_normalize": False}
         defaults.update(kwargs)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, **defaults)  # type: ignore
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001, **defaults)  # type: ignore
         disc.fit()
         return disc
 
@@ -545,7 +545,7 @@ class TestSimulate(unittest.TestCase):
             return
         df = _make_linear_df(n_points=NUM_POINT, noise_std=0.01)
         disc = SystemDiscovery(
-            df, threshold=0.001, alpha=0.001, poly_degree=2,
+            df, coefficient_threshold=0.001, alpha=0.001, poly_degree=2,
             include_bias=False, is_normalize=False,
         )
         disc.fit()
@@ -564,7 +564,7 @@ class TestPredict(unittest.TestCase):
     def _make_fitted_disc(self, df: pd.DataFrame, **kwargs) -> SystemDiscovery:
         defaults = {"is_normalize": False}
         defaults.update(kwargs)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, **defaults)  # type: ignore
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001, **defaults)  # type: ignore
         disc.fit()
         return disc
 
@@ -645,7 +645,7 @@ class TestRsqScore(unittest.TestCase):
     def _make_fitted_disc(self, df: pd.DataFrame, **kwargs) -> SystemDiscovery:
         defaults = {"is_normalize": False}
         defaults.update(kwargs)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, **defaults) # type: ignore
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001, **defaults) # type: ignore
         disc.fit()
         return disc
 
@@ -711,7 +711,7 @@ class TestScoreDetails(unittest.TestCase):
     def _make_fitted_disc(self, df: pd.DataFrame, **kwargs) -> SystemDiscovery:
         defaults = {"is_normalize": False}
         defaults.update(kwargs)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, **defaults)    # type: ignore
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001, **defaults)    # type: ignore
         disc.fit()
         return disc
 
@@ -791,7 +791,7 @@ class TestScoreDetails(unittest.TestCase):
         df = _make_linear_df(n_points=NUM_POINT, noise_std=0.01)
         train_df = df.iloc[:50]
         test_df = df.iloc[:50]
-        disc = SystemDiscovery(train_df, threshold=0.001, alpha=0.001, is_normalize=False)
+        disc = SystemDiscovery(train_df, coefficient_threshold=0.001, alpha=0.001, is_normalize=False)
         disc.fit()
         result = disc.getScoreDetails(test_df=test_df, score_type="derivative")
         self.assertIsInstance(result, pd.DataFrame)
@@ -805,7 +805,7 @@ class TestScoreDetails(unittest.TestCase):
         df = _make_linear_df(n_points=NUM_POINT, noise_std=0.01)
         train_df = df.iloc[:50]
         test_df = df.iloc[50:]
-        disc = SystemDiscovery(train_df, threshold=0.001, alpha=0.001, is_normalize=False)
+        disc = SystemDiscovery(train_df, coefficient_threshold=0.001, alpha=0.001, is_normalize=False)
         disc.fit()
         result = disc.getScoreDetails(test_df=test_df, score_type="timecourse")
         self.assertIsInstance(result, pd.DataFrame)
@@ -837,7 +837,7 @@ class TestScoreDetails(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(noise_std=0.01)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001,
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001,
                 differentiation="smooth", is_normalize=False)
         disc.fit()
         result = disc.getScoreDetails(score_type="derivative")
@@ -848,7 +848,7 @@ class TestScoreDetails(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(noise_std=0.01)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001,
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001,
                                differentiation="finite", is_normalize=False)
         disc.fit()
         result = disc.getScoreDetails(score_type="derivative")
@@ -859,7 +859,7 @@ class TestScoreDetails(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_uniform_time_df(noise_std=0.01)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001,
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001,
                                differentiation="spectral", is_normalize=False)
         disc.fit()
         result = disc.getScoreDetails(score_type="derivative")
@@ -892,7 +892,7 @@ class TestScoreDetails(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_quadratic_df(n_points=NUM_POINT, noise_std=0.01)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001,
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001,
                                poly_degree=2, include_bias=True, is_normalize=False)
         disc.fit()
         result = disc.getScoreDetails(score_type="derivative")
@@ -903,7 +903,7 @@ class TestScoreDetails(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(noise_std=0.01)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001)
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001)
         disc.fit()
         result = disc.getScoreDetails(score_type="derivative")
         self.assertIsInstance(result, pd.DataFrame)
@@ -948,7 +948,7 @@ class TestScoreDetails(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(noise_std=0.01)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001,
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001,
                                bias_species=["A"], include_bias=True, is_normalize=False)
         disc.fit()
         result = disc.getScoreDetails(score_type="derivative")
@@ -959,7 +959,7 @@ class TestScoreDetails(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(noise_std=0.01)
-        disc = SystemDiscovery(df, threshold=1e6, alpha=0.001, is_normalize=False)
+        disc = SystemDiscovery(df, coefficient_threshold=1e6, alpha=0.001, is_normalize=False)
         disc.fit()
         result = disc.getScoreDetails(score_type="derivative")
         self.assertIsInstance(result, pd.DataFrame)
@@ -971,7 +971,7 @@ class TestScoreDetails(unittest.TestCase):
         df = _make_linear_df(n_points=NUM_POINT, noise_std=0.01)
         train_df = df.iloc[:NUM_POINT//2]
         test_df = df.iloc[NUM_POINT//2:]
-        disc = SystemDiscovery(train_df, threshold=0.001, alpha=0.001, is_normalize=False)
+        disc = SystemDiscovery(train_df, coefficient_threshold=0.001, alpha=0.001, is_normalize=False)
         disc.fit()
         result = disc.getScoreDetails(test_df=test_df, score_type="timecourse")
         self.assertIsInstance(result, pd.DataFrame)
@@ -1017,7 +1017,7 @@ class TestSummary(unittest.TestCase):
     def _make_fitted_disc(self, df: pd.DataFrame, **kwargs) -> SystemDiscovery:
         defaults = {"is_normalize": False}
         defaults.update(kwargs)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, **defaults)  # type: ignore
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001, **defaults)  # type: ignore
         disc.fit()
         return disc
 
@@ -1066,7 +1066,7 @@ class TestPlotting(unittest.TestCase):
     def _make_fitted_disc(self, df: pd.DataFrame, **kwargs) -> SystemDiscovery:
         defaults = {"is_normalize": False}
         defaults.update(kwargs)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, **defaults)  # type: ignore
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001, **defaults)  # type: ignore
         disc.fit()
         return disc
 
@@ -1152,7 +1152,7 @@ class TestEdgeCases(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(n_points=50, noise_std=0.01)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, is_normalize=False)
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001, is_normalize=False)
         disc.fit()
         self.assertTrue(disc.is_fitted)
 
@@ -1161,7 +1161,7 @@ class TestEdgeCases(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(n_points=50, noise_std=0.01)
-        disc = SystemDiscovery(df, threshold=1e6, alpha=0.001, is_normalize=False)
+        disc = SystemDiscovery(df, coefficient_threshold=1e6, alpha=0.001, is_normalize=False)
         disc.fit()
         coefs = disc.model.coefficients()
         for i in range(coefs.shape[0]):
@@ -1173,7 +1173,7 @@ class TestEdgeCases(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(n_points=NUM_POINT, noise_std=0.001)
-        disc = SystemDiscovery(df, threshold=0.0, alpha=0.001, is_normalize=False)
+        disc = SystemDiscovery(df, coefficient_threshold=0.0, alpha=0.001, is_normalize=False)
         disc.fit()
         nzt = disc.getNonzeroTerms()
         # With zero threshold and low noise, most terms should be non-zero
@@ -1190,7 +1190,7 @@ class TestEdgeCases(unittest.TestCase):
             "A": 1.0 + rng.normal(0, 0.001, NUM_POINT),
             "B": np.exp(-0.1 * t) + rng.normal(0, 0.001, NUM_POINT),
         }, index=t)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, is_normalize=False)
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001, is_normalize=False)
         # Should not raise during construction
         self.assertEqual(disc.num_species, 2)
 
@@ -1206,7 +1206,7 @@ class TestKnownDynamics(unittest.TestCase):
     def _make_fitted_disc(self, df: pd.DataFrame, **kwargs) -> SystemDiscovery:
         defaults = {"is_normalize": False}
         defaults.update(kwargs)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, **defaults)  # type: ignore
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001, **defaults)  # type: ignore
         disc.fit()
         return disc
 
@@ -1228,7 +1228,7 @@ class TestKnownDynamics(unittest.TestCase):
         X = sol.y.T + rng.normal(0, 0.001, (len(t_eval), 1))
         df = pd.DataFrame(X, index=t_eval, columns=["A"])
 
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, is_normalize=False)
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001, is_normalize=False)
         disc.fit()
         eqs = disc.getEquations()
         # The dominant term should be proportional to A (decay)
@@ -1259,7 +1259,7 @@ class TestGetScoreAggregatedBySpecies(unittest.TestCase):
     def _make_fitted_disc(self, df: pd.DataFrame, **kwargs) -> SystemDiscovery:
         defaults = {"is_normalize": False}
         defaults.update(kwargs)
-        disc = SystemDiscovery(df, threshold=0.001, alpha=0.001, **defaults)  # type: ignore
+        disc = SystemDiscovery(df, coefficient_threshold=0.001, alpha=0.001, **defaults)  # type: ignore
         disc.fit()
         return disc
 
@@ -1338,7 +1338,7 @@ class TestGetScoreAggregatedBySpecies(unittest.TestCase):
         df = _make_linear_df(n_points=NUM_POINT, noise_std=0.01)
         train_df = df.iloc[:NUM_POINT//2]
         test_df = df.iloc[NUM_POINT//2:]
-        disc = SystemDiscovery(train_df, threshold=0.001, alpha=0.001, is_normalize=False)
+        disc = SystemDiscovery(train_df, coefficient_threshold=0.001, alpha=0.001, is_normalize=False)
         disc.fit()
         result = disc.getScoreAggregatedBySpecies(test_df=test_df)
         self.assertIsInstance(result, dict)
@@ -1405,7 +1405,7 @@ class TestGetScoreAggregatedBySpecies(unittest.TestCase):
         )
         noise_df.index = train_df.index  # Align indices for concatenation
         test_df = train_df + noise_df
-        disc = SystemDiscovery(train_df, threshold=0.001, alpha=0.001, is_normalize=False)
+        disc = SystemDiscovery(train_df, coefficient_threshold=0.001, alpha=0.001, is_normalize=False)
         disc.fit()
         result = disc.getScoreAggregatedBySpecies(test_df=test_df, score_type="derivative")
         self.assertIsInstance(result, dict)
@@ -1447,7 +1447,7 @@ class TestPlotResultBioModels551(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_biomodel_551_timecourse_df(n_points=NUM_POINT)
-        disc = SystemDiscovery(df, threshold=0.01, alpha=0.05, is_normalize=False)
+        disc = SystemDiscovery(df, coefficient_threshold=0.01, alpha=0.05, is_normalize=False)
         disc.fit()
         fig = disc.plotResult(is_plot=IS_PLOT)
         self.assertIsNotNone(fig)
@@ -1458,7 +1458,7 @@ class TestPlotResultBioModels551(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_biomodel_551_timecourse_df(n_points=NUM_POINT)
-        disc = SystemDiscovery(df, threshold=0.01, alpha=0.05, is_normalize=False)
+        disc = SystemDiscovery(df, coefficient_threshold=0.01, alpha=0.05, is_normalize=False)
         disc.fit()
         fig = disc.plotResult(is_plot=IS_PLOT)
         # BIOMD0000000551 has 3 species (R, B, C), so expect 3 axes with titles
@@ -1472,7 +1472,7 @@ class TestPlotResultBioModels551(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_biomodel_551_timecourse_df(n_points=NUM_POINT)
-        disc = SystemDiscovery(df, threshold=0.01, alpha=0.05, is_normalize=False)
+        disc = SystemDiscovery(df, coefficient_threshold=0.01, alpha=0.05, is_normalize=False)
         disc.fit()
         fig = disc.plotResult(is_plot=IS_PLOT)
         titled_axes = [ax for ax in fig.get_axes() if ax.get_title()]
@@ -1485,7 +1485,7 @@ class TestPlotResultBioModels551(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_biomodel_551_timecourse_df(n_points=NUM_POINT)
-        disc = SystemDiscovery(df, threshold=0.01, alpha=0.05, is_normalize=False)
+        disc = SystemDiscovery(df, coefficient_threshold=0.01, alpha=0.05, is_normalize=False)
         disc.fit()
         eqs = disc.getEquations()
         self.assertEqual(set(eqs.keys()), set(self.SPECIES_NAMES))
@@ -1497,7 +1497,7 @@ class TestPlotResultBioModels551(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_biomodel_551_timecourse_df(n_points=NUM_POINT)
-        disc = SystemDiscovery(df, threshold=0.01, alpha=0.05, is_normalize=False)
+        disc = SystemDiscovery(df, coefficient_threshold=0.01, alpha=0.05, is_normalize=False)
         disc.fit()
         result = disc.predict()
         self.assertIsInstance(result, pd.DataFrame)
