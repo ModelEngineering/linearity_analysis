@@ -1,4 +1,4 @@
-system_id,aggregation_type,mean,min,max,count,invalid_count,p05,p10,p20,p25,p30,p50,p80,p90,p95,p99,num_changepoint,min_segment_length,min_fractional_reduction,is_random_changepoints,coefficient_threshold
+system_id,aggregation_type,mean,min,max,count,invalid_count,p05,p10,p20,p25,p30,p50,p80,p90,p95,p99,max_changepoint,min_segment_length,min_fractional_reduction,is_random_changepoints,coefficient_threshold
 BIOMD0000000005,model,0.0,0.0,0.0,6,0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0,50,0.0,False,0.01
 BIOMD0000000005,C2,0.0,0.0,0.0,999,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0,50,0.0,False,0.01
 BIOMD0000000005,CP,0.0228036239950659,0.0,1.0,1000,0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.9814445067101424,0,50,0.0,False,0.01

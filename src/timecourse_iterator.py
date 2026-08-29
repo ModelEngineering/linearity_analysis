@@ -9,7 +9,7 @@ from src.timecourse import Timecourse  # type: ignore
 import numpy as np  # type: ignore
 import pickle
 import zipfile
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Union
 
 
 class TimecourseIteratorItem:
@@ -41,7 +41,7 @@ class TimecourseIterator:
         self.num_point = num_point
 
     @staticmethod
-    def getTimecourse(model_name: str | int, zip_path: str = cn.TIMECOURSE_ZIP_PATH,
+    def getTimecourse(model_name: Union[str, int], zip_path: str = cn.TIMECOURSE_ZIP_PATH,
             ) -> Timecourse:
         """Return the deserialized Timecourse for *model_name* from the zip.
 

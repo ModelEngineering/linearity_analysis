@@ -166,7 +166,7 @@ class TestProcessModel(unittest.TestCase):
         )
         required_cols = {
             cn.COL_SYSTEM_ID,
-            cn.COL_NUM_CHANGEPOINT,
+            cn.COL_MAX_CHANGEPOINT,
             cn.COL_MIN_SEGMENT_LENGTH,
             cn.COL_MIN_FRACTIONAL_REDUCTION,
             cn.COL_IS_RANDOM_CHANGPOINTS,
@@ -192,7 +192,7 @@ class TestProcessModel(unittest.TestCase):
             min_fractional_reduction=0.25,
         )
         self.assertEqual(result[cn.COL_SYSTEM_ID].iloc[0], "BIOMD0000009999")
-        self.assertTrue((result[cn.COL_NUM_CHANGEPOINT] == 5).all())
+        self.assertTrue((result[cn.COL_MAX_CHANGEPOINT] == 5).all())
         self.assertTrue((result[cn.COL_MIN_SEGMENT_LENGTH] == 200).all())
         self.assertTrue((result[cn.COL_COEFFICIENT_THRESHOLD] == 0.1).all())
         self.assertTrue(result[cn.COL_IS_RANDOM_CHANGPOINTS].eq(False).all())
@@ -287,7 +287,7 @@ class TestMain(unittest.TestCase):
         df = pd.read_csv(out)
         expected_cols = {
             cn.COL_SYSTEM_ID,
-            cn.COL_NUM_CHANGEPOINT,
+            cn.COL_MAX_CHANGEPOINT,
             cn.COL_MIN_SEGMENT_LENGTH,
             cn.COL_MIN_FRACTIONAL_REDUCTION,
             cn.COL_IS_RANDOM_CHANGPOINTS,
@@ -304,7 +304,7 @@ class TestMain(unittest.TestCase):
             return
         out = self._run_main()
         df = pd.read_csv(out)
-        pairs = list(zip(df[cn.COL_SYSTEM_ID].tolist(), df[cn.COL_NUM_CHANGEPOINT].tolist()))
+        pairs = list(zip(df[cn.COL_SYSTEM_ID].tolist(), df[cn.COL_MAX_CHANGEPOINT].tolist()))
         self.assertEqual(pairs, sorted(pairs))
 
     def test_both_random_and_deterministic_rows_present(self):
@@ -313,7 +313,7 @@ class TestMain(unittest.TestCase):
             return
         out = self._run_main()
         df = pd.read_csv(out)
-        for (cp, sys_id), grp in df.groupby([cn.COL_NUM_CHANGEPOINT, cn.COL_SYSTEM_ID]):
+        for (cp, sys_id), grp in df.groupby([cn.COL_MAX_CHANGEPOINT, cn.COL_SYSTEM_ID]):
             flags = set(grp[cn.COL_IS_RANDOM_CHANGPOINTS].tolist())
             self.assertEqual(
                 flags, {True, False},

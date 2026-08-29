@@ -84,7 +84,7 @@ def processModel(
     accuracy_df = score.score_df
     # Augment the dataframe with additional columns for the model
     accuracy_df[cn.COL_SYSTEM_ID] = model_name
-    accuracy_df[cn.COL_NUM_CHANGEPOINT] = max_changepoint
+    accuracy_df[cn.COL_MAX_CHANGEPOINT] = max_changepoint
     accuracy_df[cn.COL_MIN_SEGMENT_LENGTH] = min_segment_length
     accuracy_df[cn.COL_MIN_FRACTIONAL_REDUCTION] = min_fractional_reduction
     accuracy_df[cn.COL_IS_RANDOM_CHANGPOINTS] = is_random_changepoints
