@@ -1,4 +1,4 @@
-system_id,aggregation_type,mean,min,max,count,invalid_count,p05,p10,p20,p25,p30,p50,p80,p90,p95,p99,perturbation,fraction_species_perturbable,threshold
+system_id,aggregation_type,mean,min,max,count,invalid_count,p05,p10,p20,p25,p30,p50,p80,p90,p95,p99,perturbation,fraction_species_perturbable,coefficient_threshold
 BIOMD0000000005,model,0.0,0.0,0.0,4,2,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-0.5,1.0,0.001
 BIOMD0000000005,model,0.0,0.0,0.0,4,2,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-0.2,1.0,0.001
 BIOMD0000000005,model,0.0,0.0,0.0,4,2,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-0.1,1.0,0.001
