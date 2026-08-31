@@ -32,6 +32,9 @@ DIAMETER_IVP = "weighted_eigenvectors"
 DIAMETER_MAX_CV = "max_cv"
 
 # Columns
+COL_A80 = "a80"  # Fraction of values with an accuracy of at least 80%.
+COL_A90 = "a90"  # Fraction of values with an accuracy of at least 90%.
+COL_A95 = "a95"  # Fraction of values with an accuracy of at least 95%.
 COL_AGGREGATION_TYPE = "aggregation_type"  # model or species name
 COL_AGGREGATION_TYPE_MODEL = "model"
 COL_COUNT = "count"  # Number of valid values used in calculating the statistics.
@@ -69,6 +72,7 @@ COL_START_TIME = "start_time"
 COL_SYSTEM_ID = "system_id"  # Unique identifier for the system, e.g. model name or species name.
 COL_COEFFICIENT_THRESHOLD = "coefficient_threshold"  # Threshold used in SystemDiscovery
 COLUMN_STATISTICS = [COL_MEAN, COL_MIN, COL_MAX, COL_COUNT, COL_INVALID_COUNT] + COL_PERCENTILES
+COLUMN_ACCURACY_FRACTIONS = [COL_A80, COL_A90, COL_A95]
 COLUMN_NAMES = [COL_MODEL_NAME, COL_MAXCV, COL_ENDTIME, COL_ENDTIME_SOURCE]
 
 # Symbolic values

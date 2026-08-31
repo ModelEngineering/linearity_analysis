@@ -750,6 +750,7 @@ class TestScoreDetails(unittest.TestCase):
         disc = self._make_fitted_disc(df)
         result = disc.getScoreDetails(score_type="derivative")
         expected_cols = set(cn.COLUMN_STATISTICS + [cn.COL_AGGREGATION_TYPE, cn.COL_SYSTEM_ID])
+        expected_cols.update(cn.COLUMN_ACCURACY_FRACTIONS)
         self.assertEqual(set(result.columns), expected_cols)
 
     def test_get_score_details_has_model_and_species_rows(self) -> None:
@@ -1501,6 +1502,17 @@ class TestPlotResultBioModels551(unittest.TestCase):
         disc.fit()
         result = disc.predict()
         self.assertIsInstance(result, pd.DataFrame)
+
+    def test_predict_score_details(self) -> None:
+        """getScoreDetails() returns a DataFrame with correct columns."""
+        if IGNORE_TESTS:
+            return
+        df = _make_biomodel_551_timecourse_df(n_points=NUM_POINT)
+        disc = SystemDiscovery(df, coefficient_threshold=0.01, alpha=0.05, is_normalize=False)
+        disc.fit()
+        result = disc.getScoreDetails(score_type="timecourse")
+        has_expected_cols = set(cn.COLUMN_ACCURACY_FRACTIONS)
+        self.assertTrue(has_expected_cols.issubset(set(result.columns)))
 
 
 # ---------------------------------------------------------------------------

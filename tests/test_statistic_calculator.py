@@ -51,6 +51,27 @@ class TestIsPercentile(unittest.TestCase):
         self.assertFalse(self.calc._is_percentile(""))
 
 
+class TestAccuracyFractionToThreshold(unittest.TestCase):
+    """Tests for StatisticCalculator.accuracyFractionToThreshold()."""
+
+    def test_a80_returns_0_80(self) -> None:
+        """'a80' maps to 0.80."""
+        self.assertAlmostEqual(StatisticCalculator.accuracyFractionToThreshold("a80"), 0.80, places=5)
+
+    def test_a90_returns_0_90(self) -> None:
+        """'a90' maps to 0.90."""
+        self.assertAlmostEqual(StatisticCalculator.accuracyFractionToThreshold("a90"), 0.90, places=5)
+
+    def test_a95_returns_0_95(self) -> None:
+        """'a95' maps to 0.95."""
+        self.assertAlmostEqual(StatisticCalculator.accuracyFractionToThreshold("a95"), 0.95, places=5)
+
+    def test_invalid_name_raises_value_error(self) -> None:
+        """A non-accuracy-fraction column name raises ValueError."""
+        with self.assertRaises(ValueError):
+            StatisticCalculator.accuracyFractionToThreshold("mean")
+
+
 #########################################
 # StatisticCalculator Initialization Tests
 #########################################
@@ -378,7 +399,8 @@ class TestDataframeProperty(unittest.TestCase):
         """DataFrame has columns matching cn.STATISTICS + COL_LABEL."""
         calc = StatisticCalculator()
         df = calc.dataframe
-        expected_cols = set(cn.COLUMN_STATISTICS) | {cn.COL_LABEL}
+        expected_cols = (set(cn.COLUMN_STATISTICS) | {cn.COL_LABEL} 
+                         | set(cn.COLUMN_ACCURACY_FRACTIONS))
         actual_cols = set(df.columns)
         self.assertEqual(expected_cols, actual_cols)
 
@@ -396,6 +418,133 @@ class TestDataframeProperty(unittest.TestCase):
         calc.add(label="b", value_arr=np.array([2.0]))
         df = calc.dataframe
         self.assertEqual(len(df), 2)
+
+
+#########################################
+# StatisticCalculator accuracy_fraction_dct Tests
+#########################################
+
+class TestAccuracyFractionInit(unittest.TestCase):
+    """Tests for StatisticCalculator.__init__ accuracy_fraction_dct."""
+
+    def test_accuracy_fraction_dct_initialized(self) -> None:
+        """accuracy_fraction_dct is initialized with entries for all COLUMN_ACCURACY_FRACTION keys."""
+        calc = StatisticCalculator()
+        self.assertTrue(hasattr(calc, "accuracy_fraction_dct"))
+        expected_keys = set(cn.COLUMN_ACCURACY_FRACTIONS)
+        actual_keys = set(calc.accuracy_fraction_dct.keys())
+        self.assertEqual(expected_keys, actual_keys)
+
+    def test_accuracy_fraction_dct_values_empty_lists(self) -> None:
+        """Each entry in accuracy_fraction_dct is an empty list after init."""
+        calc = StatisticCalculator()
+        for key in cn.COLUMN_ACCURACY_FRACTIONS:
+            self.assertEqual(calc.accuracy_fraction_dct[key], [])
+
+
+class TestAccuracyFractionComputation(unittest.TestCase):
+    """Tests for accuracy fraction computation in add()."""
+
+    def setUp(self) -> None:
+        self.calc = StatisticCalculator()
+
+    def _make_arr(self, data):
+        return np.array(data, dtype=float)
+
+    def test_a80_true_when_mean_above_threshold(self) -> None:
+        """a80 is True (1.0) when mean accuracy >= 80%."""
+        arr = self._make_arr([0.9, 0.95, 0.85])
+        self.calc.add(label="test", value_arr=arr)
+        dct = self.calc.accuracy_fraction_dct
+        # Mean of [0.9, 0.95, 0.85] = 0.9 >= 0.8 -> True (1.0)
+        self.assertEqual(dct[cn.COL_A80][0], 1.0)
+
+    def test_a80_false_when_mean_below_threshold(self) -> None:
+        """a80 is False (0.0) when mean accuracy < 80%."""
+        arr = self._make_arr([0.5, 0.6, 0.7])
+        self.calc.add(label="test", value_arr=arr)
+        dct = self.calc.accuracy_fraction_dct
+        # Mean of [0.5, 0.6, 0.7] = 0.6 < 0.8 -> False (0.0)
+        self.assertEqual(dct[cn.COL_A80][0], 0.0)
+
+    def test_a90_true_when_mean_above_threshold(self) -> None:
+        """a90 is True (1.0) when mean accuracy >= 90%."""
+        arr = self._make_arr([0.95, 0.97])
+        self.calc.add(label="test", value_arr=arr)
+        dct = self.calc.accuracy_fraction_dct
+        # Mean of [0.95, 0.97] = 0.96 >= 0.9 -> True (1.0)
+        self.assertEqual(dct[cn.COL_A90][0], 1.0)
+
+    def test_a95_true_when_mean_above_threshold(self) -> None:
+        """a95 is True (1.0) when mean accuracy >= 95%."""
+        arr = self._make_arr([0.96, 0.98])
+        self.calc.add(label="test", value_arr=arr)
+        dct = self.calc.accuracy_fraction_dct
+        # Mean of [0.96, 0.98] = 0.97 >= 0.95 -> True (1.0)
+        self.assertEqual(dct[cn.COL_A95][0], 1.0)
+
+    def test_a95_false_when_mean_below_threshold(self) -> None:
+        """a95 is False (0.0) when mean accuracy < 95%."""
+        arr = self._make_arr([0.8, 0.9])
+        self.calc.add(label="test", value_arr=arr)
+        dct = self.calc.accuracy_fraction_dct
+        # Mean of [0.8, 0.9] = 0.85 < 0.95 -> False (0.0)
+        self.assertEqual(dct[cn.COL_A95][0], 0.0)
+
+    def test_all_accuracy_fractions_computed(self) -> None:
+        """All three accuracy fraction columns are populated for a single add()."""
+        arr = self._make_arr([0.85, 0.92, 0.78])
+        self.calc.add(label="test", value_arr=arr)
+        for col in cn.COLUMN_ACCURACY_FRACTIONS:
+            self.assertIn(col, self.calc.accuracy_fraction_dct)
+            # Should be a numeric float (not bool or NaN).
+            self.assertIsInstance(self.calc.accuracy_fraction_dct[col][0], (float, int))
+
+    def test_accuracy_fraction_stored_as_float(self) -> None:
+        """Accuracy fraction values are Python floats, not numpy.bool_."""
+        arr = self._make_arr([0.95, 0.98])
+        self.calc.add(label="test", value_arr=arr)
+        val = self.calc.accuracy_fraction_dct[cn.COL_A90][0]
+        # Should be a numeric float (1.0), not True/False.
+        self.assertIsInstance(val, (float, int))
+
+    def test_accuracy_fraction_with_nan_excluded(self) -> None:
+        """NaN values are excluded from mean calculation."""
+        arr = np.array([0.9, float("nan"), 0.85])
+        self.calc.add(label="test", value_arr=arr)
+        dct = self.calc.accuracy_fraction_dct
+        # Mean of [0.9, 0.85] (NaN excluded) = 0.875 >= 0.8 -> True (1.0)
+        self.assertEqual(dct[cn.COL_A80][0], 1.0)
+
+    def test_accuracy_fraction_nan_when_no_valid_values(self) -> None:
+        """Accuracy fractions are NaN when all values are invalid."""
+        arr = np.array([float("nan"), float("-inf")])
+        self.calc.add(label="test", value_arr=arr, is_non_negative=False)
+        for col in cn.COLUMN_ACCURACY_FRACTIONS:
+            val = self.calc.accuracy_fraction_dct[col][0]
+            self.assertTrue(np.isnan(val))
+
+
+class TestAccuracyFractionInDataFrame(unittest.TestCase):
+    """Tests that accuracy fractions appear in the output DataFrame."""
+
+    def test_dataframe_includes_accuracy_columns(self) -> None:
+        """The DataFrame has a80, a90, a95 columns after add()."""
+        calc = StatisticCalculator()
+        calc.add(label="test", value_arr=np.array([0.9, 0.95]))
+        df = calc.dataframe
+        for col in cn.COLUMN_ACCURACY_FRACTIONS:
+            self.assertIn(col, df.columns)
+
+    def test_dataframe_accuracy_columns_are_numeric(self) -> None:
+        """Accuracy fraction columns are numeric (not boolean strings)."""
+        calc = StatisticCalculator()
+        calc.add(label="test", value_arr=np.array([0.9, 0.95]))
+        df = calc.dataframe
+        for col in cn.COLUMN_ACCURACY_FRACTIONS:
+            # Values should be numeric (float/int), not bool or string.
+            val = df[col].iloc[0]
+            self.assertIsInstance(val, (float, np.floating))
 
 
 if __name__ == "__main__":
