@@ -17,7 +17,8 @@ from typing import List, Optional
 
 EXCLUDED_MODELS: List[str] = [
 ]
-MAX_CHANGPOINTS = [0, 1, 5, 10]
+MAX_CHANGPOINTS = [0, 1, 5, 10, 12, 15, 17, 18, 19, 20]  # Maximum number of change points to consider in the piecewise model.
+MAX_CHANGPOINTS = [0, 1, 5]
 MAX_FRACTIONAL_REDUCTION = 0.01  # Maximum fractional reduction in the sum of squared errors required to accept a new change point.
 COEFFICIENT_THRESHOLD = 0.001  # Threshold for coefficient magnitude to consider a species as linear.
 
@@ -92,6 +93,7 @@ def processModel(
 # Iterate across models and make piecewise predictions
 #################################################################
 def main(
+        process_idx: int = 0,
         first_model_num: int = 0,
         last_model_num: int = int(1e9),
         is_initialize: bool = False, # Ignore existing serialized Timecourse when initializing (for testing).
@@ -106,6 +108,8 @@ def main(
 
     Parameters
     ----------
+    process_idx : int
+        Index of the current process (for parallel processing). 
     first_model_num : int
         First model number to include (inclusive).
     last_model_num : int
@@ -119,8 +123,9 @@ def main(
     max_fractional_reduction : float
         Maximum fractional reduction in the sum of squared errors required to accept a new change point.
     output_path : str
-        Path to the output file.
+        Path to the output file. Is modified by the process index
     '''
+    output_path = output_path.replace(".csv", f"_{process_idx}.csv")
     if os.path.isfile(output_path) and (not is_initialize):
         initial_df = pd.read_csv(output_path)
         existing_model_names = set(initial_df[cn.COL_SYSTEM_ID].unique())
@@ -166,6 +171,7 @@ def main(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
             description="Piecewise predictions for BioModels.")
+    parser.add_argument("--process_idx", type=int, default=0)
     parser.add_argument("--first_model_num", type=int, default=0)
     parser.add_argument("--last_model_num", type=int, default=int(1e9))
     parser.add_argument("--initialize", action="store_true",
@@ -177,6 +183,7 @@ if __name__ == "__main__":
                         help="Threshold for coefficient magnitude to consider a species as linear.")
     args = parser.parse_args()
     main(
+            process_idx=args.process_idx,
             first_model_num=args.first_model_num,
             last_model_num=args.last_model_num,
             is_initialize=args.initialize,

@@ -208,7 +208,7 @@ class PiecewiseSystemDiscovery(object):
                 raise RuntimeError(f"Error fitting SystemDiscovery for segment {lo}:{hi}: {e}")
         return models, boundaries, lengths
 
-    def _makeChangePointsIteratively(self) -> List[int]:
+    def _makeChangepointsIteratively(self) -> List[int]:
         """Generate an initial set of evenly spaced changepoints and then iteratively
         remove those whose elimination does not degrade accuracy by more than
         ``max_fractional_reduction``.
@@ -311,7 +311,7 @@ class PiecewiseSystemDiscovery(object):
         The baseline whole-timecourse model is built lazily on first access.
         """
         if self.changepoints is None:
-            changepoints = self._makeChangePointsIteratively()
+            changepoints = self._makeChangepointsIteratively()
         else:
             changepoints = self.changepoints
         (self._subsequence_models, self._subsequence_boundaries,
@@ -435,7 +435,8 @@ class PiecewiseSystemDiscovery(object):
             block_list.append("\n".join([header] + equation_line_list))
         return "\n\n".join(block_list)
 
-    def plotPiecewise(self, num_true_point: int = -1, **plt_kwargs: Any) -> PlotOptions:
+    def plotPiecewise(self, num_true_point: int = -1, 
+                suptitle="Actual vs. Predicted", **plt_kwargs: Any) -> PlotOptions:
         """Two-panel comparison: 0 change points (top) vs max_changepoint (bottom).
 
         Both panels show actual (scatter) vs predicted (line) species concentrations.
@@ -511,7 +512,7 @@ class PiecewiseSystemDiscovery(object):
         _draw(fig=fig, ax=ax_bot, pred_df=psd_pred_df, score=psd_score,
                 title=f"{self.num_changepoint} change points",
                 vlines=change_point_times, **plt_kwargs)
-        fig.suptitle("Actual vs Predicted", fontsize=13, fontweight="bold")
+        fig.suptitle(suptitle, fontsize=13, fontweight="bold")
         fig.tight_layout()
         return plot_options
 

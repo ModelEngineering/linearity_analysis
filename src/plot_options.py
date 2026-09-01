@@ -18,6 +18,7 @@ class PlotOptions(object):
             ylim: Optional[Tuple[float, float]] = None,
             model_name: str = "",
             figsize: Tuple[float, float] = (8, 6),
+            suptitle: Optional[str] = None,
             ):
         if ax is None and fig is None:
             fig, ax = plt.subplots(figsize=figsize)
@@ -31,6 +32,7 @@ class PlotOptions(object):
         self.ylim = ylim
         self.model_name = model_name
         self.figsize = figsize
+        self.suptitle = suptitle
 
     def to_dict(self):
         return self.__dict__
@@ -54,3 +56,5 @@ class PlotOptions(object):
             self.ax.set_xlim(self.xlim) # type: ignore
         if self.ylim is not None:
             self.ax.set_ylim(self.ylim)  # type: ignore
+        if self.suptitle is not None:
+            self.fig.suptitle(self.suptitle) # type: ignore

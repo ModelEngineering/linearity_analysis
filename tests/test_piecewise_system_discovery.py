@@ -513,7 +513,7 @@ class TestMakeChangepointIteratively(unittest.TestCase):
             return
         df = _make_linear_df(n_points=50, noise_std=0.0)
         psd = PiecewiseSystemDiscovery(df, max_changepoint=0, min_segment_length=10)
-        cps = psd._makeChangePointsIteratively()
+        cps = psd._makeChangepointsIteratively()
         self.assertEqual(cps, [])
 
     def test_max_changepoint_exceeds_num_point_raises(self) -> None:
@@ -522,7 +522,7 @@ class TestMakeChangepointIteratively(unittest.TestCase):
         df = _make_linear_df(n_points=50, noise_std=0.0)
         psd = PiecewiseSystemDiscovery(df, max_changepoint=100, min_segment_length=5)
         with self.assertRaises(ValueError):
-            psd._makeChangePointsIteratively()
+            psd._makeChangepointsIteratively()
 
     def test_generous_threshold_removes_all_on_smooth_data(self) -> None:
         if IGNORE_TESTS:
@@ -534,7 +534,7 @@ class TestMakeChangepointIteratively(unittest.TestCase):
             df, max_changepoint=4, min_segment_length=10,
             max_fractional_reduction=10.0, poly_degree=1, is_normalize=False,
         )
-        cps = psd._makeChangePointsIteratively()
+        cps = psd._makeChangepointsIteratively()
         self.assertEqual(cps, [], "generous threshold should prune all on smooth data")
 
     def test_negative_threshold_keeps_all_init_changepoints(self) -> None:
@@ -547,7 +547,7 @@ class TestMakeChangepointIteratively(unittest.TestCase):
             df, max_changepoint=4, min_segment_length=5,
             max_fractional_reduction=-1.0, poly_degree=1, is_normalize=False,
         )
-        cps = psd._makeChangePointsIteratively()
+        cps = psd._makeChangepointsIteratively()
         # All four evenly-spaced init changepoints should survive since nothing can be removed.
         self.assertEqual(cps, [20, 40, 60, 80])
 
@@ -561,7 +561,7 @@ class TestMakeChangepointIteratively(unittest.TestCase):
             df, max_changepoint=5, min_segment_length=4,
             max_fractional_reduction=-1.0, poly_degree=1, is_normalize=False,
         )
-        cps = psd._makeChangePointsIteratively()
+        cps = psd._makeChangepointsIteratively()
         self.assertLessEqual(len(cps), 5)
         if len(cps) >= 2:
             diffs = [b - a for a, b in zip(cps, cps[1:])]
@@ -577,13 +577,13 @@ class TestMakeChangepointIteratively(unittest.TestCase):
             df, max_changepoint=4, min_segment_length=10,
             max_fractional_reduction=0.0, poly_degree=1, is_normalize=False,
         )
-        cps_tight = psd_tight._makeChangePointsIteratively()
+        cps_tight = psd_tight._makeChangepointsIteratively()
 
         psd_generous = PiecewiseSystemDiscovery(
             df, max_changepoint=4, min_segment_length=10,
             max_fractional_reduction=10.0, poly_degree=1, is_normalize=False,
         )
-        cps_generous = psd_generous._makeChangePointsIteratively()
+        cps_generous = psd_generous._makeChangepointsIteratively()
 
         self.assertGreaterEqual(len(cps_tight), len(cps_generous))
 
@@ -599,13 +599,13 @@ class TestMakeChangepointIteratively(unittest.TestCase):
             df, max_changepoint=4, min_segment_length=10,
             max_fractional_reduction=-1.0, poly_degree=1, is_normalize=False,
         )
-        cps_tight = psd_tight._makeChangePointsIteratively()
+        cps_tight = psd_tight._makeChangepointsIteratively()
 
         psd_generous = PiecewiseSystemDiscovery(
             df, max_changepoint=4, min_segment_length=10,
             max_fractional_reduction=10.0, poly_degree=1, is_normalize=False,
         )
-        cps_generous = psd_generous._makeChangePointsIteratively()
+        cps_generous = psd_generous._makeChangepointsIteratively()
 
         # Tight keeps all; generous prunes to empty on smooth data.
         self.assertEqual(cps_tight, [20, 40, 60, 80])

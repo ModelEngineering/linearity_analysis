@@ -8,11 +8,11 @@ from src.simulator import Simulator
 from src.system_discovery import discoverNetwork
 from src.perturbation_analyzer import PerturbationAnalyzer
 from src.timecourse import Timecourse
+from src.piecewise_system_discovery import PiecewiseSystemDiscovery
 
 IS_PLOT = False
-IS_ALL = True
+IS_ALL = False
 
-import constants as cn
 if not IS_PLOT:
     import matplotlib # type: ignore
     matplotlib.use("PDF")  # Use non-interactive backend for testing
@@ -128,3 +128,18 @@ if IS_ALL:
             filename = f"perturbation_{aggregation}_{percentile}_cdf.pdf"
             fig.savefig(os.path.join(cn.PAPER_DIR, filename), bbox_inches="tight", dpi=300) # type: ignore
             plt.close()
+
+
+################################################
+# Perturbations
+################################################
+model_num = 1045
+model = Model.makeBiomodel(model_num=model_num)
+timecourse = Timecourse(model, num_point=1000)
+df = timecourse.timecourse_df
+psd = PiecewiseSystemDiscovery(df, max_changepoint=10, min_segment_length=30,
+                                    max_fractional_reduction=0.01, model_name=str(model_num))
+psd.fit()
+fig = psd.plotPiecewise(num_true_point=60, suptitle="").fig
+fig.savefig(os.path.join(cn.PAPER_DIR, "piecewise_prediction_1045.pdf"), bbox_inches="tight", dpi=300) # type: ignore
+plt.show()

@@ -7,7 +7,7 @@ initial conditions, quantifying robustness of the model across different startin
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
-from typing import List, Tuple  # type: ignore
+from typing import Union, Tuple, Optional  # type: ignore
 
 from collections import namedtuple
 import src.constants as cn  # type: ignore
@@ -57,10 +57,10 @@ class PerturbationAnalyzer:
 
     def __init__(
         self,
-        model: Model | int,
+        model: Union[Model, int],
         training_df=NULL_DF,
         threshold: float = 0.001,
-        perturbations: list[float] | None = None,
+        perturbations: Optional[list[float]] = None,
         perturbation_species_fraction: float = 1.0,
         fraction_species_perturbable: float = 1.0,
         col_percentile: str = cn.COL_P10,
@@ -263,10 +263,10 @@ class PerturbationAnalyzer:
             axes[ax_row][ax_col].set_visible(False)
 
     def plotTimeseries(self,
-            figsize: tuple[float, float] | None = None,
+            figsize: Optional[tuple[float, float]] = None,
             subtitle: str = "",
             frac_scatter_skip: float = DEFAULT_FRAC_KEEP,
-            plot_species_names: list[str] | None = None,
+            plot_species_names: Optional[list[str]] = None,
             ) -> None:
         """Plot the time series for each perturbation.
 

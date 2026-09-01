@@ -1,0 +1,24 @@
+#!/bin/bash
+# Launch make_piecewise_predictions.py in parallel for a given number of processes, each with a different process index.
+# Should be run from the root of the repository, e.g. with `./scripts/make_piecewise_predictions.sh 4 --initialize`
+
+CMD="python scripts/make_piecewise_predictions.py"
+
+${CMD} --process_idx 0 --first_model_num 0 --last_model_num 200 "$@"  &
+${CMD} --process_idx 1 --first_model_num 201 --last_model_num 300 "$@"  &
+${CMD} --process_idx 2 --first_model_num 301 --last_model_num 400 "$@"  &
+${CMD} --process_idx 3 --first_model_num 401 --last_model_num 500 "$@"  &
+${CMD} --process_idx 4 --first_model_num 401 --last_model_num 450 "$@"  &
+${CMD} --process_idx 5 --first_model_num 451 --last_model_num 500 "$@"  &
+${CMD} --process_idx 6 --first_model_num 501 --last_model_num 550 "$@"  &
+${CMD} --process_idx=7 --first_model_num=551 --last_model_num=601 "$@"  &
+${CMD} --process_idx=8 --first_model_num=602 --last_model_num=652 "$@"  &
+${CMD} --process_idx=9 --first_model_num=653 --last_model_num=703 "$@"  &
+${CMD} --process_idx=10 --first_model_num=704 --last_model_num=754 "$@"  &
+${CMD} --process_idx=11 --first_model_num=755 --last_model_num=805 "$@"  &
+${CMD} --process_idx=12 --first_model_num=806 --last_model_num=856 "$@"  &
+${CMD} --process_idx=13 --first_model_num=857 --last_model_num=907 "$@"  &
+${CMD} --process_idx=14 --first_model_num=908 --last_model_num=958 "$@"  &
+${CMD} --process_idx=15 --first_model_num=959 --last_model_num=1009 "$@"  &
+${CMD} --process_idx=16 --first_model_num=1010 --last_model_num=1060 "$@"  &
+${CMD} --process_idx=17 --first_model_num=1061 --last_model_num=1111 "$@"  &
