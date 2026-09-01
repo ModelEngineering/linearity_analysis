@@ -207,8 +207,9 @@ class TestMain(unittest.TestCase):
             output_path = os.path.join(tmpdir, "output.csv")
             self.assertFalse(os.path.isfile(output_path))
             self._run_with_mocked_iterator(output_path,
-                                           is_initialize=True)
-            self.assertTrue(os.path.isfile(output_path))
+                    is_initialize=True)
+            adjusted_output_path = os.path.join(tmpdir, "output_0.csv")
+            self.assertTrue(os.path.isfile(adjusted_output_path))
 
     def test_skips_already_processed_models(self) -> None:
         """main skips models already present in the existing output CSV."""
@@ -217,11 +218,13 @@ class TestMain(unittest.TestCase):
             # First run: process 1 model.
             self._run_with_mocked_iterator(output_path,
                                            is_initialize=True)
-            df_first = pd.read_csv(output_path)
+            adjusted_output_path = os.path.join(tmpdir, "output_0.csv")
+            self.assertTrue(os.path.isfile(adjusted_output_path))
+            df_first = pd.read_csv(adjusted_output_path)
             # Second run: same range. Model should be skipped (no new rows added).
             self._run_with_mocked_iterator(
                 output_path, is_initialize=False)
-            df_second = pd.read_csv(output_path)
+            df_second = pd.read_csv(adjusted_output_path)
             self.assertEqual(len(df_first), len(df_second))
 
     def test_is_initialize_resets_output(self) -> None:
@@ -231,22 +234,24 @@ class TestMain(unittest.TestCase):
             # First run: process 1 model.
             self._run_with_mocked_iterator(output_path,
                                            is_initialize=True)
-            df_first = pd.read_csv(output_path)
+            adjusted_output_path = os.path.join(tmpdir, "output_0.csv")
+            df_first = pd.read_csv(adjusted_output_path)
             self.assertGreater(len(df_first), 0)
             # Second run with is_initialize: should reprocess (no skip).
             self._run_with_mocked_iterator(
                 output_path, is_initialize=True)
-            df_second = pd.read_csv(output_path)
+            df_second = pd.read_csv(adjusted_output_path)
             self.assertGreater(len(df_second), 0)
 
     def test_persists_results_to_disk(self) -> None:
         """main persists the accumulated DataFrame to the output CSV at end of run."""
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = os.path.join(tmpdir, "output.csv")
+            adjusted_output_path = os.path.join(tmpdir, "output_0.csv")
             self._run_with_mocked_iterator(output_path,
-                                           is_initialize=True)
-            self.assertTrue(os.path.isfile(output_path))
-            df = pd.read_csv(output_path)
+                    is_initialize=True)
+            self.assertTrue(os.path.isfile(adjusted_output_path))
+            df = pd.read_csv(adjusted_output_path)
             self.assertIn(cn.COL_SYSTEM_ID, df.columns)
             self.assertIn(cn.COL_MAX_CHANGEPOINT, df.columns)
 
@@ -256,7 +261,10 @@ class TestMain(unittest.TestCase):
             output_path = os.path.join(tmpdir, "output.csv")
             self._run_with_mocked_iterator(output_path,
                                            is_initialize=True)
-            df = pd.read_csv(output_path)
+            adjusted_output_path = os.path.join(tmpdir, "output_0.csv")
+            self.assertTrue(os.path.isfile(adjusted_output_path))
+            adjusted_output_path = os.path.join(tmpdir, "output_0.csv")
+            df = pd.read_csv(adjusted_output_path)
             unique_models = df[cn.COL_SYSTEM_ID].unique()
             self.assertGreater(len(unique_models), 0)
 
@@ -283,7 +291,9 @@ class TestMain(unittest.TestCase):
                         min_segment_length=50,
                         output_path=output_path,
                     )
-            df = pd.read_csv(output_path)
+            adjusted_output_path = os.path.join(tmpdir, "output_0.csv")
+            self.assertTrue(os.path.isfile(adjusted_output_path))
+            df = pd.read_csv(adjusted_output_path)
             # The excluded model should not appear in results.
             self.assertNotIn("BIOMD0000000001", df[cn.COL_SYSTEM_ID].values)
 

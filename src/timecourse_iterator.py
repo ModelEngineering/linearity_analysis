@@ -86,11 +86,12 @@ class TimecourseIterator:
         with zipfile.ZipFile(self.zip_path, 'r') as zf:
             names = sorted(zf.namelist())
             for name in names:
-                model_num = int(name[: -len('_timecourse.pkl')].replace('BIOMD', ''))
-                if model_num < self.first_model_num:
-                    continue
-                if self.last_model_num >= 0 and model_num > self.last_model_num:
-                    break
+                if name.startswith("BIOMD"):
+                    model_num = int(name[: -len('_timecourse.pkl')].replace('BIOMD', ''))
+                    if model_num < self.first_model_num:
+                        continue
+                    if self.last_model_num >= 0 and model_num > self.last_model_num:
+                        break
                 model_name = name[: -len('_timecourse.pkl')]
                 try:
                     with zf.open(name) as entry_f:
