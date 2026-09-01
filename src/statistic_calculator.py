@@ -126,4 +126,4 @@ class StatisticCalculator(object):
             self.statistic_dct[p].append(float(np.nanpercentile(valid_arr, self.extractPercentile(p))))
         for a in cn.COLUMN_ACCURACY_FRACTIONS:
             threshold = self.accuracyFractionToThreshold(a)
-            self.accuracy_fraction_dct[a].append(float(np.mean(valid_arr) >= threshold)) 
+            self.accuracy_fraction_dct[a].append(float(np.mean(valid_arr >= threshold)))

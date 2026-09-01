@@ -43,7 +43,7 @@ class PiecewiseSystemDiscovery(object):
         self,
         training_df:  pd.DataFrame,
         max_changepoint: int = 2,
-        min_fractional_reduction: float = 0.1,  
+        max_fractional_reduction: float = 0.01,  
         min_segment_length: int = 100,
         model_name: str = "",
         num_trail: int = 1,
@@ -55,7 +55,7 @@ class PiecewiseSystemDiscovery(object):
         Args:
             training_df (pd.DataFrame): Time-series data with one column per species.
             max_changepoint (int, optional): Maximum number of change points to detect. Defaults to 2.
-            min_fractional_reduction (float, optional): Minimum fractional reduction in ASS required. Defaults to 0.1.
+            max_fractional_reduction (float, optional): Minimum fractional reduction in ASS required. Defaults to 0.1.
             min_segment_length (int, optional): Minimum length of segments for splitting. Defaults to 100.
             model_name (str, optional): Optional name tag used in plots and error messages. Defaults to "".
             num_trail (int, optional): Number of random changepoint trials
@@ -68,7 +68,7 @@ class PiecewiseSystemDiscovery(object):
         self.num_point = training_df.shape[0]
         self.model_name = model_name
         self.max_changepoint = max_changepoint
-        self.min_fractional_reduction = min_fractional_reduction
+        self.max_fractional_reduction = max_fractional_reduction
         self.min_segment_length = min_segment_length
         self.is_random_changepoints = sd_kwargs.pop("is_random_changepoints", False)
         self.num_trail = num_trail
@@ -83,6 +83,11 @@ class PiecewiseSystemDiscovery(object):
         # Baseline (whole-timecourse) SystemDiscovery model, fit lazily so construction stays cheap
         # when ``fit()`` is never invoked.  Accessed via :meth:`_getBaselineSystemDiscovery`.
         self._sys_disc: Optional[SystemDiscovery] = None
+
+    @property
+    def num_changepoint(self) -> int:
+        """Return the number of detected change points."""
+        return len(self._subsequence_models) - 1 if self._is_fitted else 0
 
     def _getBaselineSystemDiscovery(self) -> SystemDiscovery:
         """Lazily build and cache the whole-timecourse baseline ``SystemDiscovery`` model."""
@@ -139,7 +144,7 @@ class PiecewiseSystemDiscovery(object):
             candidates = [c for c in candidates if abs(changepoint - c) >= cutoff]
         return sorted(changepoints)
 
-    def _getBestRandomChangepoints(self) -> List[int]:
+    def _makeBestRandomChangepoints(self) -> List[int]:
         """Try several random changepoint sets and keep the one whose piecewise fit scores best.
 
         For each trial a fresh PiecewiseSystemDiscovery is built with that candidate set, fit() against
@@ -166,7 +171,7 @@ class PiecewiseSystemDiscovery(object):
                 trial_psd = PiecewiseSystemDiscovery(
                     self.training_df,
                     max_changepoint=self.max_changepoint,
-                    min_fractional_reduction=self.min_fractional_reduction,
+                    max_fractional_reduction=self.max_fractional_reduction,
                     min_segment_length=self.min_segment_length,
                     model_name=f"{self.model_name}_trial_{trial_idx}",
                     **self._sd_kwargs,
@@ -202,6 +207,101 @@ class PiecewiseSystemDiscovery(object):
             except Exception as e:
                 raise RuntimeError(f"Error fitting SystemDiscovery for segment {lo}:{hi}: {e}")
         return models, boundaries, lengths
+
+    def _makeChangePointsIteratively(self) -> List[int]:
+        """Generate an initial set of evenly spaced changepoints and then iteratively
+        remove those whose elimination does not degrade accuracy by more than
+        ``max_fractional_reduction``.
+
+        The initial configuration divides the time series into ``max_changepoint + 1``
+        segments of roughly equal length (respecting :attr:`min_segment_length` so that no
+        segment shrinks below that threshold). Each candidate changepoint is then tested
+        for removal: a new piecewise model is fit on the remaining changepoints, and if
+        the resulting accuracy reduction stays within ``max_fractional_reduction``,
+        that changepoint is dropped. The process repeats until no further removal is
+        cheap enough.
+
+        Returns
+        -------
+        list[int]
+            Sorted list of surviving changepoint indices into the training data.
+        """
+        max_changepoint = self.max_changepoint
+        num_point = self.num_point
+        min_seg = self.min_segment_length
+
+        if max_changepoint <= 0:
+            return []
+        if max_changepoint >= num_point:
+            raise ValueError(
+                f"max_changepoint {max_changepoint} exceeds number of points {num_point}.")
+
+        # (a) Evenly spaced initial changepoints.
+        step = num_point / (max_changepoint + 1)
+        candidate_indices = [int(round((i + 1) * step)) for i in range(max_changepoint)]
+        changepoints: List[int] = []
+        last_kept = -min_seg  # sentinel so the first kept point has room before index 0
+        for cp in sorted(candidate_indices):
+            if cp < 1 or cp >= num_point:
+                continue
+            if cp - last_kept < min_seg:
+                continue
+            changepoints.append(cp)
+            last_kept = cp
+
+        # Sanity cap: never return more than max_changepoint.
+        changepoints = changepoints[:max_changepoint]
+        if not changepoints:
+            return []
+
+        def _score_for(cps: List[int]) -> float:
+            """Fit piecewise models for the given changepoints and return their score,
+            leaving self unchanged on any failure."""
+            saved_m = self._subsequence_models
+            saved_b = self._subsequence_boundaries
+            saved_l = self._subsequence_lengths
+            saved_fitted = self._is_fitted
+            try:
+                _models, _bounds, _lens = self._fitSegments(cps)
+                self._subsequence_models, self._subsequence_boundaries, self._subsequence_lengths = (
+                    _models, _bounds, _lens)
+                self._is_fitted = True
+                return float(self.score(test_df=self.training_df))
+            except Exception:
+                raise
+            finally:
+                self._subsequence_models, self._subsequence_boundaries, self._subsequence_lengths = (
+                    saved_m, saved_b, saved_l)
+                self._is_fitted = saved_fitted
+
+        # (b) Iteratively remove changepoints whose removal is cheap enough.
+        while True:
+            try:
+                baseline_score = _score_for(changepoints)
+            except Exception:
+                # If we can't even fit the full set, bail out with what we have.
+                return changepoints
+
+            best_rm_idx: Optional[int] = None
+            best_reduction = float('inf')
+            for idx in range(len(changepoints)):
+                trial_cp = [c for i, c in enumerate(changepoints) if i != idx]
+                try:
+                    trial_score = _score_for(trial_cp)
+                except Exception:
+                    # Fit failure on this candidate -- treat as too costly.
+                    continue
+
+                reduction = baseline_score - trial_score
+                if reduction <= self.max_fractional_reduction and reduction < best_reduction:
+                    best_reduction = reduction
+                    best_rm_idx = idx
+
+            if best_rm_idx is None:
+                break
+            changepoints.pop(best_rm_idx)
+
+        return changepoints
     
     def fit(self) -> 'PiecewiseSystemDiscovery':
         """Detect change points and fit a ``SystemDiscovery`` model to each segment.
@@ -211,7 +311,7 @@ class PiecewiseSystemDiscovery(object):
         The baseline whole-timecourse model is built lazily on first access.
         """
         if self.changepoints is None:
-            changepoints = self._getBestRandomChangepoints()
+            changepoints = self._makeChangePointsIteratively()
         else:
             changepoints = self.changepoints
         (self._subsequence_models, self._subsequence_boundaries,
@@ -409,7 +509,7 @@ class PiecewiseSystemDiscovery(object):
         _draw(fig=fig, ax=ax_top, pred_df=baseline_pred_df, score=baseline_score,
                 title="0 change points", **plt_kwargs)
         _draw(fig=fig, ax=ax_bot, pred_df=psd_pred_df, score=psd_score,
-                title=f"{self.max_changepoint} change points",
+                title=f"{self.num_changepoint} change points",
                 vlines=change_point_times, **plt_kwargs)
         fig.suptitle("Actual vs Predicted", fontsize=13, fontweight="bold")
         fig.tight_layout()

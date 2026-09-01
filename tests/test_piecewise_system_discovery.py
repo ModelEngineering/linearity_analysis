@@ -67,7 +67,7 @@ class TestPiecewiseSystemDiscoveryConstructor(unittest.TestCase):
         df = _make_linear_df(n_points=50)
         psd = PiecewiseSystemDiscovery(df)
         self.assertEqual(psd.max_changepoint, 2)
-        self.assertAlmostEqual(psd.min_fractional_reduction, 0.1)
+        self.assertAlmostEqual(psd.max_fractional_reduction, 0.01)
         self.assertEqual(psd.min_segment_length, 100)
         self.assertEqual(psd.num_trail, 1)
         self.assertIsNone(psd.changepoints)
@@ -77,12 +77,12 @@ class TestPiecewiseSystemDiscoveryConstructor(unittest.TestCase):
             return
         df = _make_linear_df(n_points=50)
         psd = PiecewiseSystemDiscovery(
-            df, max_changepoint=3, min_fractional_reduction=0.2,
+            df, max_changepoint=3, max_fractional_reduction=0.2,
             min_segment_length=20, model_name="my_model",
             num_trail=5, changepoints=[10, 20],
         )
         self.assertEqual(psd.max_changepoint, 3)
-        self.assertAlmostEqual(psd.min_fractional_reduction, 0.2)
+        self.assertAlmostEqual(psd.max_fractional_reduction, 0.2)
         self.assertEqual(psd.min_segment_length, 20)
         self.assertEqual(psd.model_name, "my_model")
         self.assertEqual(psd.num_trail, 5)
@@ -219,7 +219,7 @@ class TestMakeRandomChangepoints(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# _getBestRandomChangepoints tests
+# _makeBestRandomChangepoints tests
 # ---------------------------------------------------------------------------
 
 
@@ -230,7 +230,7 @@ class TestGetBestRandomChangepoints(unittest.TestCase):
             return
         df = _make_linear_df(n_points=200, noise_std=0.05)
         psd = PiecewiseSystemDiscovery(df, num_trail=1, min_segment_length=20)
-        cp = psd._getBestRandomChangepoints()
+        cp = psd._makeBestRandomChangepoints()
         self.assertIsInstance(cp, list)
 
     def test_multiple_trials_returns_changepoints(self) -> None:
@@ -238,7 +238,7 @@ class TestGetBestRandomChangepoints(unittest.TestCase):
             return
         df = _make_linear_df(n_points=200, noise_std=0.05)
         psd = PiecewiseSystemDiscovery(df, num_trail=3, min_segment_length=20)
-        cp = psd._getBestRandomChangepoints()
+        cp = psd._makeBestRandomChangepoints()
         self.assertIsInstance(cp, list)
 
     def test_returns_sorted(self) -> None:
@@ -246,7 +246,7 @@ class TestGetBestRandomChangepoints(unittest.TestCase):
             return
         df = _make_linear_df(n_points=200, noise_std=0.05)
         psd = PiecewiseSystemDiscovery(df, num_trail=3, min_segment_length=10)
-        cp = psd._getBestRandomChangepoints()
+        cp = psd._makeBestRandomChangepoints()
         self.assertEqual(cp, sorted(cp))
 
 
@@ -500,6 +500,117 @@ class TestPlotPiecewise(unittest.TestCase):
         psd = PiecewiseSystemDiscovery(df)
         with self.assertRaises(RuntimeError):
             psd.plotPiecewise()
+
+# ---------------------------------------------------------------------------
+# _makeChangePointsIteratively tests
+# ---------------------------------------------------------------------------
+
+
+class TestMakeChangepointIteratively(unittest.TestCase):
+
+    def test_max_changepoint_zero_returns_empty(self) -> None:
+        if IGNORE_TESTS:
+            return
+        df = _make_linear_df(n_points=50, noise_std=0.0)
+        psd = PiecewiseSystemDiscovery(df, max_changepoint=0, min_segment_length=10)
+        cps = psd._makeChangePointsIteratively()
+        self.assertEqual(cps, [])
+
+    def test_max_changepoint_exceeds_num_point_raises(self) -> None:
+        if IGNORE_TESTS:
+            return
+        df = _make_linear_df(n_points=50, noise_std=0.0)
+        psd = PiecewiseSystemDiscovery(df, max_changepoint=100, min_segment_length=5)
+        with self.assertRaises(ValueError):
+            psd._makeChangePointsIteratively()
+
+    def test_generous_threshold_removes_all_on_smooth_data(self) -> None:
+        if IGNORE_TESTS:
+            return
+        # With a very generous threshold every candidate removal is acceptable; on smooth
+        # single-regime data all evenly-spaced changepoints should be pruned.
+        df = _make_linear_df(n_points=100, noise_std=0.0)
+        psd = PiecewiseSystemDiscovery(
+            df, max_changepoint=4, min_segment_length=10,
+            max_fractional_reduction=10.0, poly_degree=1, is_normalize=False,
+        )
+        cps = psd._makeChangePointsIteratively()
+        self.assertEqual(cps, [], "generous threshold should prune all on smooth data")
+
+    def test_negative_threshold_keeps_all_init_changepoints(self) -> None:
+        if IGNORE_TESTS:
+            return
+        # max_fractional_reduction=-1.0 only permits removals that improve accuracy by > 1.0,
+        # which is impossible on a [0, 1] score scale; so every init changepoint survives.
+        df = _make_linear_df(n_points=100, noise_std=0.0)
+        psd = PiecewiseSystemDiscovery(
+            df, max_changepoint=4, min_segment_length=5,
+            max_fractional_reduction=-1.0, poly_degree=1, is_normalize=False,
+        )
+        cps = psd._makeChangePointsIteratively()
+        # All four evenly-spaced init changepoints should survive since nothing can be removed.
+        self.assertEqual(cps, [20, 40, 60, 80])
+
+    def test_respects_min_segment_length(self) -> None:
+        if IGNORE_TESTS:
+            return
+        # Use a negative threshold so no changepoint is ever pruned; verify the init
+        # evenly-spaced candidates were filtered to satisfy min_segment_length.
+        df = _make_linear_df(n_points=12, noise_std=0.0)
+        psd = PiecewiseSystemDiscovery(
+            df, max_changepoint=5, min_segment_length=4,
+            max_fractional_reduction=-1.0, poly_degree=1, is_normalize=False,
+        )
+        cps = psd._makeChangePointsIteratively()
+        self.assertLessEqual(len(cps), 5)
+        if len(cps) >= 2:
+            diffs = [b - a for a, b in zip(cps, cps[1:])]
+            self.assertTrue(all(d >= 4 for d in diffs))
+
+    def test_tighter_threshold_prunes_at_least_as_many(self) -> None:
+        if IGNORE_TESTS:
+            return
+        # Robust ordering check: with max_fractional_reduction=0.0 the method is strictly
+        # more selective than with 10.0, so it must keep >= as many changepoints.
+        df = _make_linear_df(n_points=100, noise_std=0.0)
+        psd_tight = PiecewiseSystemDiscovery(
+            df, max_changepoint=4, min_segment_length=10,
+            max_fractional_reduction=0.0, poly_degree=1, is_normalize=False,
+        )
+        cps_tight = psd_tight._makeChangePointsIteratively()
+
+        psd_generous = PiecewiseSystemDiscovery(
+            df, max_changepoint=4, min_segment_length=10,
+            max_fractional_reduction=10.0, poly_degree=1, is_normalize=False,
+        )
+        cps_generous = psd_generous._makeChangePointsIteratively()
+
+        self.assertGreaterEqual(len(cps_tight), len(cps_generous))
+
+    def test_uses_instance_max_fractional_reduction(self) -> None:
+        if IGNORE_TESTS:
+            return
+        # Confirm the method reads from self.max_fractional_reduction (set via constructor)
+        # rather than a per-call argument, by constructing two instances that differ only in
+        # this attribute and verifying their pruning behavior diverges.
+        df = _make_linear_df(n_points=100, noise_std=0.0)
+
+        psd_tight = PiecewiseSystemDiscovery(
+            df, max_changepoint=4, min_segment_length=10,
+            max_fractional_reduction=-1.0, poly_degree=1, is_normalize=False,
+        )
+        cps_tight = psd_tight._makeChangePointsIteratively()
+
+        psd_generous = PiecewiseSystemDiscovery(
+            df, max_changepoint=4, min_segment_length=10,
+            max_fractional_reduction=10.0, poly_degree=1, is_normalize=False,
+        )
+        cps_generous = psd_generous._makeChangePointsIteratively()
+
+        # Tight keeps all; generous prunes to empty on smooth data.
+        self.assertEqual(cps_tight, [20, 40, 60, 80])
+        self.assertEqual(cps_generous, [])
+
 
 if __name__ == "__main__":
     unittest.main()
