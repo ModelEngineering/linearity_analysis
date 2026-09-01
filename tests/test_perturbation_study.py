@@ -17,6 +17,7 @@ _constants_stub = types.SimpleNamespace(
     DATA_DIR="/tmp",
     COL_SYSTEM_ID="system_id",
     COL_THRESHOLD="threshold",
+    COL_COEFFICIENT_THRESHOLD="coefficient_threshold",
 )
 _src_pkg = types.ModuleType("src")
 _src_pkg.__path__ = []  # mark it as a package so src.constants resolves
@@ -380,14 +381,14 @@ class TestMainOutputFormat(unittest.TestCase):
 
     def test_threshold_value_matches_passed_argument(self) -> None:
         df = self._write_through_main(0.042, "BIOMD_99")
-        thresholds = df["threshold"].unique()
+        thresholds = df[ps.cn.COL_COEFFICIENT_THRESHOLD].unique()
         self.assertEqual(len(thresholds), 1)
         self.assertAlmostEqual(float(thresholds[0]), 0.042)
 
     def test_threshold_in_output_not_default_constant(self) -> None:
         """The CSV threshold must come from the call argument, not DEFAULT_THRESHOLD."""
         df = self._write_through_main(0.077, "BIOMD_99")
-        thresholds = df["threshold"].unique()
+        thresholds = df[ps.cn.COL_COEFFICIENT_THRESHOLD].unique()
         self.assertAlmostEqual(float(thresholds[0]), 0.077)
         self.assertNotAlmostEqual(float(thresholds[0]), ps.DEFAULT_THRESHOLD)
 

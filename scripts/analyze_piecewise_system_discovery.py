@@ -34,7 +34,8 @@ def _output_path(num_change_point: int) -> str:
     return OUTPUT_TEMPLATE.format(num_change_point)
 
 
-def main(num_change_point: int = 2, is_initialize: bool = False) -> pd.DataFrame:
+def main(num_change_point: int = 2, is_initialize: bool = False,
+        num_trail: int = 1) -> pd.DataFrame:
     output_path = _output_path(num_change_point)
 
     if not is_initialize and os.path.isfile(output_path):
@@ -55,10 +56,11 @@ def main(num_change_point: int = 2, is_initialize: bool = False) -> pd.DataFrame
         print(f"Processing {item.model_name}...", flush=True)
         try:
             psd = PiecewiseSystemDiscovery(
-                item.timecourse,
+                item.timecourse.timecourse_df,
                 max_changepoint=num_change_point,
+                num_trail=num_trail,
             ).fit()
-            info = psd.score()
+            info = psd.getScoreSummary()
         except Exception as exc:
             print(f"  [error] {item.model_name}: {exc}", file=sys.stderr)
             continue
@@ -88,8 +90,12 @@ if __name__ == "__main__":
         help="Number of change points for PiecewiseSystemDiscovery (default: 2)",
     )
     parser.add_argument(
+        "--num_trail", type=int, default=1,
+        help="Number of random change points to try (default: 1)",
+    )
+    parser.add_argument(
         "--initialize", action="store_true",
         help="Ignore existing results and start fresh",
     )
     args = parser.parse_args()
-    main(num_change_point=args.num_change_point, is_initialize=args.initialize)
+    main(num_change_point=args.num_change_point, is_initialize=args.initialize, num_trail=args.num_trail)

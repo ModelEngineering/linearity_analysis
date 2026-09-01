@@ -11,9 +11,9 @@ import src.constants as cn
 from src.model import Model  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
 from src.system_discovery import SystemDiscovery, NULL_DF  # type: ignore
-from src.system_discovery_changepoint_detector import SystemDiscoveryChangepointDetector
 
 import collections
+from dataclasses import dataclass  # noqa: E402 (dataclass used by PiecewiseSystemDiscovery._ScoreSummary)
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
@@ -28,6 +28,17 @@ PlotBiomodelsSignalResult = collections.namedtuple('PlotBiomodelsSignalResult',
 class PiecewiseSystemDiscovery(object):
     """Piecewise-linear ODE discovery across detected change-points."""
 
+    @dataclass
+    class _ScoreSummary:
+        """Lightweight summary of scores across all subsequences.
+
+        Attributes mirror the column names produced by ``src.score.Score`` so they line up with CSV output.
+        """
+        min: float  # minimum species-level score (accuracy)
+        median: float  # median species-level accuracy
+        max: float  # maximum species-level accuracy
+        num_nonzero_term: int  # total number of non-zero ODE terms across all segments and species
+
     def __init__(
         self,
         training_df:  pd.DataFrame,
@@ -35,7 +46,8 @@ class PiecewiseSystemDiscovery(object):
         min_fractional_reduction: float = 0.1,  
         min_segment_length: int = 100,
         model_name: str = "",
-        is_random_changepoints: bool = False,
+        num_trail: int = 1,
+        changepoints: Optional[List[int]] = None,
         **sd_kwargs: Any,
     ) -> None:
         """Construct a piecewise-linear ODE discovery pipeline.
@@ -45,20 +57,24 @@ class PiecewiseSystemDiscovery(object):
             max_changepoint (int, optional): Maximum number of change points to detect. Defaults to 2.
             min_fractional_reduction (float, optional): Minimum fractional reduction in ASS required. Defaults to 0.1.
             min_segment_length (int, optional): Minimum length of segments for splitting. Defaults to 100.
-            is_random_changepoints (bool, optional): Whether to use random change points. Defaults to False.
+            model_name (str, optional): Optional name tag used in plots and error messages. Defaults to "".
+            num_trail (int, optional): Number of random changepoint trials
+            changepoints (List[int], optional): List of pre-determined change points. Defaults to None.
             **sd_kwargs: Arguments forwarded to each per-segment ``SystemDiscovery`` constructor.
         """
         self.training_df = training_df
         self.species_names = list(training_df.columns)
         self.num_species = len(self.species_names)
         self.num_point = training_df.shape[0]
-        self.is_random_changepoints = is_random_changepoints
         self.model_name = model_name
         self.max_changepoint = max_changepoint
         self.min_fractional_reduction = min_fractional_reduction
         self.min_segment_length = min_segment_length
+        self.is_random_changepoints = sd_kwargs.pop("is_random_changepoints", False)
+        self.num_trail = num_trail
         sd_kwargs["poly_degree"] = sd_kwargs.get("poly_degree", 1)
         self._sd_kwargs = sd_kwargs
+        self.changepoints = changepoints
 
         self._subsequence_models: List[SystemDiscovery] = []
         self._subsequence_boundaries: List[Tuple[float, float]] = []
@@ -123,20 +139,69 @@ class PiecewiseSystemDiscovery(object):
             candidates = [c for c in candidates if abs(changepoint - c) >= cutoff]
         return sorted(changepoints)
 
-    def _getChangepoints(self) -> List[int]:
-        """Return the list of detected change points."""
-        if self.is_random_changepoints:
-            changepoints = self._makeRandomChangepoints()
-        else:
-            # Find the changepoints
-            detector = SystemDiscoveryChangepointDetector(
-                self._getBaselineSystemDiscovery(),
-                max_changepoint=self.max_changepoint,
-                min_segment_length=self.min_segment_length,
-                min_fractional_reduction=self.min_fractional_reduction)
-            detector.fit()
-            changepoints = detector.changepoints
-        return changepoints
+    def _getBestRandomChangepoints(self) -> List[int]:
+        """Try several random changepoint sets and keep the one whose piecewise fit scores best.
+
+        For each trial a fresh PiecewiseSystemDiscovery is built with that candidate set, fit() against
+        training data, and scored via accuracy across all species/segments. The candidate producing
+        the highest score wins; ties go to the first (lowest seed) trial.
+
+        Returns
+        -------
+        list[int]
+            Sorted changepoint indices in ``[1, num_point - 1)`` for the best trial (or the only one when
+            ``num_trail <= 1``).  May be shorter than ``max_changepoint`` if segment constraints prevent it.
+        """
+        best_cp: Optional[List[int]] = None
+        best_score = float("-inf")
+        rng = np.random.default_rng()
+        for trial_idx in range(self.num_trail):
+            seed = int(rng.integers(0, 2 ** 31)) if self.num_trail > 1 else None
+            cp = self._makeRandomChangepoints(seed=seed)
+            if self.num_trail <= 1:
+                best_cp = cp
+                break
+            # Score this candidate by fitting a full PiecewiseSystemDiscovery against training data.
+            try:
+                trial_psd = PiecewiseSystemDiscovery(
+                    self.training_df,
+                    max_changepoint=self.max_changepoint,
+                    min_fractional_reduction=self.min_fractional_reduction,
+                    min_segment_length=self.min_segment_length,
+                    model_name=f"{self.model_name}_trial_{trial_idx}",
+                    **self._sd_kwargs,
+                )
+                trial_psd._is_fitted = True  # bypass recursion into _getChangepoints()
+                trial_psd._subsequence_models, trial_psd._subsequence_boundaries, trial_psd._subsequence_lengths = \
+                    self._fitSegments(cp)
+                score = trial_psd.score()
+            except Exception:
+                # Treat fit failures as infinitely bad so they don't win.
+                score = float("-inf")
+            if score > best_score:
+                best_score = score
+                best_cp = cp
+        return list(best_cp or [])
+
+    def _fitSegments(self, changepoints: List[int]) -> Tuple[List[SystemDiscovery],
+            List[Tuple[float, float]], List[int]]:
+        """Build (models, boundaries, lengths) from a given set of indices."""
+        time_arr = self.training_df.index.to_numpy(dtype=float)
+        boundary_index_arr = [0] + changepoints + [self.num_point]
+        models: List[SystemDiscovery] = []
+        boundaries: List[Tuple[float, float]] = []
+        lengths: List[int] = []
+        for lo, hi in zip(boundary_index_arr[:-1], boundary_index_arr[1:]):
+            subsequence_df = self.training_df.iloc[lo:hi]
+            end_time = time_arr[hi] if hi < self.num_point else time_arr[-1]
+            boundaries.append((float(time_arr[lo]), float(end_time)))
+            lengths.append(hi - lo)
+            try:
+                sys_disc = SystemDiscovery(subsequence_df, **self._sd_kwargs).fit()
+                models.append(sys_disc)
+            except Exception as e:
+                raise RuntimeError(f"Error fitting SystemDiscovery for segment {lo}:{hi}: {e}")
+        return models, boundaries, lengths
     
     def fit(self) -> 'PiecewiseSystemDiscovery':
         """Detect change points and fit a ``SystemDiscovery`` model to each segment.
@@ -145,25 +210,12 @@ class PiecewiseSystemDiscovery(object):
         and :attr:`_subsequence_lengths` are populated; :meth:`predict` is available.
         The baseline whole-timecourse model is built lazily on first access.
         """
-        time_arr = self.training_df.index.to_numpy(dtype=float)
-        changepoints = self._getChangepoints()
-        boundary_index_arr = [0] + changepoints + [self.num_point]
-        # Construct the subsequence information
-        self._subsequence_models = []
-        self._subsequence_boundaries = []
-        self._subsequence_lengths = []
-        # If there are no change points, treat the entire time range as one segment.
-        for lo, hi in zip(boundary_index_arr[:-1], boundary_index_arr[1:]):
-            subsequence_df = self.training_df.iloc[lo:hi]
-            end_time = time_arr[hi] if hi < self.num_point else time_arr[-1]
-            self._subsequence_boundaries.append((float(time_arr[lo]), float(end_time)))
-            self._subsequence_lengths.append(hi - lo)
-            try:
-                sys_disc = SystemDiscovery(subsequence_df, **self._sd_kwargs).fit()
-                self._subsequence_models.append(sys_disc)
-            except Exception as e:
-                print(f"Error fitting SystemDiscovery for segment {lo}:{hi}: {e}")
-        #
+        if self.changepoints is None:
+            changepoints = self._getBestRandomChangepoints()
+        else:
+            changepoints = self.changepoints
+        (self._subsequence_models, self._subsequence_boundaries,
+        self._subsequence_lengths) = self._fitSegments(changepoints)
         self._is_fitted = True
         return self
 
@@ -250,6 +302,29 @@ class PiecewiseSystemDiscovery(object):
             score_dfs.append(score_info)
         result_df = pd.concat(score_dfs, ignore_index=True)
         return result_df
+
+    def getScoreSummary(self) -> 'PiecewiseSystemDiscovery._ScoreSummary':
+        """Return a lightweight summary object with ``.min``/``.median``/``.max``/``.num_nonzero_term``.
+
+        Aggregates per-segment scores and term counts across all subsequences so callers can compare
+        trial runs without dealing directly with the raw DataFrame columns.
+        """
+        self._requireFitted()
+        score_dfs = []
+        total_nonzero = 0
+        for sys_disc, (start, end) in zip(self._subsequence_models, self._subsequence_boundaries):
+            score_info = sys_disc.getScoreDetails()
+            species_rows = score_info[score_info[cn.COL_AGGREGATION_TYPE] != cn.COL_AGGREGATION_TYPE_MODEL]
+            if not species_rows.empty:
+                score_dfs.append(species_rows)
+            total_nonzero += sum(sys_disc.getNonzeroTerms().values())
+        combined = pd.concat(score_dfs, ignore_index=True) if score_dfs else pd.DataFrame()
+        return self._ScoreSummary(
+            min=float(combined[cn.COL_MIN].min()) if not combined.empty else float("nan"),
+            median=float(combined[cn.COL_P50].median()) if not combined.empty else float("nan"),
+            max=float(combined[cn.COL_MAX].max()) if not combined.empty else float("nan"),
+            num_nonzero_term=total_nonzero,
+        )
 
     def __str__(self) -> str:
         block_list: List[str] = []
