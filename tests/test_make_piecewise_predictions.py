@@ -217,7 +217,7 @@ class TestMain(unittest.TestCase):
             output_path = os.path.join(tmpdir, "output.csv")
             # First run: process 1 model.
             self._run_with_mocked_iterator(output_path,
-                                           is_initialize=True)
+                    is_initialize=True)
             adjusted_output_path = os.path.join(tmpdir, "output_0.csv")
             self.assertTrue(os.path.isfile(adjusted_output_path))
             df_first = pd.read_csv(adjusted_output_path)
@@ -233,7 +233,7 @@ class TestMain(unittest.TestCase):
             output_path = os.path.join(tmpdir, "output.csv")
             # First run: process 1 model.
             self._run_with_mocked_iterator(output_path,
-                                           is_initialize=True)
+                    is_initialize=True)
             adjusted_output_path = os.path.join(tmpdir, "output_0.csv")
             df_first = pd.read_csv(adjusted_output_path)
             self.assertGreater(len(df_first), 0)

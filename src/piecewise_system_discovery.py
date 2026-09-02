@@ -398,7 +398,7 @@ class PiecewiseSystemDiscovery(object):
             test_seg_df = test_df.iloc[(test_df.index >= start) & (test_df.index <= end)]
             score_info = sys_disc.getScoreDetails(test_df=test_seg_df, score_type=score_type)
             score_info[cn.COL_START_TIME] = start
-            score_info[cn.COL_END_TIME] = end
+            score_info[cn.COL_ENDTIME] = end
             score_dfs.append(score_info)
         result_df = pd.concat(score_dfs, ignore_index=True)
         return result_df

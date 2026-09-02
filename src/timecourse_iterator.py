@@ -25,7 +25,8 @@ class TimecourseIterator:
 
     def __init__(self, zip_path: str = cn.TIMECOURSE_ZIP_PATH,
             num_model:int = -1, first_model_num:int = 0, last_model_num:int = -1,
-            num_point:int = 1000) -> None:
+            num_point:int = 1000,
+            is_report:bool = False) -> None:
         """
         Args:
             zip_path (str, optional): _description_. Defaults to cn.TIMECOURSE_ZIP_PATH.
@@ -39,6 +40,7 @@ class TimecourseIterator:
         self.first_model_num = first_model_num
         self.last_model_num = last_model_num
         self.num_point = num_point
+        self.is_report = is_report
 
     @staticmethod
     def getTimecourse(model_name: Union[str, int], zip_path: str = cn.TIMECOURSE_ZIP_PATH,
@@ -88,6 +90,8 @@ class TimecourseIterator:
             for name in names:
                 if name.startswith("BIOMD"):
                     model_num = int(name[: -len('_timecourse.pkl')].replace('BIOMD', ''))
+                    if self.is_report:
+                        print(f"Processing {model_num}")
                     if model_num < self.first_model_num:
                         continue
                     if self.last_model_num >= 0 and model_num > self.last_model_num:
