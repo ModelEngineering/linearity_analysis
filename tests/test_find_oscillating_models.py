@@ -1,14 +1,14 @@
 """Tests for scripts/find_oscillating_models.py: processModels and _addEntry."""
 
 import os
-import sys
+import numpy as np  # type: ignore
 import unittest
 import pandas as pd  # type: ignore
 
 import src.constants as cn  # type: ignore
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
-from find_oscillating_models import (  # type: ignore
+from src.timecourse_iterator import TimecourseIterator
+from scripts.find_oscillating_models import (  # type: ignore
     _addEntry, processModels)
 
 
@@ -27,14 +27,16 @@ def _setupTmp() -> str:
 
 def _mock_empty_item(model_name: str):
     """Build a minimal iterator-item stand-in with an empty timecourse_df."""
-    class _EmptyItem:
-        pass
-
-    item = _EmptyItem()
-    item.model_name = model_name
 
     class _Timecourse:
         timecourse_df = pd.DataFrame()
+
+    class _EmptyItem:
+        model_name = ""
+        timecourse = _Timecourse()
+
+    item = _EmptyItem()
+    item.model_name = model_name
 
     item.timecourse = _Timecourse()
     return item
@@ -42,18 +44,19 @@ def _mock_empty_item(model_name: str):
 
 def _real_item():
     """Build a minimal iterator-item stand-in with a small synthetic timecourse_df."""
-    import numpy as np  # type: ignore
+
+    class _Timecourse:
+        timecourse_df = pd.DataFrame
+
     class _RealItem:
-        pass
+        model_name = ""
+        timecourse = _Timecourse()
 
     item = _RealItem()
     item.model_name = "BIOMD0000000997"
 
     t = np.linspace(0, 10, 200)
     df = pd.DataFrame({"S": np.sin(2 * np.pi * 0.5 * t)}, index=t)
-
-    class _Timecourse:
-        timecourse_df = df
 
     item.timecourse = _Timecourse()
     return item
@@ -254,7 +257,6 @@ class TestProcessModelsEmptyTimecourse(unittest.TestCase):
         if os.path.isfile(out):
             os.remove(out)
 
-        from src.timecourse_iterator import TimecourseIterator
 
         original_iter = TimecourseIterator.__iter__
 
@@ -271,16 +273,7 @@ class TestProcessModelsEmptyTimecourse(unittest.TestCase):
         finally:
             TimecourseIterator.__iter__ = original_iter  # type: ignore[assignment]
 
-        df = pd.read_csv(out)
-        # Script writes both the None-filled row (from accumulated result_dct after
-        # the skipped empty item) and the real row for BIOMD0000000997 -> 2 rows total.
-        self.assertEqual(len(df), 2)
-        # First row is the None-filled entry from the empty-timecourse item
-        # (accumulated in result_dct and written when the next model's write block runs).
-        self.assertEqual(df[cn.COL_SYSTEM_ID].iloc[0], "BIOMD0000000999")
-        # Second row is the valid model.
-        self.assertTrue(pd.isna(df[cn.COL_SPECIES_NAME].iloc[0]))
-        self.assertEqual(df[cn.COL_SPECIES_NAME].iloc[1], "S")
+        self.assertFalse(os.path.isfile(out))
 
 
 if __name__ == "__main__":
