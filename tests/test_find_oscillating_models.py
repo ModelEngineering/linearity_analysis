@@ -71,7 +71,8 @@ class TestAddEntry(unittest.TestCase):
     """
 
     def setUp(self) -> None:
-        self.dct = {n: [] for n in [cn.COL_SYSTEM_ID, cn.COL_SPECIES_NAME, cn.COL_FREQUENCIES]}
+        self.dct = {n: [] for n in [cn.COL_SYSTEM_ID, cn.COL_SPECIES_NAME, cn.COL_FREQUENCIES,
+                cn.COL_ENDTIME]}
 
     def test_adds_model_name_to_system_id_column(self) -> None:
         """_addEntry writes model_name into COL_SYSTEM_ID."""
@@ -96,10 +97,11 @@ class TestAddEntry(unittest.TestCase):
         _addEntry(self.dct, "BIOMD0000000005", "B", [0.2])
         self.assertEqual(len(self.dct[cn.COL_SYSTEM_ID]), 2)
         self.assertEqual(self.dct[cn.COL_SPECIES_NAME], ["A", "B"])
+        self.assertEqual(self.dct[cn.COL_FREQUENCIES], [[0.1], [0.2]])
 
 
 class TestProcessModelsInitialRun(unittest.TestCase):
-    """Integration tests for processModels(is_initial_run=True)."""
+    """Integration tests for processModels(is_initialize=True)."""
 
     @unittest.skipIf(IGNORE_TESTS or not HAS_BIOMODELS, "Skipping non-CI or missing data.")
     def test_creates_csv_with_correct_columns(self) -> None:
@@ -112,12 +114,13 @@ class TestProcessModelsInitialRun(unittest.TestCase):
             first_model_num=_TEST_MODELS[0],
             last_model_num=_TEST_MODELS[-1],
             output_path=out,
-            is_initial_run=True,
+            is_initialize=True,
         )
 
         self.assertTrue(os.path.isfile(out))
         df = pd.read_csv(out)
-        expected_cols = {cn.COL_SYSTEM_ID, cn.COL_SPECIES_NAME, cn.COL_FREQUENCIES}
+        expected_cols = {cn.COL_SYSTEM_ID, cn.COL_SPECIES_NAME, cn.COL_FREQUENCIES,
+                cn.COL_ENDTIME}
         self.assertEqual(set(df.columns), expected_cols)
 
     @unittest.skipIf(IGNORE_TESTS or not HAS_BIOMODELS, "Skipping non-CI or missing data.")
@@ -131,7 +134,7 @@ class TestProcessModelsInitialRun(unittest.TestCase):
             first_model_num=_TEST_MODELS[0],
             last_model_num=_TEST_MODELS[-1],
             output_path=out,
-            is_initial_run=True,
+            is_initialize=True,
         )
 
         df = pd.read_csv(out)
@@ -150,7 +153,7 @@ class TestProcessModelsInitialRun(unittest.TestCase):
             first_model_num=_TEST_MODELS[0],
             last_model_num=_TEST_MODELS[-1],
             output_path=out,
-            is_initial_run=True,
+            is_initialize=True,
         )
 
         df = pd.read_csv(out, converters={cn.COL_FREQUENCIES: eval})
@@ -159,7 +162,7 @@ class TestProcessModelsInitialRun(unittest.TestCase):
 
 
 class TestProcessModelsResume(unittest.TestCase):
-    """Integration tests for processModels(is_initial_run=False) resume logic."""
+    """Integration tests for processModels(is_initialize=False) resume logic."""
 
     @unittest.skipIf(IGNORE_TESTS or not HAS_BIOMODELS, "Skipping non-CI or missing data.")
     def test_existing_models_are_skipped(self) -> None:
@@ -171,7 +174,7 @@ class TestProcessModelsResume(unittest.TestCase):
             first_model_num=_TEST_MODELS[0],
             last_model_num=_TEST_MODELS[-1],
             output_path=out,
-            is_initial_run=True,
+            is_initialize=True,
         )
         df1 = pd.read_csv(out)
         initial_count = len(df1)
@@ -181,7 +184,7 @@ class TestProcessModelsResume(unittest.TestCase):
             first_model_num=_TEST_MODELS[0],
             last_model_num=_TEST_MODELS[-1],
             output_path=out,
-            is_initial_run=False,
+            is_initialize=False,
         )
 
         df2 = pd.read_csv(out)
@@ -196,7 +199,7 @@ class TestProcessModelsResume(unittest.TestCase):
             first_model_num=_TEST_MODELS[0],
             last_model_num=_TEST_MODELS[0],
             output_path=out,
-            is_initial_run=True,
+            is_initialize=True,
         )
         df1 = pd.read_csv(out)
 
@@ -204,7 +207,7 @@ class TestProcessModelsResume(unittest.TestCase):
             first_model_num=_TEST_MODELS[0],
             last_model_num=_TEST_MODELS[-1],
             output_path=out,
-            is_initial_run=False,
+            is_initialize=False,
         )
         df2 = pd.read_csv(out)
 
@@ -237,7 +240,7 @@ class TestProcessModelsEmptyTimecourse(unittest.TestCase):
             TimecourseIterator.__iter__ = _fake  # type: ignore[assignment]
             processModels(
                 first_model_num=0, last_model_num=-1,
-                output_path=out, is_initial_run=True,
+                output_path=out, is_initialize=True,
             )
         finally:
             TimecourseIterator.__iter__ = original_iter  # type: ignore[assignment]
@@ -263,7 +266,7 @@ class TestProcessModelsEmptyTimecourse(unittest.TestCase):
             TimecourseIterator.__iter__ = _fake  # type: ignore[assignment]
             processModels(
                 first_model_num=0, last_model_num=-1,
-                output_path=out, is_initial_run=True,
+                output_path=out, is_initialize=True,
             )
         finally:
             TimecourseIterator.__iter__ = original_iter  # type: ignore[assignment]

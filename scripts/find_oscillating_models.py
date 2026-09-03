@@ -24,7 +24,7 @@ OUTPUT_PATH = os.path.join(cn.DATA_DIR, "find_oscillating_models.csv")
 def _addEntry(result_dct, model_name: str,
         species_name: Optional[str] = None,
         frequencies: Optional[List[float]] = None,
-        end_time: Optional[float] = None) -> None:
+        endtime: Optional[float] = None) -> None:
     """Add a an entry to the results dictionary.
 
     Parameters
@@ -41,7 +41,7 @@ def _addEntry(result_dct, model_name: str,
     result_dct[cn.COL_SYSTEM_ID].append(model_name)
     result_dct[cn.COL_SPECIES_NAME].append(species_name)
     result_dct[cn.COL_FREQUENCIES].append(frequencies)
-    result_dct[cn.COL_ENDTIME].append(end_time)
+    result_dct[cn.COL_ENDTIME].append(endtime)
 
 
 def processModels(
