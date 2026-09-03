@@ -74,7 +74,7 @@ class PiecewiseSystemDiscovery(object):
         self.num_trail = num_trail
         sd_kwargs["poly_degree"] = sd_kwargs.get("poly_degree", 1)
         self._sd_kwargs = sd_kwargs
-        self.changepoints = changepoints
+        self.changepoints = changepoints  # if None, will be determined during fit()
 
         self._subsequence_models: List[SystemDiscovery] = []
         self._subsequence_boundaries: List[Tuple[float, float]] = []
@@ -144,6 +144,7 @@ class PiecewiseSystemDiscovery(object):
             candidates = [c for c in candidates if abs(changepoint - c) >= cutoff]
         return sorted(changepoints)
 
+    # FIXME: Deprecated. Remove?
     def _makeBestRandomChangepoints(self) -> List[int]:
         """Try several random changepoint sets and keep the one whose piecewise fit scores best.
 
@@ -176,6 +177,7 @@ class PiecewiseSystemDiscovery(object):
                     model_name=f"{self.model_name}_trial_{trial_idx}",
                     **self._sd_kwargs,
                 )
+                trial_psd.changepoints = cp
                 trial_psd._is_fitted = True  # bypass recursion into _getChangepoints()
                 trial_psd._subsequence_models, trial_psd._subsequence_boundaries, trial_psd._subsequence_lengths = \
                     self._fitSegments(cp)
@@ -311,11 +313,9 @@ class PiecewiseSystemDiscovery(object):
         The baseline whole-timecourse model is built lazily on first access.
         """
         if self.changepoints is None:
-            changepoints = self._makeChangepointsIteratively()
-        else:
-            changepoints = self.changepoints
+            self.changepoints = self._makeChangepointsIteratively()
         (self._subsequence_models, self._subsequence_boundaries,
-        self._subsequence_lengths) = self._fitSegments(changepoints)
+        self._subsequence_lengths) = self._fitSegments(self.changepoints)
         self._is_fitted = True
         return self
 
