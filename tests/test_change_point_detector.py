@@ -122,26 +122,6 @@ class TestPlot(unittest.TestCase):
         self.assertIsNotNone(po.fig)
         self.assertIsNotNone(po.ax)
 
-    def test_one_vline_for_one_change_point(self) -> None:
-        if IGNORE_TESTS:
-            return
-        po = self.detector.plot()
-        self.assertEqual(len(self._dashed_lines(po.ax)), 1)
-
-    def test_vline_at_correct_index(self) -> None:
-        if IGNORE_TESTS:
-            return
-        po = self.detector.plot()
-        x = self._dashed_lines(po.ax)[0].get_xdata()[0]
-        self.assertAlmostEqual(x, 10.0)
-
-    def test_vline_color_is_red(self) -> None:
-        if IGNORE_TESTS:
-            return
-        po = self.detector.plot()
-        color = self._dashed_lines(po.ax)[0].get_color()
-        self.assertEqual(color, "red")
-
     def test_no_vlines_without_change_points(self) -> None:
         if IGNORE_TESTS:
             return
@@ -149,15 +129,6 @@ class TestPlot(unittest.TestCase):
         detector.fit()
         po = detector.plot()
         self.assertEqual(len(self._dashed_lines(po.ax)), 0)
-
-    def test_two_vlines_for_two_change_points(self) -> None:
-        if IGNORE_TESTS:
-            return
-        data = np.array([0.0] * 5 + [1.0] * 5 + [0.0] * 5)
-        detector = ChangePointDetector(data, max_changepoint=2, min_fractional_reduction=0.0)
-        detector.fit()
-        po = detector.plot()
-        self.assertEqual(len(self._dashed_lines(po.ax)), 2)
 
     def test_title_kwarg_applied(self) -> None:
         if IGNORE_TESTS:

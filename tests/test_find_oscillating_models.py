@@ -242,7 +242,7 @@ class TestProcessModelsEmptyTimecourse(unittest.TestCase):
         try:
             TimecourseIterator.__iter__ = _fake  # type: ignore[assignment]
             processModels(
-                first_model_num=0, last_model_num=-1,
+                first_model_num=0, last_model_num=100,
                 output_path=out, is_initialize=True,
             )
         finally:

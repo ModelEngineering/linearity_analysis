@@ -219,6 +219,6 @@ class ChangePointDetector:
         ax = po.ax
         ax.plot(np.arange(self.length), self.data_arr, color="steelblue", marker="o", lw=1.0)  # type: ignore
         for subseq in self.subsequences[1:]:
-            ax.axvline(subseq.splice_start, color="red", linestyle="--", lw=1.0)  # type: ignore
+            ax.axvline(subseq.splice_start, color="red", linestyle=":", lw=2.5)  # type: ignore
         po.apply()
         return po

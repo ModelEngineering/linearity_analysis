@@ -138,7 +138,7 @@ class SystemDiscoveryChangepointDetector(object):
             cp_indices = changepoints
         for i, cp in enumerate(cp_indices):
             lbl = 'Changepoint' if i == 0 else None
-            ax.axvline(x=time_arr[cp], color='r', linestyle='--', label=lbl)
+            ax.axvline(x=time_arr[cp], color='r', linestyle=':', lw=2.5, alpha=0.6, label=lbl)
 
         # Annotate each segment with log10(ASS). ASS is taken from the ChangePointDetector's
         # subsequence records, which were computed over the one-step-prediction-accuracy signal.

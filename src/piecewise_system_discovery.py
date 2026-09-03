@@ -436,7 +436,9 @@ class PiecewiseSystemDiscovery(object):
         return "\n\n".join(block_list)
 
     def plotPiecewise(self, num_true_point: int = -1, 
-                suptitle="Actual vs. Predicted", **plt_kwargs: Any) -> PlotOptions:
+                suptitle="Actual vs. Predicted",
+                species_names: Optional[List[str]] = None,
+                **plt_kwargs: Any) -> PlotOptions:
         """Two-panel comparison: 0 change points (top) vs max_changepoint (bottom).
 
         Both panels show actual (scatter) vs predicted (line) species concentrations.
@@ -447,6 +449,11 @@ class PiecewiseSystemDiscovery(object):
         num_true_point : int
             Number of actual-data scatter points to show per panel.
             -1 means show all points.  If the training_df has more than this many points,
+        species_names : Optional[List[str]]
+            List of species names to plot. If None, all species are plotted.
+        suptitle : str
+            Title for the entire figure.  Defaults to "Actual vs. Predicted".:w
+
         **plt_kwargs
             Forwarded to PlotOptions. Supported keys: fig, ax, title, xlabel,
             ylabel, legend, xlim, ylim, model_name.  ``figsize`` is also
@@ -458,6 +465,8 @@ class PiecewiseSystemDiscovery(object):
             Wraps the figure and the bottom axes.  Call ``plt.show()`` or
             ``po.fig.savefig(...)`` on the returned object as needed.
         """
+        if species_names is None:
+            species_names = self.species_names
         self._requireFitted()
         figsize: tuple[float, float] = plt_kwargs.pop("figsize", (10, 8))
 
@@ -482,8 +491,8 @@ class PiecewiseSystemDiscovery(object):
                 vlines: Optional[List[float]] = None, **plt_options) -> None:
             po = PlotOptions(**plt_options)
             ax = po.ax
-            ymax = actual_arr.min().min()
-            for idx, name in enumerate(self.species_names):
+            ymax = actual_arr.max().max()
+            for idx, name in enumerate(species_names):
                 color = f"C{idx}"
                 ax.scatter(  # type: ignore
                     time_arr[::num_skip], actual_arr[::num_skip, idx],
@@ -496,7 +505,7 @@ class PiecewiseSystemDiscovery(object):
                     )
             if vlines:
                 for t in vlines:
-                    ax.axvline(t, color="black", linestyle="--", lw=1.0, alpha=0.6)  # type: ignore
+                    ax.axvline(t, color="black", linestyle=":", lw=2.5, alpha=0.6)  # type: ignore
             ax.grid(True, alpha=0.3)  # type: ignore
             if self.model_name.startswith("BIOMD"):
                 model_num_str = str(int(self.model_name[6:]))

@@ -201,13 +201,16 @@ class Timecourse(object):
             timecourse_df=df,
         )
     
-    def plot(self, species_names: Optional[List[str]] = None, **kwargs) -> PlotOptions:
-        """Plot the simulated timecourse for all species.
+    def plot(self, species_names: Optional[List[str]] = None, is_scatter: bool = False,
+             **kwargs) -> PlotOptions:
+        """Plot the simulated timecourse for species.
 
         Parameters
         ----------
         species_names : Optional[List[str]]
             List of species names to plot. If None, all species are plotted.
+        is_scatter : bool
+            If True, plot as scatter plot. If False, plot as line plot.
         **kwargs
             Passed to PlotOptions. Supported keys: ax, fig, title, xlabel,
             ylabel, legend, xlim, ylim, model_name.
@@ -221,7 +224,15 @@ class Timecourse(object):
         if species_names is None:
             species_names = list(self.timecourse_df.columns)
         for i, name in enumerate(species_names):
-            ax.plot(  # type: ignore
+            if is_scatter:
+                ax.scatter(  # type: ignore
+                    self.timecourse_df.index,
+                    self.timecourse_df[name],
+                    color=f"C{i}",
+                    label=name,
+                )
+            else:
+                ax.plot(  # type: ignore
                     self.timecourse_df.index,
                     self.timecourse_df[name],
                     color=f"C{i}",
