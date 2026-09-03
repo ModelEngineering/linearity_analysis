@@ -78,6 +78,11 @@ class Model(object):
         """Return the BioModels number if the model name is a BioModels identifier."""
         return self.getBiomodelNumberFromName(self.model_name)
 
+    @staticmethod
+    def getBiomodelNum(model_name: str) -> int:
+        """Return the BioModels number if the model name is a BioModels identifier."""
+        return Model.getBiomodelNumberFromName(model_name)
+
     @staticmethod 
     def getBiomodelName(model_num: int) -> str:
         return f"BIOMD{model_num:010d}"

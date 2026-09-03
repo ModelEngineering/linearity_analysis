@@ -5,6 +5,7 @@ import os
 import src.constants as cn  # type: ignore
 from src.model import Model  # type: ignore
 from src.timecourse import Timecourse  # type: ignore
+from src.biomodels_iterator import getBiomodelsEndtimes  # type: ignore
 
 import numpy as np  # type: ignore
 import pickle
@@ -25,7 +26,7 @@ class TimecourseIterator:
 
     def __init__(self, zip_path: str = cn.TIMECOURSE_ZIP_PATH,
             num_model:int = -1, first_model_num:int = 0, last_model_num:int = -1,
-            num_point:int = 1000,
+            num_point:int = 1000, is_sedml_endtime: bool = False,
             is_report:bool = False) -> None:
         """
         Args:
@@ -33,6 +34,7 @@ class TimecourseIterator:
             num_model (int, optional): number of models to process. Defaults to -1 (all)
             first_model_num (int, optional): number of the first model to process. Defaults to 0.
             last_model_num (int, optional): number of the last model to process. Defaults to -1 (all).
+            is_sedml_endtime (bool, optional): only includes models with endtime from SED-ML. Defaults to True.
             num_point (int, optional): number of points in each timecourse. Defaults to 1000.
         """
         self.zip_path = zip_path
@@ -41,6 +43,12 @@ class TimecourseIterator:
         self.last_model_num = last_model_num
         self.num_point = num_point
         self.is_report = is_report
+        endtime_dct = getBiomodelsEndtimes(is_include_endtime_source=True)
+        if is_sedml_endtime:
+            self._valid_model_nums = [Model.getBiomodelNum(m)
+                    for m, s in endtime_dct.items() if s[1] == "sedml"]
+        else:
+            self._valid_model_nums = [Model.getBiomodelNum(m) for m in endtime_dct.keys()]
 
     @staticmethod
     def getTimecourse(model_name: Union[str, int], zip_path: str = cn.TIMECOURSE_ZIP_PATH,
@@ -90,6 +98,8 @@ class TimecourseIterator:
             for name in names:
                 if name.startswith("BIOMD"):
                     model_num = int(name[: -len('_timecourse.pkl')].replace('BIOMD', ''))
+                    if model_num not in self._valid_model_nums:
+                        continue
                     if self.is_report:
                         print(f"Processing {model_num}")
                     if model_num < self.first_model_num:
