@@ -77,14 +77,14 @@ def processModels(
         last_model_num=last_model_num,
         is_report=True,
     )
-    result_dct = {n: [] for n in [cn.COL_SYSTEM_ID, cn.COL_SPECIES_NAME,
-            cn.COL_FREQUENCIES, cn.COL_ENDTIME]}
     for item in iterator:
         model_name = item.model_name
         if model_name in existing_model_names:
             print(f"Skipping {model_name} (already processed)")
             continue
         # Process the timecourse_df for each species
+        result_dct = {n: [] for n in [cn.COL_SYSTEM_ID, cn.COL_SPECIES_NAME,
+                cn.COL_FREQUENCIES, cn.COL_ENDTIME]}
         timecourse_df = item.timecourse.timecourse_df
         if timecourse_df.empty or len(timecourse_df.columns) == 0:
             print(f"Empty timecourse_df {model_name}.")
@@ -97,10 +97,10 @@ def processModels(
                 _addEntry(result_dct, model_name, species, frequencies,
                         item.timecourse.timecourse_df.index.to_numpy()[-1])
         # Write results for this model
-        added_df = pd.DataFrame(result_dct)
-        full_df = pd.concat([current_df, added_df], ignore_index=True)
-        full_df.to_csv(output_path, index=False)
-        current_df = full_df.copy()
+        if any(result_dct[n] for n in result_dct):  # Check if any entries were added
+            added_df = pd.DataFrame(result_dct)
+            current_df = pd.concat([current_df, added_df], ignore_index=True)
+            current_df.to_csv(output_path, index=False)
 
     print(f"Wrote {len(current_df)} rows to {output_path}.")
 

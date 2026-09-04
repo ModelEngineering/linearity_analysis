@@ -511,7 +511,7 @@ class PiecewiseSystemDiscovery(object):
                 model_num_str = str(int(self.model_name[6:]))
             else:
                 model_num_str = self.model_name
-            po.title = model_num_str + ": " + plt_options.get("title", "") + f" (Mean accuracy={score:.3f})"
+            po.title = model_num_str + ": " + plt_options.get("title", "") + f" (Median p10 accuracy={score:.3f})"
             if ymax > 0.0:
                 po.ylim = (0.0, ymax)
             po.apply()
@@ -534,4 +534,4 @@ class PiecewiseSystemDiscovery(object):
         """Return the average score across all subsequences."""
         self._requireFitted()
         score_df = self.getScoreDetails(test_df=test_df, score_type=score_type)
-        return float(score_df[cn.COL_MEAN].mean())
+        return float(score_df[cn.COL_P10].median())

@@ -154,7 +154,7 @@ def main(
                     coefficient_threshold=coefficient_threshold,
                     )
             if pred_df is None:
-                print(f"Skipping {item.model_name} (no new data)")
+                print(f"Skipping {item.model_name} {max_changepoint}--no predicturion.")
                 continue
             if pred_df is not None:
                 initial_df = pd.concat([initial_df, pred_df], ignore_index=True)
