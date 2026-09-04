@@ -26,7 +26,7 @@ class TimecourseIterator:
 
     def __init__(self, zip_path: str = cn.TIMECOURSE_ZIP_PATH,
             num_model:int = -1, first_model_num:int = 0, last_model_num:int = -1,
-            num_point:int = 1000, is_sedml_endtime: bool = False,
+            num_point:int = 1000, is_sedml_endtime: bool = True,
             is_report:bool = False) -> None:
         """
         Args:

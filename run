@@ -1,8 +1,0 @@
-#! /bin/bash
-if [ -z "$1" ]; then
-  echo "Error: missing required argument: n_cluster"
-  exit 1
-fi
-
-mv data/$1s*sequential.csv /tmp
-source activate.sh; python scripts/analyze_biomodels.py --sequential --n_cluster $1
