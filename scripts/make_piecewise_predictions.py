@@ -16,6 +16,7 @@ import pandas as pd  # type: ignore
 from typing import List, Optional
 
 EXCLUDED_MODELS: List[str] = [
+    "BIOMD0000000339",
 ]
 MAX_CHANGPOINTS = [0, 1, 5, 10, 12, 15, 17, 18, 19, 20]  # Maximum number of change points to consider in the piecewise model.
 MAX_FRACTIONAL_REDUCTION = 0.01  # Maximum fractional reduction in the sum of squared errors required to accept a new change point.
