@@ -37,6 +37,7 @@ COL_A90 = "a90"  # Fraction of values with an accuracy of at least 90%.
 COL_A95 = "a95"  # Fraction of values with an accuracy of at least 95%.
 COL_AGGREGATION_TYPE = "aggregation_type"  # model or species name
 COL_AGGREGATION_TYPE_MODEL = "model"
+COL_CHANGEPOINTS = "changepoints"  # List of detected change points.
 COL_COUNT = "count"  # Number of valid values used in calculating the statistics.
 COL_ENDTIME = "endtime"
 COL_FREQUENCIES = "frequencies"  # List of detected oscillation frequencies in Hz.

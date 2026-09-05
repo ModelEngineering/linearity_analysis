@@ -19,6 +19,7 @@ EXCLUDED_MODELS: List[str] = [
     "BIOMD0000000339",
 ]
 MAX_CHANGPOINTS = [0, 1, 5, 10, 12, 15, 17, 18, 19, 20]  # Maximum number of change points to consider in the piecewise model.
+MAX_CHANGPOINTS = [50, 80]
 MAX_FRACTIONAL_REDUCTION = 0.01  # Maximum fractional reduction in the sum of squared errors required to accept a new change point.
 COEFFICIENT_THRESHOLD = 0.001  # Threshold for coefficient magnitude to consider a species as linear.
 
@@ -80,6 +81,7 @@ def processModel(
     accuracy_df = score.score_df
     # Augment the dataframe with additional columns for the model
     accuracy_df[cn.COL_SYSTEM_ID] = model_name
+    accuracy_df[cn.COL_CHANGEPOINTS] = str(psd.changepoints)
     accuracy_df[cn.COL_MAX_CHANGEPOINT] = max_changepoint
     accuracy_df[cn.COL_MIN_SEGMENT_LENGTH] = min_segment_length
     accuracy_df[cn.COL_MAX_FRACTIONAL_REDUCTION] = max_fractional_reduction
