@@ -19,7 +19,7 @@ EXCLUDED_MODELS: List[str] = [
     "BIOMD0000000339",
 ]
 MAX_CHANGPOINTS = [0, 1, 5, 10, 12, 15, 17, 18, 19, 20]  # Maximum number of change points to consider in the piecewise model.
-MAX_CHANGPOINTS = [50, 80]
+MAX_CHANGPOINTS = [0, 50, 80]
 MAX_FRACTIONAL_REDUCTION = 0.01  # Maximum fractional reduction in the sum of squared errors required to accept a new change point.
 COEFFICIENT_THRESHOLD = 0.001  # Threshold for coefficient magnitude to consider a species as linear.
 
@@ -129,24 +129,26 @@ def main(
     '''
     output_path = output_path.replace(".csv", f"_{process_idx}.csv")
     if os.path.isfile(output_path) and (not is_initialize):
-        initial_df = pd.read_csv(output_path)
-        existing_model_names = set(initial_df[cn.COL_SYSTEM_ID].unique())
+        current_df = pd.read_csv(output_path)
+        existing_model_names = set(current_df[cn.COL_SYSTEM_ID].unique())
     else:
         existing_model_names = set()
-        initial_df = pd.DataFrame()
+        current_df = pd.DataFrame()
     # Process the max_changepoint values in order, so that the output file is sorted by max_changepoint.
     for item in TimecourseIterator(
             first_model_num=first_model_num,
             last_model_num=last_model_num):
         # See if this is a model to skip
-        if item.model_name in existing_model_names:
-            print(f"Skipping {item.model_name} (already processed)")
-            continue
         if item.model_name.upper() in EXCLUDED_MODELS:
             print(f"Skipping {item.model_name} (excluded)")
             continue
         # Process the model for each max_changepoint valuea
         for max_changepoint in MAX_CHANGPOINTS:
+            if item.model_name in existing_model_names:
+                model_df = current_df[current_df[cn.COL_SYSTEM_ID] == item.model_name]
+                if max_changepoint in model_df[cn.COL_MAX_CHANGEPOINT].values:
+                    print(f"Skipping {item.model_name}/{max_changepoint} (already processed)")
+                    continue
             pred_df = None
             msg = f"Processing {item.model_name} (max_changepoint={max_changepoint})"
             print(msg)
@@ -157,14 +159,14 @@ def main(
                     coefficient_threshold=coefficient_threshold,
                     )
             if pred_df is None:
-                print(f"Skipping {item.model_name} {max_changepoint}--no predicturion.")
+                print(f"Skipping {item.model_name} {max_changepoint}--no prediction.")
                 continue
             if pred_df is not None:
-                initial_df = pd.concat([initial_df, pred_df], ignore_index=True)
-                initial_df.to_csv(output_path, index=False)
+                current_df = pd.concat([current_df, pred_df], ignore_index=True)
+                current_df.to_csv(output_path, index=False)
 
     # Persist results to disk.
-    initial_df.to_csv(output_path, index=False)
+    current_df.to_csv(output_path, index=False)
 
 
 #################################################################

@@ -28,8 +28,6 @@ PlotBiomodelsSignalResult = collections.namedtuple('PlotBiomodelsSignalResult',
 class PiecewiseSystemDiscovery(object):
     """Piecewise-linear ODE discovery across detected change-points."""
 
-    _use_efficient_changepoint_removal: bool = True
-
     @dataclass
     class _ScoreSummary:
         """Lightweight summary of scores across all subsequences.
@@ -332,7 +330,6 @@ class PiecewiseSystemDiscovery(object):
         """
         max_changepoint = self.max_changepoint
         num_point = self.num_point
-        min_seg = self.min_segment_length
         threshold = self.max_fractional_reduction
 
         if max_changepoint <= 0:
@@ -345,14 +342,10 @@ class PiecewiseSystemDiscovery(object):
         step = num_point / (max_changepoint + 1)
         candidate_indices = [int(round((i + 1) * step)) for i in range(max_changepoint)]
         changepoints: List[int] = []
-        last_kept = -min_seg
         for cp in sorted(candidate_indices):
             if cp < 1 or cp >= num_point:
                 continue
-            if cp - last_kept < min_seg:
-                continue
             changepoints.append(cp)
-            last_kept = cp
 
         changepoints = changepoints[:max_changepoint]
         if not changepoints:
@@ -435,10 +428,7 @@ class PiecewiseSystemDiscovery(object):
         The baseline whole-timecourse model is built lazily on first access.
         """
         if self.changepoints is None:
-            if self._use_efficient_changepoint_removal:
-                self.changepoints = self._makeChangepointsEfficient()
-            else:
-                self.changepoints = self._makeChangepointsIteratively()
+            self.changepoints = self._makeChangepointsEfficient()
         (self._subsequence_models, self._subsequence_boundaries,
         self._subsequence_lengths) = self._fitSegments(self.changepoints)
         self._is_fitted = True
