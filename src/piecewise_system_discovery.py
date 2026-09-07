@@ -48,6 +48,7 @@ class PiecewiseSystemDiscovery(object):
         model_name: str = "",
         num_trail: int = 1,
         changepoints: Optional[List[int]] = None,
+        is_random_changepoints: bool = False,
         **sd_kwargs: Any,
     ) -> None:
         """Construct a piecewise-linear ODE discovery pipeline.
@@ -59,7 +60,8 @@ class PiecewiseSystemDiscovery(object):
             max_fractional_reduction (float, optional): Maximum fractional reduction in the sum of squared errors required to accept a new change point. Defaults to 0.01.
             min_segment_length (int, optional): Minimum length of segments for splitting. Defaults to 100.
             model_name (str, optional): Optional name tag used in plots and error messages. Defaults to "".
-            num_trail (int, optional): Number of random changepoint trials
+            num_trail (int, optional): Number of random changepoint trials.
+                Only used if is_random_changepoints is True.
             changepoints (List[int], optional): List of pre-determined change points. Defaults to None.
             **sd_kwargs: Arguments forwarded to each per-segment ``SystemDiscovery`` constructor.
         """
@@ -75,7 +77,8 @@ class PiecewiseSystemDiscovery(object):
         self.num_trail = num_trail
         sd_kwargs["poly_degree"] = sd_kwargs.get("poly_degree", 1)
         self._sd_kwargs = sd_kwargs
-        self.changepoints = changepoints  # if None, will be determined during fit()
+        self.changepoints = changepoints  # if None, will be determined during fit()a
+        self._is_random_changepoints = is_random_changepoints
 
         self._subsequence_models: List[SystemDiscovery] = []
         self._subsequence_boundaries: List[Tuple[float, float]] = []
@@ -126,26 +129,22 @@ class PiecewiseSystemDiscovery(object):
         """
         if self.max_changepoint <= 0:
             return []
-        if self.max_changepoint >= self.num_point:
-            raise ValueError(
-                f"max_changepoint {self.max_changepoint} exceeds number of points "
-                f"{self.num_point}.")
+        max_changepoint = self._adjustMaxChangepoints()
+        cutoff = self.num_species # Minimum distance between changepoints that allows estimation of the system parameters
 
         rng = np.random.default_rng(seed)
         changepoints: List[int] = []
         candidates = list(range(1, self.num_point - 1))
-        for _ in range(self.max_changepoint):
+        for _ in range(max_changepoint):
             if not candidates:
                 break
             idx = int(rng.integers(0, len(candidates)))
             changepoint = candidates[idx]
             changepoints.append(changepoint)
             # Reject future candidates within min_segment_length of the chosen point.
-            cutoff = self.min_segment_length
             candidates = [c for c in candidates if abs(changepoint - c) >= cutoff]
         return sorted(changepoints)
 
-    # FIXME: Deprecated. Remove?
     def _makeBestRandomChangepoints(self) -> List[int]:
         """Try several random changepoint sets and keep the one whose piecewise fit scores best.
 
@@ -172,7 +171,8 @@ class PiecewiseSystemDiscovery(object):
             try:
                 trial_psd = PiecewiseSystemDiscovery(
                     self.training_df,
-                    max_changepoint=self.max_changepoint,
+                    max_changepoint=0,
+                    changepoints=cp,
                     max_fractional_reduction=self.max_fractional_reduction,
                     min_segment_length=self.min_segment_length,
                     model_name=f"{self.model_name}_trial_{trial_idx}",
@@ -222,13 +222,7 @@ class PiecewiseSystemDiscovery(object):
             Sorted list of surviving changepoint indices into the training data.
         """
         num_point = self.num_point
-        if (self.max_changepoint > 0) and (self.num_species > num_point / self.max_changepoint):
-            # Few data points per species relative to changepoints -- cap so each
-            # segment retains enough rows for a reliable PySINDy estimate.
-            max_changepoint = num_point // self.num_species - 1
-        else:
-            # Plenty of data per segment; respect the user-requested count.
-            max_changepoint = self.max_changepoint
+        max_changepoint = self._adjustMaxChangepoints()
         threshold = self.max_fractional_reduction
 
         if max_changepoint <= 0:
@@ -319,15 +313,20 @@ class PiecewiseSystemDiscovery(object):
 
         return changepoints
 
-    def _makeChangepointsDivideandconquor(self) -> List[int]:
-        """Recursively split root group into left/right halves; prune children that don't beat threshold."""
-        num_point = self.num_point
-        if (self.max_changepoint > 0) and (self.num_species > num_point / self.max_changepoint):
+    def _adjustMaxChangepoints(self) -> int:
+        """Adjust the maximum number of changepoints based on data points and species."""
+        if (self.max_changepoint > 0) and (self.num_species > self.num_point / self.max_changepoint):
             # Few data points per species relative to changepoints -- cap so each
             # segment retains enough rows for a reliable PySINDy estimate.
-            max_changepoint = num_point // self.num_species - 1
+            return self.num_point // self.num_species - 1
         else:
-            max_changepoint = self.max_changepoint
+            return self.max_changepoint
+
+    # NOTE: Deprecated because much lower scores than using _makeChangepointsWithRecursiveElimination
+    def _makeChangepointsDivideAndconquor(self) -> List[int]:
+        """Recursively split root group into left/right halves; prune children that don't beat threshold."""
+        num_point = self.num_point
+        max_changepoint = self._adjustMaxChangepoints()
         threshold_frac = self.max_fractional_reduction
 
         if not (self.max_changepoint > 0) or num_point <= 1:
@@ -405,8 +404,10 @@ class PiecewiseSystemDiscovery(object):
         The baseline whole-timecourse model is built lazily on first access.
         """
         if self.changepoints is None:
-            #self.changepoints = self._makeChangepointsEfficient()
-            self.changepoints = self._makeChangepointsDivideandconquor()
+            if self._is_random_changepoints:
+                self.changepoints = self._makeBestRandomChangepoints()
+            else:
+                self.changepoints = self._makeChangepointsWithRecursiveElimination()
         (self._subsequence_models, self._subsequence_boundaries,
         self._subsequence_lengths) = self._fitSegments(self.changepoints)
         self._is_fitted = True
