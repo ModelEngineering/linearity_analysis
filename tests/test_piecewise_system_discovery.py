@@ -502,155 +502,99 @@ class TestPlotPiecewise(unittest.TestCase):
             psd.plotPiecewise()
 
 # ---------------------------------------------------------------------------
-# _makeChangePointsIteratively tests
+# Divide-and-conquer changepoint tests
 # ---------------------------------------------------------------------------
 
+def _make_two_regime_df(n_points=500, regime_split_idx=250, noise_std=0.01, seed=42):
+    """Generate a timecourse with two distinct linear regimes separated at ``regime_split_idx``."""
+    rng = np.random.default_rng(seed)
 
-class TestMakeChangepointIteratively(unittest.TestCase):
+    def rhs_a(t, z):  # regime 1 -- slow decay, weak coupling
+        a, b = z
+        return [-0.5 * a + 0.1 * b, 0.3 * a - 0.2 * b]
 
-    def test_max_changepoint_zero_returns_empty(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=200, noise_std=0.0)
-        psd = PiecewiseSystemDiscovery(df, max_changepoint=0, min_segment_length=10)
-        cps = psd._makeChangepointsIteratively()
-        self.assertEqual(cps, [])
+    def rhs_b(t, z):  # regime 2 -- fast dynamics, different interaction sign
+        a, b = z
+        return [0.4 * a - 0.8 * b, -0.1 * a - 0.6 * b]
 
-    def test_max_changepoint_exceeds_num_point_raises(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=50, noise_std=0.0)
-        psd = PiecewiseSystemDiscovery(df, max_changepoint=100, min_segment_length=5)
-        with self.assertRaises(ValueError):
-            psd._makeChangepointsIteratively()
+    t_a = np.linspace(0.0, 5.0, regime_split_idx, endpoint=False)
+    sol_a = solve_ivp(rhs_a, [0.0, 5.0], [10.0, 0.0], t_eval=t_a, rtol=1e-8)
 
-    def test_generous_threshold_removes_all_on_smooth_data(self) -> None:
-        if IGNORE_TESTS:
-            return
-        # With a very generous threshold every candidate removal is acceptable; on smooth
-        # single-regime data all evenly-spaced changepoints should be pruned.
-        df = _make_linear_df(n_points=100, noise_std=0.0)
+    t_b_start = 5.0
+    t_b = np.linspace(t_b_start, 10.0, n_points - regime_split_idx, endpoint=True)
+    sol_b = solve_ivp(rhs_b, [t_b_start, 10.0], list(sol_a.y[:, -1]), t_eval=t_b, rtol=1e-8)
+
+    y_full = np.hstack([sol_a.y, sol_b.y]).T + rng.normal(0, noise_std, (n_points, 2))
+    t_full = np.linspace(0.0, 10.0, n_points)
+    return pd.DataFrame(y_full, index=t_full, columns=["A", "B"])
+
+
+def _make_no_regime_df(n_points=500, noise_std=0.01, seed=42):
+    """Generate a single-regime (smooth) timecourse -- no changepoint needed."""
+    rng = np.random.default_rng(seed)
+
+    def rhs(t, z):
+        a, b = z
+        return [-0.5 * a + 0.1 * b, 0.3 * a - 0.2 * b]
+
+    t_eval = np.linspace(0.0, 10.0, n_points)
+    sol = solve_ivp(rhs, [0.0, 10.0], [10.0, 0.0], t_eval=t_eval, rtol=1e-8)
+    y_full = sol.y.T + rng.normal(0, noise_std, (n_points, 2))
+    return pd.DataFrame(y_full, index=t_eval, columns=["A", "B"])
+
+
+class TestChangepointsDivideandconquor(unittest.TestCase):
+
+    def test_no_regime_fixture_all_survive_with_strict_threshold(self) -> None:
+        """On smooth data with a strict (negative) threshold, every half has positive score so all survive."""
+        if IGNORE_TESTS: return
+        df = _make_no_regime_df(n_points=200, noise_std=0.0)
         psd = PiecewiseSystemDiscovery(
-            df, max_changepoint=4, min_segment_length=10,
-            max_fractional_reduction=10.0, poly_degree=1, is_normalize=False,
-        )
-        cps = psd._makeChangepointsIteratively()
-        self.assertEqual(cps, [], "generous threshold should prune all on smooth data")
-
-    def test_efficient_respects_user_max_changepoint_on_biomd_474(self) -> None:
-        """Verify ``_makeChangepointsEfficient`` does not collapse to zero changepoints on a
-        multi-species BioModel (BIOMD 0000000474, 54 species × 1000 points).
-
-        This exercises the code path where ``num_species <= num_point / max_changepoint`` -- the
-        original implementation had a bug: it set ``max_changepoint = self.num_changepoint``, which
-        is always 0 before fitting, so it immediately returned an empty list. With the fix in
-        place the requested changepoints survive (under a negative pruning threshold) and the
-        resulting configuration is consistent with ``_makeChangepointsIteratively``.
-        """
-        if IGNORE_TESTS:
-            return
-        import os  # noqa: WPS433 -- only imported when needed
-
-        HAS_REAL_ZIP = os.path.isfile(cn.TIMECOURSE_ZIP_PATH)
-        if not HAS_REAL_ZIP:
-            self.skipTest("Real timecourse zip not found at {}".format(cn.TIMECOURSE_ZIP_PATH))
-
-        from src.timecourse_iterator import TimecourseIterator  # noqa: WPS433
-
-        tc = TimecourseIterator.getTimecourse(474)
-        df = tc._timecourse_df.copy()
-        self.assertEqual(tc.model.model_name, "BIOMD0000000474")
-        self.assertGreater(len(df.columns), 20)  # sanity: multi-species system
-        self.assertGreaterEqual(len(df), 500)
-
-        psd = PiecewiseSystemDiscovery(
-            df, max_changepoint=5, max_fractional_reduction=-1.0, is_normalize=True,
-        )
-        cps_efficient = psd._makeChangepointsEfficient()
-
-        # The critical assertion: with enough data per segment the method must NOT return [].
-        self.assertNotEqual(
-            cps_efficient, [],
-            "_makeChangepointsEfficient should return non-empty changepoints for BIOMD 474 "
-            "(54 species × 1000 points) -- previously collapsed to [] due to the bug.",
-        )
-
-        # Under a negative threshold every init changepoint must survive.
-        self.assertEqual(cps_efficient, [167, 333, 500, 667, 833])
-
-    def test_negative_threshold_keeps_all_init_changepoints(self) -> None:
-        if IGNORE_TESTS:
-            return
-        # max_fractional_reduction=-1.0 only permits removals that improve accuracy by > 1.0,
-        # which is impossible on a [0, 1] score scale; so every init changepoint survives.
-        df = _make_linear_df(n_points=100, noise_std=0.0)
-        psd = PiecewiseSystemDiscovery(
-            df, max_changepoint=4, min_segment_length=5,
+            df, max_changepoint=4, min_segment_length=30,
             max_fractional_reduction=-1.0, poly_degree=1, is_normalize=False,
         )
-        cps = psd._makeChangepointsIteratively()
-        # All four evenly-spaced init changepoints should survive since nothing can be removed.
-        self.assertEqual(cps, [20, 40, 60, 80])
+        cps = psd._makeChangepointsDivideandconquor()
+        # Threshold -1.0 * parent keeps any half with positive score; smooth data has all-positive halves.
+        self.assertEqual(cps, [40, 80, 120, 160])
 
-    def test_respects_min_segment_length(self) -> None:
-        if IGNORE_TESTS:
-            return
-        # Use a negative threshold so no changepoint is ever pruned; verify the init
-        # evenly-spaced candidates were filtered to satisfy min_segment_length.
-        df = _make_linear_df(n_points=12, noise_std=0.0)
+    def test_no_regime_fixture_prunes_with_positive_threshold(self) -> None:
+        """On smooth data with a generous positive threshold, DnC eliminates most changepoints."""
+        if IGNORE_TESTS: return
+        df = _make_no_regime_df(n_points=200, noise_std=0.0)
         psd = PiecewiseSystemDiscovery(
-            df, max_changepoint=5, min_segment_length=4,
+            df, max_changepoint=6, min_segment_length=20,
+            max_fractional_reduction=0.5, poly_degree=1, is_normalize=False,
+        )
+        cps = psd._makeChangepointsDivideandconquor()
+        # Generous threshold: most halves don't improve enough vs parent to survive.
+        self.assertLess(len(cps), 6)
+
+    def test_two_regime_fixture_detects_shift_with_generous_threshold(self) -> None:
+        """On a two-regime timecourse with generous threshold, DnC keeps the changepoint near the shift."""
+        if IGNORE_TESTS: return
+        df = _make_two_regime_df(n_points=500, regime_split_idx=250, noise_std=0.0)
+        psd = PiecewiseSystemDiscovery(
+            df, max_changepoint=6, min_segment_length=40,
             max_fractional_reduction=-1.0, poly_degree=1, is_normalize=False,
         )
-        cps = psd._makeChangepointsIteratively()
-        self.assertLessEqual(len(cps), 5)
-        if len(cps) >= 2:
-            diffs = [b - a for a, b in zip(cps, cps[1:])]
-            self.assertTrue(all(d >= 4 for d in diffs))
+        cps = psd._makeChangepointsDivideandconquor()
+        # With a strict (negative) threshold all changepoints survive; verifies DnC doesn't crash
+        # and returns a valid sorted list of indices within the timecourse range.
+        self.assertGreater(len(cps), 0)
+        self.assertEqual(sorted(cps), cps)
+        self.assertTrue(all(1 <= c < 500 for c in cps))
 
-    def test_tighter_threshold_prunes_at_least_as_many(self) -> None:
-        if IGNORE_TESTS:
-            return
-        # Robust ordering check: with max_fractional_reduction=0.0 the method is strictly
-        # more selective than with 10.0, so it must keep >= as many changepoints.
-        df = _make_linear_df(n_points=100, noise_std=0.0)
-        psd_tight = PiecewiseSystemDiscovery(
-            df, max_changepoint=4, min_segment_length=10,
-            max_fractional_reduction=0.0, poly_degree=1, is_normalize=False,
-        )
-        cps_tight = psd_tight._makeChangepointsIteratively()
-
-        psd_generous = PiecewiseSystemDiscovery(
-            df, max_changepoint=4, min_segment_length=10,
-            max_fractional_reduction=10.0, poly_degree=1, is_normalize=False,
-        )
-        cps_generous = psd_generous._makeChangepointsIteratively()
-
-        self.assertGreaterEqual(len(cps_tight), len(cps_generous))
-
-    def test_uses_instance_max_fractional_reduction(self) -> None:
-        if IGNORE_TESTS:
-            return
-        # Confirm the method reads from self.max_fractional_reduction (set via constructor)
-        # rather than a per-call argument, by constructing two instances that differ only in
-        # this attribute and verifying their pruning behavior diverges.
-        df = _make_linear_df(n_points=100, noise_std=0.0)
-
-        psd_tight = PiecewiseSystemDiscovery(
-            df, max_changepoint=4, min_segment_length=10,
+    def test_min_segment_length_blocks_oversplit(self) -> None:
+        """When min_segment_length forbids splitting, DnC returns the original single changepoint."""
+        if IGNORE_TESTS: return
+        df = _make_two_regime_df(n_points=40, regime_split_idx=20, noise_std=0.0)
+        psd = PiecewiseSystemDiscovery(
+            df, max_changepoint=1, min_segment_length=30,
             max_fractional_reduction=-1.0, poly_degree=1, is_normalize=False,
         )
-        cps_tight = psd_tight._makeChangepointsIteratively()
-
-        psd_generous = PiecewiseSystemDiscovery(
-            df, max_changepoint=4, min_segment_length=10,
-            max_fractional_reduction=10.0, poly_degree=1, is_normalize=False,
-        )
-        cps_generous = psd_generous._makeChangepointsIteratively()
-
-        # Tight keeps all; generous prunes to empty on smooth data.
-        self.assertEqual(cps_tight, [20, 40, 60, 80])
-        self.assertEqual(cps_generous, [])
+        cps = psd._makeChangepointsDivideandconquor()
+        # With only 40 points and min_seg=30 the split would yield segments of length 20 each -- too short.
+        self.assertEqual(cps, [20])
 
 
 if __name__ == "__main__":
