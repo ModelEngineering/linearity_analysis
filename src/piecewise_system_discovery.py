@@ -55,7 +55,8 @@ class PiecewiseSystemDiscovery(object):
         Args:
             training_df (pd.DataFrame): Time-series data with one column per species.
             max_changepoint (int, optional): Maximum number of change points to detect. Defaults to 2.
-            max_fractional_reduction (float, optional): Minimum fractional reduction in ASS required. Defaults to 0.1.
+                Can be adjusted so that there is enough data per segment.
+            max_fractional_reduction (float, optional): Maximum fractional reduction in the sum of squared errors required to accept a new change point. Defaults to 0.01.
             min_segment_length (int, optional): Minimum length of segments for splitting. Defaults to 100.
             model_name (str, optional): Optional name tag used in plots and error messages. Defaults to "".
             num_trail (int, optional): Number of random changepoint trials
@@ -328,8 +329,14 @@ class PiecewiseSystemDiscovery(object):
         list[int]
             Sorted list of surviving changepoint indices into the training data.
         """
-        max_changepoint = self.max_changepoint
         num_point = self.num_point
+        if (self.max_changepoint > 0) and (self.num_species > num_point / self.max_changepoint):
+            # Few data points per species relative to changepoints -- cap so each
+            # segment retains enough rows for a reliable PySINDy estimate.
+            max_changepoint = num_point // self.num_species - 1
+        else:
+            # Plenty of data per segment; respect the user-requested count.
+            max_changepoint = self.max_changepoint
         threshold = self.max_fractional_reduction
 
         if max_changepoint <= 0:

@@ -511,7 +511,7 @@ class TestMakeChangepointIteratively(unittest.TestCase):
     def test_max_changepoint_zero_returns_empty(self) -> None:
         if IGNORE_TESTS:
             return
-        df = _make_linear_df(n_points=50, noise_std=0.0)
+        df = _make_linear_df(n_points=200, noise_std=0.0)
         psd = PiecewiseSystemDiscovery(df, max_changepoint=0, min_segment_length=10)
         cps = psd._makeChangepointsIteratively()
         self.assertEqual(cps, [])
@@ -536,6 +536,47 @@ class TestMakeChangepointIteratively(unittest.TestCase):
         )
         cps = psd._makeChangepointsIteratively()
         self.assertEqual(cps, [], "generous threshold should prune all on smooth data")
+
+    def test_efficient_respects_user_max_changepoint_on_biomd_474(self) -> None:
+        """Verify ``_makeChangepointsEfficient`` does not collapse to zero changepoints on a
+        multi-species BioModel (BIOMD 0000000474, 54 species × 1000 points).
+
+        This exercises the code path where ``num_species <= num_point / max_changepoint`` -- the
+        original implementation had a bug: it set ``max_changepoint = self.num_changepoint``, which
+        is always 0 before fitting, so it immediately returned an empty list. With the fix in
+        place the requested changepoints survive (under a negative pruning threshold) and the
+        resulting configuration is consistent with ``_makeChangepointsIteratively``.
+        """
+        if IGNORE_TESTS:
+            return
+        import os  # noqa: WPS433 -- only imported when needed
+
+        HAS_REAL_ZIP = os.path.isfile(cn.TIMECOURSE_ZIP_PATH)
+        if not HAS_REAL_ZIP:
+            self.skipTest("Real timecourse zip not found at {}".format(cn.TIMECOURSE_ZIP_PATH))
+
+        from src.timecourse_iterator import TimecourseIterator  # noqa: WPS433
+
+        tc = TimecourseIterator.getTimecourse(474)
+        df = tc._timecourse_df.copy()
+        self.assertEqual(tc.model.model_name, "BIOMD0000000474")
+        self.assertGreater(len(df.columns), 20)  # sanity: multi-species system
+        self.assertGreaterEqual(len(df), 500)
+
+        psd = PiecewiseSystemDiscovery(
+            df, max_changepoint=5, max_fractional_reduction=-1.0, is_normalize=True,
+        )
+        cps_efficient = psd._makeChangepointsEfficient()
+
+        # The critical assertion: with enough data per segment the method must NOT return [].
+        self.assertNotEqual(
+            cps_efficient, [],
+            "_makeChangepointsEfficient should return non-empty changepoints for BIOMD 474 "
+            "(54 species × 1000 points) -- previously collapsed to [] due to the bug.",
+        )
+
+        # Under a negative threshold every init changepoint must survive.
+        self.assertEqual(cps_efficient, [167, 333, 500, 667, 833])
 
     def test_negative_threshold_keeps_all_init_changepoints(self) -> None:
         if IGNORE_TESTS:
