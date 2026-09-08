@@ -211,9 +211,9 @@ class PiecewiseSystemDiscovery(object):
                 raise RuntimeError(f"Error fitting SystemDiscovery for segment {lo}:{hi}: {e}")
         return models, boundaries, lengths
 
-    def _makeChangepointsWithRecursiveElimination(self) -> List[int]:
-        """Generate an initial set of evenly spaced changepoints and then recursively
-        remove those whose elimination does not degrade accuracy by more than
+    def _makeChangepointsWithElimination(self) -> List[int]:
+        """Generate an initial set of evenly spaced changepoints and then repeatedly 
+        eliminates changepoints that do not degrade accuracy by more than
         ``max_fractional_reduction``.
 
         Returns
@@ -407,7 +407,7 @@ class PiecewiseSystemDiscovery(object):
             if self._is_random_changepoints:
                 self.changepoints = self._makeBestRandomChangepoints()
             else:
-                self.changepoints = self._makeChangepointsWithRecursiveElimination()
+                self.changepoints = self._makeChangepointsWithElimination()
         (self._subsequence_models, self._subsequence_boundaries,
         self._subsequence_lengths) = self._fitSegments(self.changepoints)
         self._is_fitted = True
