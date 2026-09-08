@@ -13,16 +13,126 @@ from src.plot_options import PlotOptions  # type: ignore
 from src.system_discovery import SystemDiscovery, NULL_DF  # type: ignore
 
 import collections
+import concurrent.futures  # noqa: E402 (used by parallel helpers below)
 from dataclasses import dataclass  # noqa: E402 (dataclass used by PiecewiseSystemDiscovery._ScoreSummary)
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
+import os  # noqa: E402 (used to cap parallel workers at cpu_count())
 import pandas as pd  # type: ignore
-from typing import Any, List, Tuple
-from typing import cast, Optional
+from typing import Any, Dict, List, Optional, Tuple
+from typing import cast
 
 
 PlotBiomodelsSignalResult = collections.namedtuple('PlotBiomodelsSignalResult',
         ['plot_options', 'piecewise_system_discovery', 'change_point_times'])
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers used by the parallel changepoint elimination pipeline.
+# They live at module scope so they are picklable and can be dispatched across
+# process boundaries by ``concurrent.futures.ProcessPoolExecutor``.
+# ---------------------------------------------------------------------------
+
+def _compute_median_score(
+        models: List[SystemDiscovery],
+        boundaries: List[Tuple[float, float]],
+        training_df: pd.DataFrame) -> float:
+    """Return the median p10 accuracy across all fitted segment models."""
+    score_dfs = []
+    for sys_disc, (start, end) in zip(models, boundaries):
+        test_seg_df = training_df.iloc[(training_df.index >= start) & (training_df.index <= end)]
+        score_info = sys_disc.getScoreDetails(test_df=test_seg_df, score_type="timecourse")
+        score_dfs.append(score_info)
+    combined = pd.concat(score_dfs, ignore_index=True) if score_dfs else pd.DataFrame()
+    return float(combined[cn.COL_P20].median())
+
+
+def _fit_segments_parallel(
+        training_df: pd.DataFrame,
+        boundary_index_arr: List[int],
+        time_arr: np.ndarray,
+        num_point: int,
+        sd_kwargs: Dict[str, Any]) -> Tuple[List[SystemDiscovery],
+                                            List[Tuple[float, float]],
+                                            List[int]]:
+    """Fit one ``SystemDiscovery`` per segment in parallel threads.
+
+    Each segment's fit is dispatched to its own thread so that GIL-releasing
+    scipy/numpy work (PySINDy STLSQ sparse regression) can run concurrently
+    across segments.  Within a single call no mutable state is shared between
+    threads -- each gets its own ``SystemDiscovery`` instance and its own data slice.
+
+    Parameters
+    ----------
+    training_df : pd.DataFrame
+        Full timecourse used to build per-segment slices.
+    boundary_index_arr : list[int]
+        Boundary indices including the leading 0 and trailing num_point, e.g.
+        ``[0, 150, 300, 500]`` for three segments on a 500-row timecourse.
+    time_arr : np.ndarray
+        Full index as a float numpy array (used to compute boundary end-times).
+    num_point : int
+        Number of rows in ``training_df``; used to clamp the last segment's end-time.
+    sd_kwargs : dict
+        Keyword arguments forwarded to every ``SystemDiscovery(...)`` call.
+
+    Returns
+    -------
+    tuple[list[SystemDiscovery], list[tuple[float, float]], list[int]]
+        ``(models, boundaries, lengths)`` -- identical shape to
+        :meth:`PiecewiseSystemDiscovery._fitSegments`.
+    """
+    models: List[SystemDiscovery] = []
+    boundaries: List[Tuple[float, float]] = []
+    lengths: List[int] = []
+
+    def _fit_one_segment(lo: int, hi: int) -> Tuple[SystemDiscovery, float, float, int]:
+        subsequence_df = training_df.iloc[lo:hi].copy()  # defensive copy for thread safety
+        end_time_idx = hi if hi < num_point else len(time_arr) - 1
+        return (SystemDiscovery(subsequence_df, **sd_kwargs).fit(),
+                float(time_arr[lo]), float(time_arr[end_time_idx]), hi - lo)
+
+    n_segments = max(len(boundary_index_arr) - 1, 1)
+    max_workers = min(4, n_segments) if n_segments > 0 else 1
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+        future_to_idx: Dict[int, concurrent.futures.Future] = {}
+        for i, (lo, hi) in enumerate(zip(boundary_index_arr[:-1], boundary_index_arr[1:])):
+            future_to_idx[i] = pool.submit(_fit_one_segment, lo, hi)
+        # Collect results in order so the returned list matches ``boundary_index_arr``.
+        for idx in sorted(future_to_idx.keys()):
+            sys_disc, bnd_lo, bnd_hi, length = future_to_idx[idx].result()  # type: ignore[index]
+            models.append(sys_disc)
+            boundaries.append((bnd_lo, bnd_hi))
+            lengths.append(length)
+
+    return models, boundaries, lengths
+
+
+def _worker_evaluate_removal(
+        training_df: pd.DataFrame,
+        time_arr_full: np.ndarray,
+        num_point: int,
+        species_names: List[str],
+        sd_kwargs: Dict[str, Any],
+        trial_changepoints: List[int]) -> float:
+    """Worker function (runs in its own process).
+
+    Fits a piecewise model for *trial_changepoints* using parallel segment fits
+    and returns the median p10 accuracy score.  Returns ``float('inf')`` on any
+    fit failure so the caller can treat it as infinitely bad and skip that trial.
+    """
+    try:
+        boundary_index_arr = [0] + list(trial_changepoints) + [num_point]
+        models, boundaries, lengths = _fit_segments_parallel(
+            training_df=training_df,
+            boundary_index_arr=boundary_index_arr,
+            time_arr=time_arr_full,
+            num_point=num_point,
+            sd_kwargs=dict(sd_kwargs),  # copy to avoid pickle surprises with nested defaults
+        )
+        return _compute_median_score(models, boundaries, training_df)
+    except Exception:
+        return float("inf")
 
 
 class PiecewiseSystemDiscovery(object):
@@ -48,6 +158,7 @@ class PiecewiseSystemDiscovery(object):
         model_name: str = "",
         num_trail: int = 1,
         changepoints: Optional[List[int]] = None,
+        is_changepoint_removal: bool = True,
         is_random_changepoints: bool = False,
         **sd_kwargs: Any,
     ) -> None:
@@ -63,6 +174,7 @@ class PiecewiseSystemDiscovery(object):
             num_trail (int, optional): Number of random changepoint trials.
                 Only used if is_random_changepoints is True.
             changepoints (List[int], optional): List of pre-determined change points. Defaults to None.
+            is_changepoint_removal (bool, optional): Whether to allow removal of detected change points. Defaults to True.
             **sd_kwargs: Arguments forwarded to each per-segment ``SystemDiscovery`` constructor.
         """
         self.training_df = training_df
@@ -79,6 +191,7 @@ class PiecewiseSystemDiscovery(object):
         self._sd_kwargs = sd_kwargs
         self.changepoints = changepoints  # if None, will be determined during fit()a
         self._is_random_changepoints = is_random_changepoints
+        self._is_changepoint_removal = is_changepoint_removal
 
         self._subsequence_models: List[SystemDiscovery] = []
         self._subsequence_boundaries: List[Tuple[float, float]] = []
@@ -211,7 +324,7 @@ class PiecewiseSystemDiscovery(object):
                 raise RuntimeError(f"Error fitting SystemDiscovery for segment {lo}:{hi}: {e}")
         return models, boundaries, lengths
 
-    def _makeChangepointsWithElimination(self) -> List[int]:
+    def _makeChangepointsWithoutElimination(self) -> List[int]:
         """Generate an initial set of evenly spaced changepoints and then repeatedly 
         eliminates changepoints that do not degrade accuracy by more than
         ``max_fractional_reduction``.
@@ -223,7 +336,6 @@ class PiecewiseSystemDiscovery(object):
         """
         num_point = self.num_point
         max_changepoint = self._adjustMaxChangepoints()
-        threshold = self.max_fractional_reduction
 
         if max_changepoint <= 0:
             return []
@@ -240,7 +352,20 @@ class PiecewiseSystemDiscovery(object):
                 continue
             changepoints.append(cp)
 
-        changepoints = changepoints[:max_changepoint]
+        return changepoints[:max_changepoint]
+
+    def _makeChangepointsWithElimination(self) -> List[int]:
+        """Generate an initial set of evenly spaced changepoints and then repeatedly 
+        eliminates changepoints that do not degrade accuracy by more than
+        ``max_fractional_reduction``.
+
+        Returns
+        -------
+        list[int]
+            Sorted list of surviving changepoint indices into the training data.
+        """
+        threshold = self.max_fractional_reduction
+        changepoints = self._makeChangepointsWithoutElimination()
         if not changepoints:
             return []
 
@@ -310,6 +435,173 @@ class PiecewiseSystemDiscovery(object):
                     return changepoints
             else:
                 baseline_score = winning_ts
+
+        return changepoints
+
+
+    def _parallel_evaluate_removals(
+            self,
+            changepoints: List[int],
+            baseline_score: float,
+            time_arr_full: np.ndarray) -> Tuple[Optional[int], Dict[int, float]]:
+        """Evaluate all single-changepoint removals in parallel and pick the best cheap one.
+
+        Dispatches ``len(changepoints)`` independent trials to a
+        ``ProcessPoolExecutor`` -- each trial calls :func:`_worker_evaluate_removal` with its
+        own copy of the training data, so there is no shared mutable state across workers.
+
+        Parameters
+        ----------
+        changepoints : list[int]
+            Current set of candidate change-point indices (indices into ``training_df``).
+        baseline_score : float
+            Score of the current piecewise fit before any removal -- used as reference for
+            computing each trial's reduction and comparing it against ``max_fractional_reduction``.
+        time_arr_full : np.ndarray
+            Cached full time array (precomputed once outside the while loop to avoid repeated
+            ``index.to_numpy()`` calls in workers).
+
+        Returns
+        -------
+        tuple[Optional[int], dict[int, float]]
+            ``(best_rm_idx, trial_scores)`` where ``best_rm_idx`` is the index of the changepoint
+            whose removal yields the smallest reduction that is still within threshold (or None if
+            no such removal exists), and ``trial_scores`` maps each candidate index to its computed score.
+        """
+        n = len(changepoints)
+        max_workers = min(n, os.cpu_count() or 4)
+
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as pool:
+            future_to_idx: Dict[int, concurrent.futures.Future] = {}
+            for idx in range(n):
+                trial_cp = changepoints[:idx] + changepoints[idx + 1:]
+                # Submit each removal evaluation. The full training_df is pickled per worker --
+                # amortized against the CPU-heavy PySINDy fit that follows inside each worker.
+                future_to_idx[idx] = pool.submit(
+                    _worker_evaluate_removal,
+                    training_df=self.training_df.copy(),
+                    time_arr_full=time_arr_full,
+                    num_point=self.num_point,
+                    species_names=list(self.species_names),
+                    sd_kwargs=dict(self._sd_kwargs),
+                    trial_changepoints=trial_cp,
+                )
+
+            trial_scores: Dict[int, float] = {}
+            for idx in range(n):
+                try:
+                    trial_scores[idx] = future_to_idx[idx].result()
+                except Exception:  # pragma: no cover - defensive fallback
+                    trial_scores[idx] = float("inf")
+
+        best_rm_idx: Optional[int] = None
+        best_reduction = float('inf')
+        for idx, ts in trial_scores.items():
+            if not np.isfinite(ts):
+                continue
+            reduction = baseline_score - ts
+            if reduction <= self.max_fractional_reduction and reduction < best_reduction:
+                best_rm_idx = idx
+                best_reduction = reduction
+
+        return best_rm_idx, trial_scores
+
+    def _makeChangepointsWithEliminationParallel(self) -> List[int]:
+        """Generate an initial set of evenly spaced changepoints then repeatedly eliminate those
+        whose removal is cheap enough -- same algorithm as ``_makeChangepointsWithElimination`` but
+        with two layers of parallelism:
+
+        1. **Outer loop (inner for-loop)**: all single-changepoint removal trials in a given
+           iteration are dispatched to a ``ProcessPoolExecutor``, so they run concurrently across
+           processes (each worker gets its own GIL and its own memory).
+        2. **Inner fit**: each trial's segment fits use :func:`_fit_segments_parallel` which runs
+           one ``SystemDiscovery.fit()`` per segment in its own thread, letting the GIL-releasing
+           scipy/numpy work inside PySINDy STLSQ run concurrently across segments.
+
+        The initial baseline fit is done serially (it's a one-time cost and avoids touching the
+        instance state from multiple threads simultaneously).
+
+        Returns
+        -------
+        list[int]
+            Sorted list of surviving changepoint indices into the training data.
+        """
+        num_point = self.num_point
+        max_changepoint = self._adjustMaxChangepoints()
+
+        if max_changepoint <= 0:
+            return []
+        if max_changepoint >= num_point:
+            raise ValueError(
+                f"max_changepoint {max_changepoint} exceeds number of points {num_point}.")
+
+        # (a) Evenly spaced initial changepoints -- identical to the original.
+        step = num_point / (max_changepoint + 1)
+        candidate_indices = [int(round((i + 1) * step)) for i in range(max_changepoint)]
+        changepoints: List[int] = []
+        for cp in sorted(candidate_indices):
+            if cp < 1 or cp >= num_point:
+                continue
+            changepoints.append(cp)
+
+        changepoints = changepoints[:max_changepoint]
+        if not changepoints:
+            return []
+
+        # (b) Fit the baseline once serially before entering the loop.  Mirrors semantics of the
+        # original method but avoids touching ``self`` from multiple threads at once.
+        saved_m, saved_b, saved_l, saved_fitted = (
+            self._subsequence_models, self._subsequence_boundaries,
+            self._subsequence_lengths, self._is_fitted)
+        try:
+            baseline_models, baseline_bounds, baseline_lens = self._fitSegments(changepoints)
+            self._subsequence_models, self._subsequence_boundaries, self._subsequence_lengths = (
+                baseline_models, baseline_bounds, baseline_lens)
+            self._is_fitted = True
+            baseline_score = float(self.score(test_df=self.training_df))
+        except Exception:
+            return changepoints
+        finally:
+            # Restore prior state -- the caller of ``fit()`` is responsible for the final assignment.
+            self._subsequence_models, self._subsequence_boundaries, self._subsequence_lengths = (
+                saved_m, saved_b, saved_l)
+            self._is_fitted = saved_fitted
+
+        # Pre-compute the full time array once outside the while loop to avoid repeated .to_numpy()
+        # calls and to pass a stable reference into worker processes.
+        time_arr_full = self.training_df.index.to_numpy(dtype=float)
+
+        # (c) Iteratively remove changepoints whose removal is cheap enough, parallelizing the
+        # inner evaluation over candidates via ProcessPoolExecutor.
+        while True:
+            best_rm_idx, trial_scores = self._parallel_evaluate_removals(
+                changepoints, baseline_score, time_arr_full)
+
+            if best_rm_idx is None:
+                break
+            changepoints.pop(best_rm_idx)
+
+            winning_ts = trial_scores.get(best_rm_idx, float('inf'))
+            if np.isfinite(winning_ts):
+                # The just-computed trial score of the removal we just made IS the new baseline.
+                baseline_score = winning_ts
+            else:  # pragma: no cover - fit failed on a candidate that shouldn't have been selected
+                try:
+                    new_models, new_bounds, new_lens = self._fitSegments(changepoints)
+                    saved_m2, saved_b2, saved_l2, saved_fitted2 = (
+                        self._subsequence_models, self._subsequence_boundaries,
+                        self._subsequence_lengths, self._is_fitted)
+                    try:
+                        self._subsequence_models, self._subsequence_boundaries, self._subsequence_lengths = (
+                            new_models, new_bounds, new_lens)
+                        self._is_fitted = True
+                        baseline_score = float(self.score(test_df=self.training_df))
+                    finally:
+                        self._subsequence_models, self._subsequence_boundaries, self._subsequence_lengths = (
+                            saved_m2, saved_b2, saved_l2)
+                        self._is_fitted = saved_fitted2
+                except Exception:
+                    return changepoints
 
         return changepoints
 
@@ -407,7 +699,11 @@ class PiecewiseSystemDiscovery(object):
             if self._is_random_changepoints:
                 self.changepoints = self._makeBestRandomChangepoints()
             else:
-                self.changepoints = self._makeChangepointsWithElimination()
+                if self._is_changepoint_removal:
+                    self.changepoints = self._makeChangepointsWithElimination()
+                else:
+                    self.changepoints = self._makeChangepointsWithoutElimination()
+                #self.changepoints = self._makeChangepointsWithEliminationParallel()
         (self._subsequence_models, self._subsequence_boundaries,
         self._subsequence_lengths) = self._fitSegments(self.changepoints)
         self._is_fitted = True
@@ -625,8 +921,8 @@ class PiecewiseSystemDiscovery(object):
         print(str(self))
 
     def score(self, test_df: Optional[pd.DataFrame] = None, score_type="timecourse",
-            col: str = cn.COL_P20) -> float:
+            col: str = cn.COL_P10) -> float:
         """Return the average score across all subsequences."""
         self._requireFitted()
         score_df = self.getScoreDetails(test_df=test_df, score_type=score_type)
-        return float(score_df[col].median())
+        return float(score_df[col].min())

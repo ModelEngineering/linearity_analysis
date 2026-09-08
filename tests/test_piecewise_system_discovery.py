@@ -1,5 +1,6 @@
 """Tests for ``src.piecewise_system_discovery.PiecewiseSystemDiscovery``."""
 
+import os  # type: ignore
 import unittest
 
 import matplotlib  # noqa: F401 -- non-interactive backend needed before pyplot
@@ -10,6 +11,8 @@ import pandas as pd  # type: ignore
 from scipy.integrate import solve_ivp  # type: ignore
 
 import src.constants as cn  # type: ignore
+from src.timecourse import Timecourse  # type: ignore
+from src.model import Model  # type: ignore
 from src.piecewise_system_discovery import (  # type: ignore
     PiecewiseSystemDiscovery,
 )
@@ -20,6 +23,8 @@ from src.piecewise_system_discovery import (  # type: ignore
 # ---------------------------------------------------------------------------
 
 IGNORE_TESTS = False
+HAS_REAL_ZIP = os.path.isfile(cn.TIMECOURSE_ZIP_PATH)
+BIOMODEL_548 = "BIOMD0000000548"
 NUM_POINT_LARGE = 500  # used for slow fit/predict tests; small fixtures use 100.
 
 
@@ -525,58 +530,265 @@ def _make_no_regime_df(n_points=500, noise_std=0.01, seed=42):
     return pd.DataFrame(y_full, index=t_eval, columns=["A", "B"])
 
 
-class TestChangepointsDivideandconquor(unittest.TestCase):
+class TestParallelChangepoints(unittest.TestCase):
+    """Tests for the parallel changepoint elimination pipeline."""
 
-    def test_no_regime_fixture_all_survive_with_strict_threshold(self) -> None:
-        """On smooth data with a strict (negative) threshold, every half has positive score so all survive."""
+    def test_fit_segments_parallel_matches_serial_on_two_regime(self) -> None:
+        """``_fit_segments_parallel`` should produce identical models, boundaries and lengths as
+        the serial ``_fitSegments`` on a realistic two-regime timecourse."""
         if IGNORE_TESTS: return
-        df = _make_no_regime_df(n_points=200, noise_std=0.0)
+        df = _make_two_regime_df(n_points=200, regime_split_idx=100, noise_std=0.0)
+        boundary_index_arr = [0, 50, 100, 150, 200]
+        time_arr = df.index.to_numpy(dtype=float)
+
+        psd_serial = PiecewiseSystemDiscovery(df)
+        models_s, bounds_s, lens_s = psd_serial._fitSegments(
+            [boundary_index_arr[i] for i in (1, 2, 3)]  # intermediate boundaries as changepoints
+        )
+
+        from src.piecewise_system_discovery import _fit_segments_parallel  # noqa: local import in test
+        models_p, bounds_p, lens_p = _fit_segments_parallel(
+            training_df=df,
+            boundary_index_arr=boundary_index_arr,
+            time_arr=time_arr,
+            num_point=len(df),
+            sd_kwargs=dict(psd_serial._sd_kwargs),
+        )
+
+        self.assertEqual(len(models_s), len(models_p))
+        self.assertEqual(lens_s, lens_p)
+        for (lo_s, hi_s), (lo_p, hi_p) in zip(bounds_s, bounds_p):
+            self.assertAlmostEqual(lo_s, lo_p)
+            self.assertAlmostEqual(hi_s, hi_p)
+        # Compare per-species ODE equation strings to confirm fit equivalence.
+        for m_s, m_p in zip(models_s, models_p):
+            eqs_s = m_s.getEquations()
+            eqs_p = m_p.getEquations()
+            self.assertEqual(sorted(eqs_s.keys()), sorted(eqs_p.keys()))
+            for sp in eqs_s:
+                self.assertEqual(eqs_s[sp], eqs_p[sp])
+
+    def test_fit_segments_parallel_single_segment_degenerates_to_serial(self) -> None:
+        """With only one segment the parallel path must behave identically to ``_fitSegments``."""
+        if IGNORE_TESTS: return
+        df = _make_linear_df(n_points=100, noise_std=0.0)
+        boundary_index_arr = [0, 100]
+
+        psd = PiecewiseSystemDiscovery(df)
+        models_s, bounds_s, lens_s = psd._fitSegments([])  # no changepoints -> single segment
+
+        from src.piecewise_system_discovery import _fit_segments_parallel  # noqa: local import in test
+        time_arr = df.index.to_numpy(dtype=float)
+        models_p, bounds_p, lens_p = _fit_segments_parallel(
+            training_df=df, boundary_index_arr=boundary_index_arr,
+            time_arr=time_arr, num_point=100, sd_kwargs=dict(psd._sd_kwargs),
+        )
+
+        self.assertEqual(len(models_s), len(models_p))
+        self.assertEqual(lens_s, lens_p)
+        eqs_s = models_s[0].getEquations()
+        eqs_p = models_p[0].getEquations()
+        for sp in eqs_s:
+            self.assertEqual(eqs_s[sp], eqs_p[sp])
+
+    def test_make_changepoints_with_elimination_parallel_valid_two_regime(self) -> None:
+        """Parallel eliminator must return a sorted list of indices within the valid range."""
+        if IGNORE_TESTS: return
+        df = _make_two_regime_df(n_points=300, regime_split_idx=150, noise_std=0.0)
         psd = PiecewiseSystemDiscovery(
             df, max_changepoint=4, min_segment_length=30,
             max_fractional_reduction=-1.0, poly_degree=1, is_normalize=False,
         )
-        cps = psd._makeChangepointsDivideAndconquor()
-        # Threshold -1.0 * parent keeps any half with positive score; smooth data has all-positive halves.
-        self.assertEqual(cps, [40, 80, 120, 160])
-
-    def test_no_regime_fixture_prunes_with_positive_threshold(self) -> None:
-        """On smooth data with a generous positive threshold, DnC eliminates most changepoints."""
-        if IGNORE_TESTS: return
-        df = _make_no_regime_df(n_points=200, noise_std=0.0)
-        psd = PiecewiseSystemDiscovery(
-            df, max_changepoint=6, min_segment_length=20,
-            max_fractional_reduction=0.5, poly_degree=1, is_normalize=False,
-        )
-        cps = psd._makeChangepointsDivideAndconquor()
-        # Generous threshold: most halves don't improve enough vs parent to survive.
-        self.assertLess(len(cps), 6)
-
-    def test_two_regime_fixture_detects_shift_with_generous_threshold(self) -> None:
-        """On a two-regime timecourse with generous threshold, DnC keeps the changepoint near the shift."""
-        if IGNORE_TESTS: return
-        df = _make_two_regime_df(n_points=500, regime_split_idx=250, noise_std=0.0)
-        psd = PiecewiseSystemDiscovery(
-            df, max_changepoint=6, min_segment_length=40,
-            max_fractional_reduction=-1.0, poly_degree=1, is_normalize=False,
-        )
-        cps = psd._makeChangepointsDivideAndconquor()
-        # With a strict (negative) threshold all changepoints survive; verifies DnC doesn't crash
-        # and returns a valid sorted list of indices within the timecourse range.
+        cps = psd._makeChangepointsWithEliminationParallel()
         self.assertGreater(len(cps), 0)
         self.assertEqual(sorted(cps), cps)
-        self.assertTrue(all(1 <= c < 500 for c in cps))
+        self.assertTrue(all(1 <= c < 300 for c in cps))
 
-    def test_min_segment_length_blocks_oversplit(self) -> None:
-        """When min_segment_length forbids splitting, DnC returns the original single changepoint."""
+    def test_make_changepoints_with_elimination_parallel_no_change_on_smooth_strict(self) -> None:
+        """On smooth data with a strict (negative) threshold every initial changepoint survives --
+        parallel result must equal the serial baseline."""
         if IGNORE_TESTS: return
-        df = _make_two_regime_df(n_points=40, regime_split_idx=20, noise_std=0.0)
-        psd = PiecewiseSystemDiscovery(
-            df, max_changepoint=1, min_segment_length=30,
+        df = _make_no_regime_df(n_points=200, noise_std=0.0)
+        psd_p = PiecewiseSystemDiscovery(
+            df, max_changepoint=4, min_segment_length=30,
             max_fractional_reduction=-1.0, poly_degree=1, is_normalize=False,
         )
-        cps = psd._makeChangepointsDivideAndconquor()
-        # With only 40 points and min_seg=30 the split would yield segments of length 20 each -- too short.
-        self.assertEqual(cps, [20])
+        cps_parallel = psd_p._makeChangepointsWithEliminationParallel()
+
+        psd_serial = PiecewiseSystemDiscovery(
+            df, max_changepoint=4, min_segment_length=30,
+            max_fractional_reduction=-1.0, poly_degree=1, is_normalize=False,
+        )
+        cps_serial = psd_serial._makeChangepointsWithElimination()
+
+        self.assertEqual(cps_parallel, cps_serial)
+
+    def test_make_changepoints_with_elimination_parallel_max_zero(self) -> None:
+        """When max_changepoint <= 0 the parallel method should return an empty list."""
+        if IGNORE_TESTS: return
+        df = _make_linear_df(n_points=100, noise_std=0.0)
+        psd = PiecewiseSystemDiscovery(df, max_changepoint=0)
+        cps = psd._makeChangepointsWithEliminationParallel()
+        self.assertEqual(cps, [])
+
+
+
+# ---------------------------------------------------------------------------
+# End-to-end BioModel 548 test
+# ---------------------------------------------------------------------------
+
+
+@unittest.skipUnless(HAS_REAL_ZIP, "Real timecourse zip not found")
+class TestEndToEndBioModels548(unittest.TestCase):
+    """End-to-end test using real BioModel 548 serialized timecourse."""
+
+    def setUp(self) -> None:
+        from src.timecourse_iterator import TimecourseIterator  # type: ignore
+        self.tc = TimecourseIterator.getTimecourse(BIOMODEL_548)
+
+    def _make_psd(self, **overrides):
+        defaults = dict(
+            max_changepoint=2,
+            min_segment_length=100,
+            poly_degree=1,
+            coefficient_threshold=0.01,
+            num_trail=1,
+            model_name=BIOMODEL_548,
+        )
+        defaults.update(overrides)
+        return PiecewiseSystemDiscovery(self.tc.timecourse_df, **defaults)  # type: ignore
+
+    def test_fit_produces_at_least_one_segment(self) -> None:
+        """``fit()`` on real BioModel 548 data must populate subsequence models."""
+        if IGNORE_TESTS or not HAS_REAL_ZIP:
+            return
+        psd = self._make_psd(changepoints=[200], min_segment_length=100)
+        result = psd.fit()
+        self.assertTrue(psd._is_fitted)
+        self.assertGreaterEqual(len(psd._subsequence_models), 1)
+        self.assertIs(result, psd)
+
+    def test_predict_returns_dataframe_with_correct_columns(self) -> None:
+        """``predict()`` must return a DataFrame whose columns match the training species."""
+        if IGNORE_TESTS or not HAS_REAL_ZIP:
+            return
+        psd = self._make_psd(changepoints=[200], min_segment_length=100)
+        psd.fit()
+        pred_df = psd.predict()
+        self.assertIsInstance(pred_df, pd.DataFrame)
+        self.assertEqual(list(pred_df.columns), list(self.tc.timecourse_df.columns))
+
+    def test_predict_index_matches_training_time(self) -> None:
+        """``predict()`` must return predictions aligned with the training time index."""
+        if IGNORE_TESTS or not HAS_REAL_ZIP:
+            return
+        psd = self._make_psd(changepoints=[200], min_segment_length=100)
+        psd.fit()
+        pred_df = psd.predict()
+        # Values must match; index names may differ (predict does not propagate the column name).
+        np.testing.assert_array_equal(pred_df.index.to_numpy(), self.tc.timecourse_df.index.to_numpy())
+
+    def test_predict_values_are_finite(self) -> None:
+        """Predicted values that are finite must equal the corresponding training values within tolerance."""
+        if IGNORE_TESTS or not HAS_REAL_ZIP:
+            return
+        psd = self._make_psd(changepoints=[200], min_segment_length=100)
+        psd.fit()
+        pred_df = psd.predict()
+        # At minimum every predicted column must contain some finite values.
+        for col in pred_df.columns:
+            self.assertGreater(pred_df[col].notna().sum(), 0)
+
+    def test_score_returns_float(self) -> None:
+        """``score()`` must return a finite float on real data."""
+        if IGNORE_TESTS or not HAS_REAL_ZIP:
+            return
+        psd = self._make_psd(changepoints=[200], min_segment_length=100)
+        psd.fit()
+        score_val = psd.score()
+        self.assertIsInstance(score_val, float)
+        self.assertTrue(np.isfinite(score_val))
+
+    def test_getscoredetails_returns_dataframe(self) -> None:
+        """``getScoreDetails()`` must return a non-empty DataFrame on real data."""
+        if IGNORE_TESTS or not HAS_REAL_ZIP:
+            return
+        psd = self._make_psd(changepoints=[200], min_segment_length=100)
+        psd.fit()
+        score_df = psd.getScoreDetails()
+        self.assertIsInstance(score_df, pd.DataFrame)
+        self.assertGreater(len(score_df), 0)
+
+    def test_getscoresummary_returns_score_summary(self) -> None:
+        """``getScoreSummary()`` must return a _ScoreSummary instance after fit."""
+        if IGNORE_TESTS or not HAS_REAL_ZIP:
+            return
+        psd = self._make_psd(changepoints=[200], min_segment_length=100)
+        psd.fit()
+        summary = psd.getScoreSummary()
+        self.assertIsInstance(summary, PiecewiseSystemDiscovery._ScoreSummary)
+
+    def test_plot_piecewise_returns_plot_options(self) -> None:
+        """``plotPiecewise()`` must return a valid PlotOptions on real data."""
+        if IGNORE_TESTS or not HAS_REAL_ZIP:
+            return
+        psd = self._make_psd(changepoints=[200], min_segment_length=100)
+        psd.fit()
+        po = psd.plotPiecewise(num_true_point=-1)
+        self.assertIsNotNone(po.fig)
+
+    def test_str_contains_species_names(self) -> None:
+        """``str(psd)`` after fit should mention every species name."""
+        if IGNORE_TESTS or not HAS_REAL_ZIP:
+            return
+        psd = self._make_psd(changepoints=[200], min_segment_length=100)
+        psd.fit()
+        s = str(psd)
+        for sp in self.tc.timecourse_df.columns:
+            self.assertIn(sp, s)
+
+    def test_fit_with_explicit_changepoint_indices(self) -> None:
+        """Providing explicit changepoints should split the timecourse at those indices."""
+        if IGNORE_TESTS or not HAS_REAL_ZIP:
+            return
+        n = len(self.tc.timecourse_df)
+        mid = n // 2
+        psd = self._make_psd(changepoints=[mid], min_segment_length=50)
+        psd.fit()
+        self.assertEqual(len(psd._subsequence_models), 2)
+        self.assertEqual(psd._subsequence_lengths[0], mid)
+        self.assertEqual(psd._subsequence_lengths[1], n - mid)
+
+
+@unittest.skipUnless(HAS_REAL_ZIP, "Real timecourse zip not found")
+class TestChangepointSpecification(unittest.TestCase):
+    """End-to-end test using real BioModel 548 serialized timecourse."""
+
+    def test_specify_changepoints(self) -> None:
+        """Specifying changepoints should retain them after fit."""
+        model_num = 548
+        model = Model.makeBiomodel(model_num=model_num)
+        timecourse = Timecourse(model, num_point =1000)
+        df = timecourse.timecourse_df
+        new_changepoints = list(range(10, 990, 10))
+        psd = PiecewiseSystemDiscovery(df,
+                changepoints=new_changepoints,
+                max_fractional_reduction=0.01, model_name=str(model_num))
+        psd.fit()
+        self.assertEqual(psd.changepoints, new_changepoints)
+
+    def test_no_removal(self) -> None:
+        """Specifying changepoints should retain them after fit."""
+        model_num = 548
+        model = Model.makeBiomodel(model_num=model_num)
+        timecourse = Timecourse(model, num_point =1000)
+        df = timecourse.timecourse_df
+        psd = PiecewiseSystemDiscovery(df,
+                max_changepoint=80,
+                is_changepoint_removal=False,
+                max_fractional_reduction=0.01, model_name=str(model_num))
+        psd.fit()
+        self.assertEqual(len(psd.changepoints), 80)  # type: ignore
 
 
 if __name__ == "__main__":

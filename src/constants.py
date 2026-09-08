@@ -41,6 +41,7 @@ COL_CHANGEPOINTS = "changepoints"  # List of detected change points.
 COL_COUNT = "count"  # Number of valid values used in calculating the statistics.
 COL_ENDTIME = "endtime"
 COL_FREQUENCIES = "frequencies"  # List of detected oscillation frequencies in Hz.
+COL_IS_CHANGEPONT_REMOVAL = "is_changepoint_removal"  # Whether change points that do not significantly improve the model were removed.
 # FIXME: Change COL_MODEL_NAME to COL_SYSTEM_ID for consistency with other scripts.
 COL_MODEL_NAME = "model_name"
 COL_ENDTIME_SOURCE = "end_time_source"  # How end_time was determined (e.g. "reciprocal_min_eigenvalue", "default")

@@ -18,8 +18,10 @@ from typing import List, Optional
 EXCLUDED_MODELS: List[str] = [
     "BIOMD0000000339",
 ]
-MAX_CHANGPOINTS = [0, 1, 5, 10, 12, 15, 17, 18, 19, 20]  # Maximum number of change points to consider in the piecewise model.
-MAX_CHANGPOINTS = [0, 1, 10, 50, 80]
+IS_CHANGEPONT_REMOVAL = False  # Whether to remove change points that do not significantly improve the model.
+MAX_CHANGEPOINTS = [0, 1, 5, 10, 12, 15, 17, 18, 19, 20]  # Maximum number of change points to consider in the piecewise model.
+MAX_CHANGEPOINTS = [0, 1, 10, 50, 80]
+MAX_CHANGEPOINTS = [1, 2, 3, 4, 5] + list(range(0, 110, 10))
 MAX_FRACTIONAL_REDUCTION = 0.01  # Maximum fractional reduction in the sum of squared errors required to accept a new change point.
 COEFFICIENT_THRESHOLD = 0.001  # Threshold for coefficient magnitude to consider a species as linear.
 
@@ -65,6 +67,7 @@ def processModel(
                 min_segment_length=min_segment_length,
                 model_name=model_name,
                 coefficient_threshold=coefficient_threshold,
+                is_changepoint_removal=IS_CHANGEPONT_REMOVAL,
                 max_fractional_reduction=max_fractional_reduction,
         )
         psd.fit()
@@ -87,6 +90,8 @@ def processModel(
     accuracy_df[cn.COL_MAX_FRACTIONAL_REDUCTION] = max_fractional_reduction
     accuracy_df[cn.COL_COEFFICIENT_THRESHOLD] = coefficient_threshold
     accuracy_df[cn.COL_NUM_CHANGEPOINT] = psd.num_changepoint  # Number of change points detected in the piecewise model. 
+    accuracy_df[cn.COL_IS_CHANGEPONT_REMOVAL] = IS_CHANGEPONT_REMOVAL
+    accuracy_df[cn.COL_NUM_SPECIES] = len(psd.species_names)
     #
     return accuracy_df
 
@@ -143,7 +148,7 @@ def main(
             print(f"Skipping {item.model_name} (excluded)")
             continue
         # Process the model for each max_changepoint valuea
-        for max_changepoint in MAX_CHANGPOINTS:
+        for max_changepoint in MAX_CHANGEPOINTS:
             if item.model_name in existing_model_names:
                 model_df = current_df[current_df[cn.COL_SYSTEM_ID] == item.model_name]
                 if max_changepoint in model_df[cn.COL_MAX_CHANGEPOINT].values:

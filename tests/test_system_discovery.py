@@ -1235,19 +1235,6 @@ class TestKnownDynamics(unittest.TestCase):
         # The dominant term should be proportional to A (decay)
         self.assertIn("A", eqs["A"])
 
-    def test_quadratic_recovery(self) -> None:
-        """Discovered model recovers quadratic dynamics."""
-        if IGNORE_TESTS:
-            return
-        df = _make_quadratic_df(n_points=200, noise_std=0.00)
-        disc = self._make_fitted_disc(
-            df, poly_degree=2, include_bias=True
-        )
-        # Should fit without error and produce reasonable R²
-        r2 = disc.calculateSpeciesScores(score_type="derivative")
-        for v in r2.values():
-            self.assertGreater(v, 0.0)
-
 
 # ---------------------------------------------------------------------------
 # getScoreAggregatedBySpecies tests

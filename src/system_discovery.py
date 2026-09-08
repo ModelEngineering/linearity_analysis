@@ -47,6 +47,7 @@ import pandas as pd # type: ignore
 import pysindy as ps # type: ignore
 from scipy.linalg import expm  # type: ignore
 from pysindy.feature_library import PolynomialLibrary # type: ignore
+from pysindy.differentiation import SmoothedFiniteDifference
 from scipy.integrate import solve_ivp # type: ignore
 from typing import Literal, Dict, Union, Optional
 import warnings
@@ -190,12 +191,17 @@ class SystemDiscovery:
         )
         optimizer = ps.STLSQ(threshold=0, alpha=self.alpha)
 
-        diff_method = self._differentiator
+        #diff_method = self._differentiator
 
+        # Set the window size small enough to accommodate the data
+        window_length = training_df.shape[0] - 1
+        if window_length < 2:
+            raise ValueError("Window length is too small to perform differentiation.")
+        sfd = SmoothedFiniteDifference(smoother_kws={'window_length': window_length, 'polyorder': 2})
         self.model: ps.SINDy = ps.SINDy(
             feature_library=library,
             optimizer=optimizer,
-            differentiation_method=diff_method,
+            differentiation_method=sfd,
         )
         self.is_fitted: bool = False
 
@@ -562,7 +568,7 @@ class SystemDiscovery:
         """
         if timecourse is None:
             timecourse = TimecourseIterator().getTimecourse(model_name)
-        return cls(timecourse.timecourse_df, threshold=threshold, poly_degree=poly_degree)
+        return cls(timecourse.timecourse_df, coefficient_threshold=threshold, poly_degree=poly_degree)
 
     def plotResult(
         self,
