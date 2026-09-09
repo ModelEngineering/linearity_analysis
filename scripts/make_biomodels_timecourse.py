@@ -15,6 +15,7 @@ import argparse
 import os
 from typing import List
 
+NUM_POINT = 1000
 EXCLUDED_MODELS: List[str] = [
     "BIOMD0000000055",
     "BIOMD0000000148",
@@ -45,6 +46,7 @@ def main(
         last_model_num: int = int(1e9),
         excluded_models: List[str] = EXCLUDED_MODELS,
         is_initialize: bool = False, # Ignore existing serialized Timecourse when initializing (for testing).
+        num_point: int = NUM_POINT,
 ) -> None:
     '''Serialize timecourses for all BioModels.
 
@@ -58,6 +60,8 @@ def main(
         Last model number to include (inclusive).
     excluded_models : List[str]
         Model names to skip.
+    is_initialize: bool
+        If True, ignore existing serialized Timecourse when initializing (for testing).
     '''
     os.makedirs(cn.TIMECOURSE_SERIALIZATION_DIR, exist_ok=True)
     for item in BiomodelsIterator(
@@ -79,7 +83,7 @@ def main(
                 continue
         try:
             timecourse = Timecourse(model=model, end_time=item.end_time,
-                    num_point=1000)
+                    num_point=num_point)
             _ = timecourse.timecourse_df  # Force calculations
             path = timecourse.serialize()
             serialized_timecourse = Timecourse.deserialize(path=path)
@@ -94,5 +98,8 @@ if __name__ == "__main__":
             description="Serialize Timecourses for BioModels.")
     parser.add_argument("--first_model_num", type=int, default=0)
     parser.add_argument("--last_model_num", type=int, default=int(1e9))
+    parser.add_argument("--num_point", type=int, default=NUM_POINT)
+    parser.add_argument("--is_initialize", action="store_true", help="Ignore existing serialized Timecourse when initializing (for testing).")
     args = parser.parse_args()
-    main(first_model_num=args.first_model_num, last_model_num=args.last_model_num)
+    main(first_model_num=args.first_model_num, last_model_num=args.last_model_num,
+            num_point=args.num_point, is_initialize=args.is_initialize)
