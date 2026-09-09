@@ -44,7 +44,7 @@ def _compute_median_score(
         score_info = sys_disc.getScoreDetails(test_df=test_seg_df, score_type="timecourse")
         score_dfs.append(score_info)
     combined = pd.concat(score_dfs, ignore_index=True) if score_dfs else pd.DataFrame()
-    return float(combined[cn.COL_P20].median())
+    return float(combined[cn.COL_P10].median())
 
 
 def _fit_segments_parallel(
@@ -295,7 +295,7 @@ class PiecewiseSystemDiscovery(object):
                 trial_psd._is_fitted = True  # bypass recursion into _getChangepoints()
                 trial_psd._subsequence_models, trial_psd._subsequence_boundaries, trial_psd._subsequence_lengths = \
                     self._fitSegments(cp)
-                score = trial_psd.score()
+                score = trial_psd.score(col=cn.COL_P50, statistic="median")
             except Exception:
                 # Treat fit failures as infinitely bad so they don't win.
                 score = float("-inf")
@@ -381,7 +381,8 @@ class PiecewiseSystemDiscovery(object):
                 self._subsequence_models, self._subsequence_boundaries, self._subsequence_lengths = (
                     _models, _bounds, _lens)
                 self._is_fitted = True
-                return float(self.score(test_df=self.training_df))
+                return float(self.score(test_df=self.training_df, col=cn.COL_MEAN, statistic="mean")
+                        / self.num_species)
             except Exception:
                 raise
             finally:
@@ -424,7 +425,7 @@ class PiecewiseSystemDiscovery(object):
                 break
             changepoints.pop(best_rm_idx)
 
-            # Recover new baseline from the just-computed trial score of the removal we just made.
+            """ # Recover new baseline from the just-computed trial score of the removal we just made.
             winning_ts = trial_scores.get(best_rm_idx, float('inf'))
             if winning_ts == float('inf'):
                 # Fit failed on the selected candidate in the previous pass (shouldn't happen --
@@ -434,7 +435,7 @@ class PiecewiseSystemDiscovery(object):
                 except Exception:
                     return changepoints
             else:
-                baseline_score = winning_ts
+                baseline_score = winning_ts """
 
         return changepoints
 
@@ -828,6 +829,8 @@ class PiecewiseSystemDiscovery(object):
     def plotPiecewise(self, num_true_point: int = -1, 
                 suptitle="Actual vs. Predicted",
                 species_names: Optional[List[str]] = None,
+                is_nochangepoint_plot: bool = True,
+                is_changepoint_plot: bool = True,
                 **plt_kwargs: Any) -> PlotOptions:
         """Two-panel comparison: 0 change points (top) vs max_changepoint (bottom).
 
@@ -842,7 +845,11 @@ class PiecewiseSystemDiscovery(object):
         species_names : Optional[List[str]]
             List of species names to plot. If None, all species are plotted.
         suptitle : str
-            Title for the entire figure.  Defaults to "Actual vs. Predicted".:w
+            Title for the entire figure.  Defaults to "Actual vs. Predicted".
+        is_nochangepoint_plot: bool
+            Plot with no changepoints
+        is_changepoint_plot: bool
+            Plot with changepoints
 
         **plt_kwargs
             Forwarded to PlotOptions. Supported keys: fig, ax, title, xlabel,
@@ -873,9 +880,18 @@ class PiecewiseSystemDiscovery(object):
         psd_score = self.score()
         psd_pred_df = self.predict()
         # Construct the plot
-        fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=figsize, sharex=True)
+        if is_nochangepoint_plot and is_changepoint_plot:
+            fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=figsize, sharex=True)
+            plot_options = PlotOptions(fig=fig, ax=ax_bot, **plt_kwargs)
+        elif is_nochangepoint_plot:
+            fig, ax_top = plt.subplots(1, 1, figsize=figsize, sharex=True)
+            plot_options = PlotOptions(fig=fig, ax=ax_top, **plt_kwargs)
+        elif is_changepoint_plot:
+            fig, ax_bot = plt.subplots(1, 1, figsize=figsize, sharex=True)
+            plot_options = PlotOptions(fig=fig, ax=ax_bot, **plt_kwargs)
+        else:
+            raise ValueError("At least one of is_nochangepoint_plot or is_changepoint_plot must be True.")
         change_point_times = [start for start, _ in self._subsequence_boundaries[1:]]
-        plot_options = PlotOptions(fig=fig, ax=ax_bot, **plt_kwargs)
         ##
         def _draw(pred_df: pd.DataFrame, score: float, 
                 vlines: Optional[List[float]] = None, **plt_options) -> None:
@@ -901,16 +917,18 @@ class PiecewiseSystemDiscovery(object):
                 model_num_str = str(int(self.model_name[6:]))
             else:
                 model_num_str = self.model_name
-            po.title = model_num_str + ": " + plt_options.get("title", "") + f" (Median p10 accuracy={score:.3f})"
+            po.title = model_num_str + ": " + plt_options.get("title", "") + f" (Min p10 accuracy={score:.3f})"
             if ymax > 0.0:
                 po.ylim = (0.0, ymax)
             po.apply()
         ##
-        _draw(fig=fig, ax=ax_top, pred_df=baseline_pred_df, score=baseline_score,
-                title="0 change points", **plt_kwargs)
-        _draw(fig=fig, ax=ax_bot, pred_df=psd_pred_df, score=psd_score,
-                title=f"{self.num_changepoint} change points",
-                vlines=change_point_times, **plt_kwargs)
+        if is_nochangepoint_plot:
+            _draw(fig=fig, ax=ax_top, pred_df=baseline_pred_df, score=baseline_score,  # type: ignore
+                    title="0 change points", **plt_kwargs)
+        if is_changepoint_plot:
+            _draw(fig=fig, ax=ax_bot, pred_df=psd_pred_df, score=psd_score,  # type: ignore
+                    title=f"{self.num_changepoint} change points",
+                    vlines=change_point_times, **plt_kwargs)
         fig.suptitle(suptitle, fontsize=13, fontweight="bold")
         fig.tight_layout()
         return plot_options
@@ -921,8 +939,18 @@ class PiecewiseSystemDiscovery(object):
         print(str(self))
 
     def score(self, test_df: Optional[pd.DataFrame] = None, score_type="timecourse",
-            col: str = cn.COL_P10) -> float:
-        """Return the average score across all subsequences."""
+            col: str = cn.COL_P10, statistic: str = "min") -> float:
+        """Return the average score across all subsequences.
+        statistic:
+            min, median, mean
+        """
         self._requireFitted()
         score_df = self.getScoreDetails(test_df=test_df, score_type=score_type)
-        return float(score_df[col].min())
+        if statistic == "min":
+            return float(score_df[col].min())
+        elif statistic == "median":
+            return float(score_df[col].median())
+        elif statistic == "mean":
+            return float(score_df[col].mean())
+        else:
+            raise ValueError("statistic must be 'min' or 'median' or 'mean'")
