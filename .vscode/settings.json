@@ -1,0 +1,4 @@
+{
+    "python.defaultInterpreterPath": "${workspaceFolder}/mla/bin/python",
+    "python.analysis.extraPaths": ["${workspaceFolder}/src", "${workspaceFolder}/scripts"]
+}
