@@ -979,33 +979,29 @@ class TestScoreDetails(unittest.TestCase):
         agg_types = set(result[cn.COL_AGGREGATION_TYPE].values)
         self.assertIn(cn.COL_AGGREGATION_TYPE_MODEL, agg_types)
 
-    def test_score_derivative(self) -> None:
-        """score(score_type='derivative') returns a float."""
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(noise_std=0.01)
-        disc = self._make_fitted_disc(df)
-        result = disc.score(score_type="derivative")
-        self.assertIsInstance(result, float)
-
-    def test_score_timecourse(self) -> None:
-        """score(score_type='timecourse') returns a float."""
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(noise_std=0.01)
-        disc = self._make_fitted_disc(df)
-        result = disc.score(score_type="timecourse")
-        self.assertIsInstance(result, float)
-
-    def test_score_invalid_raises(self) -> None:
-        """score raises ValueError for invalid score_type."""
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(noise_std=0.01)
-        disc = self._make_fitted_disc(df)
+    def test_get_score_details_invalid_score_type(self) -> None:
+        """getScoreDetails raises ValueError for invalid score_type."""
+        df = _make_linear_df()
+        disc = SystemDiscovery(df, is_normalize=False)
+        disc.fit()
         with self.assertRaises(ValueError):
-            disc.score(score_type="invalid")
+            disc.getScoreDetails(score_type="invalid")
 
+    def test_get_score_details_empty_df(self) -> None:
+        """getScoreDetails raises ValueError on empty DataFrame."""
+        disc = SystemDiscovery(pd.DataFrame(columns=["A", "B"]), is_normalize=False)
+        disc.fit()
+        with self.assertRaises(ValueError):
+            disc.getScoreDetails()
+
+    def test_get_score_details_entry_threshold(self) -> None:
+        """getScoreDetails returns different results for varying entry_threshold."""
+        df = _make_linear_df()
+        disc = SystemDiscovery(df, is_normalize=False)
+        disc.fit()
+        default_result = disc.getScoreDetails(entry_threshold=0.0)
+        high_threshold_result = disc.getScoreDetails(entry_threshold=1e6)
+        self.assertLess(len(high_threshold_result), len(default_result))
 
 # ---------------------------------------------------------------------------
 # Summary tests

@@ -831,6 +831,7 @@ class PiecewiseSystemDiscovery(object):
                 species_names: Optional[List[str]] = None,
                 is_nochangepoint_plot: bool = True,
                 is_changepoint_plot: bool = True,
+                statistic: str = "median",
                 **plt_kwargs: Any) -> PlotOptions:
         """Two-panel comparison: 0 change points (top) vs max_changepoint (bottom).
 
@@ -850,6 +851,8 @@ class PiecewiseSystemDiscovery(object):
             Plot with no changepoints
         is_changepoint_plot: bool
             Plot with changepoints
+        statistic: str
+            Statistic to use for scoring the piecewise model.  Defaults to "median".
 
         **plt_kwargs
             Forwarded to PlotOptions. Supported keys: fig, ax, title, xlabel,
@@ -875,9 +878,9 @@ class PiecewiseSystemDiscovery(object):
 
         # Get baseline vs. piecewise scores and predictions; lazily build the whole-timecourse model.
         sys_disc = self._getBaselineSystemDiscovery()
-        baseline_score = sys_disc.score()
+        baseline_score = sys_disc.score(statistic=statistic, col=cn.COL_P10)
         baseline_pred_df = sys_disc.predict()
-        psd_score = self.score()
+        psd_score = self.score(statistic=statistic, col=cn.COL_P10)
         psd_pred_df = self.predict()
         # Construct the plot
         if is_nochangepoint_plot and is_changepoint_plot:
@@ -898,12 +901,16 @@ class PiecewiseSystemDiscovery(object):
             po = PlotOptions(**plt_options)
             ax = po.ax
             ymax = actual_arr.max().max()
+            legends:List[str] = []
             for idx, name in enumerate(species_names):
                 color = f"C{idx}"
                 ax.scatter(  # type: ignore
                     time_arr[::num_skip], actual_arr[::num_skip, idx],
                     marker="o", s=30, linestyle="-", color=color, label=f"{name} actual", zorder=3,
                 )
+                legends.append(name)
+            for idx, name in enumerate(species_names):
+                color = f"C{idx}"
                 if pred_df is not None and name in pred_df.columns:
                     ax.plot(  # type: ignore
                         pred_df.index, pred_df[name],
@@ -917,10 +924,11 @@ class PiecewiseSystemDiscovery(object):
                 model_num_str = str(int(self.model_name[6:]))
             else:
                 model_num_str = self.model_name
-            po.title = model_num_str + ": " + plt_options.get("title", "") + f" (Min p10 accuracy={score:.3f})"
+            po.title = model_num_str + ": " + plt_options.get("title", "") + f" (Median species p10 accuracy={score:.3f})"
             if ymax > 0.0:
                 po.ylim = (0.0, ymax)
             po.apply()
+            ax.legend(legends)  # type: ignore
         ##
         if is_nochangepoint_plot:
             _draw(fig=fig, ax=ax_top, pred_df=baseline_pred_df, score=baseline_score,  # type: ignore
@@ -939,7 +947,7 @@ class PiecewiseSystemDiscovery(object):
         print(str(self))
 
     def score(self, test_df: Optional[pd.DataFrame] = None, score_type="timecourse",
-            col: str = cn.COL_P10, statistic: str = "min") -> float:
+            col: str = cn.COL_P10, statistic: str = "median") -> float:
         """Return the average score across all subsequences.
         statistic:
             min, median, mean

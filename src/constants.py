@@ -13,6 +13,8 @@ CALCULATED_ENTIMES_PATH = os.path.join(DATA_DIR, "biomodels_endtime.csv")
 SERIALIZATION_DIR = os.path.join(PROJECT_DIR, "data", "serialize")
 TIMECOURSE_SERIALIZATION_DIR = os.path.join(SERIALIZATION_DIR,
         "timecourse")
+TIMECOURSE_ZIP_1000_PATH = os.path.join(TIMECOURSE_SERIALIZATION_DIR, "timecourse_1000.zip")
+TIMECOURSE_ZIP_10000_PATH = os.path.join(TIMECOURSE_SERIALIZATION_DIR, "timecourse_10000.zip")
 TIMECOURSE_ZIP_PATH = os.path.join(TIMECOURSE_SERIALIZATION_DIR, "timecourse.zip")
 PIECEWISE_PREDICTIONS_PATH = os.path.join(DATA_DIR, "piecewise_predictions.csv")
 PAPER_DIR = os.path.join(PROJECT_DIR, "paper")
@@ -24,7 +26,7 @@ NULL_ROADRUNNER = te.loada("")
 # Default values
 START_TIME = 0.0
 END_TIME = 10.0
-NUM_POINT = 1000
+NUM_POINT = 10000
 SYSTEM_DISCOVERY_THRESHOLD = 0.01
 
 # Diameter metrics

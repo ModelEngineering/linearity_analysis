@@ -12,8 +12,8 @@ from scripts.make_biomodels_timecourse import main  # type: ignore
 IGNORE_TESTS = False
 HAS_BIOMODELS = os.path.isdir(cn.BIOMODELS_DIR)
 
-TEST_MODEL = "BIOMD0000000003"
-TEST_MODEL_NUM = 3
+TEST_MODEL = "BIOMD0000000005"
+TEST_MODEL_NUM = 5
 EXPECTED_PKL = f"{TEST_MODEL}_timecourse.pkl"
 
 
@@ -79,6 +79,7 @@ class TestMain(unittest.TestCase):
             return
         # Create a valid serialized timecourse first.
         self._runOnTestModel(is_initialize=True)
+        pkl_files = [f for f in os.listdir(self._tmpdir) if f.endswith(".pkl")]
 
         # Run again with is_initialize=False — main() should skip (pkl exists),
         # leaving exactly one .pkl file behind.

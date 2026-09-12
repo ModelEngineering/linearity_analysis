@@ -3,8 +3,14 @@
 import src.constants as cn  # type: ignore
 
 import os
+import re
 import tellurium as te  # type: ignore
-from typing import List
+from typing import Dict, List, Optional, Set
+
+
+_ASSIGNMENT_RULE_RE = re.compile(
+    r'<assignmentRule\s+[^>]*variable=["\']([^"\']+)["\'][^>]*/?>',
+)
 
 
 class Model(object):
@@ -28,7 +34,7 @@ class Model(object):
         self.model_name = model_name
         self.sbml_str = self._toSBML(model_str)
         if self.sbml_str == "":
-            raise ValueError("this is not a model.")
+            raise ValueError(f"Could not process model {model_name}.")
         self._species_names: List[str] = []
         #
         rr = te.loadSBMLModel(self.sbml_str)
@@ -38,6 +44,10 @@ class Model(object):
         self.num_reaction = rr.getNumReactions()
         self.num_species = len(self.species_names)
         self.num_assignment_rule = len(rr.getAssignmentRuleIds())
+        # Species constrained by assignment rules cannot have their initial values set independently.
+        self._assignment_constrained_species: Set[str] = set(
+            _ASSIGNMENT_RULE_RE.findall(self.sbml_str)
+        )
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Model):

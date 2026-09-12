@@ -88,6 +88,7 @@ class Timecourse(object):
         """Determine the end time and its source."""
         if end_time is not None:
             return end_time
+        # FIXME: Need a test for that covers this branch
         if self.model.model_name.startswith("BIOMD"):
             endtime_dct = getBiomodelsEndtimes()
             csv_end_time = endtime_dct.get(self.model.model_name, None)
@@ -242,7 +243,7 @@ class Timecourse(object):
         return plot_options
 
     @classmethod
-    def makeBiomodelDF(cls, model_name: str, num_point: int = 1000,
+    def makeBiomodelDF(cls, model_name: str, num_point: int = cn.NUM_POINT,
             end_time: Optional[float] = None) -> "Timecourse":
         """Create a dataframe for a BioModel.
 

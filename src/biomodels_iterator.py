@@ -149,7 +149,7 @@ class BiomodelsIterator:
                     is_include_endtime_source=True)
         else:
             # When no path provided, load without source info so all models pass the filter
-            self._endtime_dct = getBiomodelsEndtimes(is_include_endtime_source=False)
+            self._endtime_dct = getBiomodelsEndtimes(is_include_endtime_source=True)
 
     def _getProcessedModelsFromCSV(self) -> Tuple[pd.DataFrame, List[str]]:
         """

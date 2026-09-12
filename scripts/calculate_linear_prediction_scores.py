@@ -137,7 +137,7 @@ def processModels(first_model_num: int, last_model_num: int,
         if not found_timecourse:
             try:
                 model = Model.makeBiomodel(model_name=model_name)
-                timecourse = Timecourse(model, num_point=1000)
+                timecourse = Timecourse(model, num_point=cn.NUM_POINT)
                 _ = timecourse.timecourse_df  # Force creation of the timecourse_df
                 timecourse.serialize()
             except Exception as e:

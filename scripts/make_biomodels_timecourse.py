@@ -28,10 +28,21 @@ EXCLUDED_MODELS: List[str] = [
     "BIOMD0000000471",
     "BIOMD0000000472",
     "BIOMD0000000473",
+    "BIOMD0000000490",
     "BIOMD0000000566", # seg fault
     "BIOMD0000000567", # seg fault
     "BIOMD0000000574",  # Long processing
+    "BIOMD0000000606",
     "BIOMD0000000625",
+    "BIOMD0000000693",
+    "BIOMD0000000794",
+    "BIOMD0000000806",
+    "BIOMD0000000810",
+    "BIOMD0000001020",
+    "BIOMD0000001077",  # bad endtime
+    "BIOMD0000001078",  # bad endtime
+    "BIOMD0000001079",  # bad endtime
+    "BIOMD0000001080",  # bad endtime
 ]
 if os.path.isfile(os.path.join(cn.DATA_DIR, "badmodels.txt")):
     with open(os.path.join(cn.DATA_DIR, "badmodels.txt"), "r") as f:
@@ -75,7 +86,11 @@ def main(
             continue
         pkl_path = os.path.join(cn.TIMECOURSE_SERIALIZATION_DIR,
                 f"{model_name}_timecourse.pkl")
-        model = Model.makeBiomodel(model_name)
+        try:
+            model = Model.makeBiomodel(model_name)
+        except ValueError as e:
+            print(f"Skipping {model_name} (error loading model: {e})")
+            continue
         if os.path.isfile(pkl_path) and (not is_initialize):
             timecourse = Timecourse.deserialize(path=pkl_path)
             if not timecourse.timecourse_df.empty:
@@ -99,7 +114,7 @@ if __name__ == "__main__":
     parser.add_argument("--first_model_num", type=int, default=0)
     parser.add_argument("--last_model_num", type=int, default=int(1e9))
     parser.add_argument("--num_point", type=int, default=NUM_POINT)
-    parser.add_argument("--is_initialize", action="store_true", help="Ignore existing serialized Timecourse when initializing (for testing).")
+    parser.add_argument("--initialize", action="store_true", help="Ignore existing serialized Timecourse when initializing (for testing).")
     args = parser.parse_args()
     main(first_model_num=args.first_model_num, last_model_num=args.last_model_num,
-            num_point=args.num_point, is_initialize=args.is_initialize)
+            num_point=args.num_point, is_initialize=args.initialize)

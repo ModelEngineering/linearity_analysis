@@ -883,40 +883,36 @@ class SystemDiscovery:
         """Pretty-print the discovered ODE equations."""
         print(self.__str__())
 
-    def score(self, score_type: str = "timecourse", score_column: str = cn.COL_MEAN
-            ) -> float:
+    def score(self, col: str = cn.COL_P10, statistic: str = "median") -> float:
         """
-        Calculates a single measure of model performance.
-            derivative: minimum value of R² across all species
-            timecourse: maximum value of ARE across all species
+        Calculates a single measure of model performance based on a particular
+        aggregation of species-level accuracy scores.
         
 
         Parameters
         ----------
-        score_type : str
-            The type of score to calculate.  Must be one of:
-            - ``"derivative"``
-            - ``"timecourse"``
+        col : str
+            The column name in the score DataFrame to use for R².  Default is
+        statistic: str
+            Choices are "min", "median", "mean"
 
         Returns
         -------
         float
             The calculated score.
-            - ``"derivative"``: R² on predicted vs numerical derivatives of concentrations.
-            - ``"timecourse"``: R² for the species timecourses
         """
-        score_detail_df = self.getScoreDetails(score_type=score_type)
-        model_sel = score_detail_df[cn.COL_AGGREGATION_TYPE] == "model"
-        if score_type == "derivative":
-            result = float(score_detail_df[model_sel][score_column].iloc[0])
-            return result
-        elif score_type == "timecourse":
-            model_sel = score_detail_df[cn.COL_AGGREGATION_TYPE] == "model"
-            vals = score_detail_df[model_sel][score_column].to_numpy(dtype=float)
-            result = float(np.max(vals))
-            return result
+        score_detail_df = self.getScoreDetails(score_type="timecourse")
+        model_sel = score_detail_df[cn.COL_AGGREGATION_TYPE] != "model"
+        vals = score_detail_df[model_sel][col].to_numpy(dtype=float)
+        if statistic == "min":
+            result = float(np.min(vals))
+        elif statistic == "median":
+            result = float(np.median(vals))
+        elif statistic == "mean":
+            result = float(np.mean(vals))
         else:
-            raise ValueError(f"Invalid score_type '{score_type}'. Must be 'derivative' or 'timecourse'.")
+            raise ValueError(f"Invalid statistic '{statistic}'. Must be 'min', 'median', or 'mean'.")
+        return result
 
     def summary(self, entry_threshold: float = 0) -> pd.DataFrame:
         """Return a DataFrame of denormalized non-zero coefficients for all species.

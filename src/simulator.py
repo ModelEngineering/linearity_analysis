@@ -221,21 +221,41 @@ class Simulator(object):
         return rr, initial_dct
 
     def _setInitialValues(self, rr, initial_dct: Dict[str, float]) -> None:
-        """Set initial values of floating species in the RoadRunner model."""
+        """Set initial values of floating species in the RoadRunner model.
+
+        Skips any species that are constrained by an assignment rule; such
+        values cannot be set independently and would cause a conflict with
+        the dynamic expression defining them.
+        """
+        constrained = self.model._assignment_constrained_species
         for name in self.model.species_names:
-            if name in initial_dct.keys():
+            if name not in constrained and name in initial_dct.keys():
                 rr[name] = initial_dct[name]
 
     def _getPerturbedInitialValues(self) -> Dict[str, float]:
-        """Perturb initial values of floating species by randomly selecting a fraction."""
+        """Perturb initial values of floating species by randomly selecting a fraction.
+
+        Species constrained by assignment rules are excluded because they cannot
+        have their initial values set independently.
+        """
         dct: Dict[str, float] = {}
         num_species = self.model.num_species
         num_perturb = int(self.perturbation_species_fraction * num_species)
         if num_perturb <= 0:
             return dct
-        perturb_indices = np.random.choice(num_species, size=num_perturb, replace=False)
+        # Exclude species constrained by assignment rules from perturbation pool.
+        constrained = self.model._assignment_constrained_species
+        modifiable_indices = [
+            idx for idx, name in enumerate(self.model.species_names)
+            if name not in constrained
+        ]
+        num_modifiable = len(modifiable_indices)
+        # Fall back to the number of available (non-constrained) species.
+        effective_perturb = min(num_perturb, num_modifiable)
+        perturb_indices = np.random.choice(
+            num_modifiable, size=effective_perturb, replace=False)
         for idx in perturb_indices:
-            species_name = self.model.species_names[idx]
+            species_name = self.model.species_names[modifiable_indices[idx]]
             try:
                 original_value = self.model.initial_value_dct[species_name]
                 perturbation = self.perturbation_value_fraction * original_value

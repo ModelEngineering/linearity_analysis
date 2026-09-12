@@ -24,9 +24,9 @@ class TimecourseIteratorItem:
 class TimecourseIterator:
     """Iterates over serialized Timecourses in the timecourse zip archive."""
 
-    def __init__(self, zip_path: str = cn.TIMECOURSE_ZIP_PATH,
+    def __init__(self, zip_path: Optional[str] = None,
             num_model:int = -1, first_model_num:int = 0, last_model_num:int = -1,
-            num_point:int = 1000, is_sedml_endtime: bool = True,
+            num_point:int = cn.NUM_POINT, is_sedml_endtime: bool = True,
             is_report:bool = False) -> None:
         """
         Args:
@@ -35,8 +35,15 @@ class TimecourseIterator:
             first_model_num (int, optional): number of the first model to process. Defaults to 0.
             last_model_num (int, optional): number of the last model to process. Defaults to -1 (all).
             is_sedml_endtime (bool, optional): only includes models with endtime from SED-ML. Defaults to True.
-            num_point (int, optional): number of points in each timecourse. Defaults to 1000.
+            num_point (int, optional): number of points in each timecourse. Defaults to cn.NUM_POINT.
         """
+        if zip_path is None:
+            if num_point == 1000:
+                zip_path = cn.TIMECOURSE_ZIP_1000_PATH
+            elif num_point == 10000:
+                zip_path = cn.TIMECOURSE_ZIP_10000_PATH
+            else:
+                raise ValueError(f"Unsupported num_point {num_point}. Use 1000 or 10000.")
         self.zip_path = zip_path
         self.num_model = num_model
         self.first_model_num = first_model_num

@@ -22,7 +22,7 @@ import os
 import pandas as pd # type: ignore
 from typing import Optional
 
-NUM_POINT = 1000
+NUM_POINT = cn.NUM_POINT
 
 ################ Data #####################
 threshold = 0.001
@@ -135,11 +135,16 @@ if IS_ALL:
 ################################################
 model_num = 1045
 model = Model.makeBiomodel(model_num=model_num)
-timecourse = Timecourse(model, num_point=1000)
+timecourse = Timecourse(model, num_point=cn.NUM_POINT)
 df = timecourse.timecourse_df
-psd = PiecewiseSystemDiscovery(df, max_changepoint=10, min_segment_length=30,
-                                    max_fractional_reduction=0.01, model_name=str(model_num))
-psd.fit()
-fig = psd.plotPiecewise(num_true_point=60, suptitle="").fig
-fig.savefig(os.path.join(cn.PAPER_DIR, "piecewise_prediction_1045.pdf"), bbox_inches="tight", dpi=300) # type: ignore
-plt.show()
+for max_changepoint in [0, 5, 10, 20]:
+    for max_fractional_reduction in [0.001, 0.01]:
+        psd = PiecewiseSystemDiscovery(df, max_changepoint=max_changepoint,
+                max_fractional_reduction=max_fractional_reduction,
+                model_name=str(model_num))
+        psd.fit()
+        fig = psd.plotPiecewise(num_true_point=60, suptitle="",
+                is_nochangepoint_plot=False).fig
+        filename = f"piecewise_prediction_1045_{max_changepoint}_{max_fractional_reduction}_{max_changepoint}.pdf"
+        path = os.path.join(cn.PAPER_DIR, filename)
+        fig.savefig(path, bbox_inches="tight", dpi=300)  # type: ignore

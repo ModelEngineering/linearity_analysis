@@ -1,6 +1,7 @@
 """Tests for src/simulator.py."""
 
 import os
+import re
 import sys
 import types
 import unittest
@@ -25,6 +26,11 @@ k1 = 0.1; k2 = 0.2; S1 = 10; S2 = 0
 """
 
 
+_ASSIGNMENT_RULE_RE = re.compile(
+    r'<assignmentRule\s+[^>]*variable=["\']([^"\']+)["\'][^>]*/?>',
+)
+
+
 def _make_model(antimony_str: str = ANTIMONY_MODEL, model_name: str = "test_model") -> types.SimpleNamespace:
     """Create a minimal Model-like object for testing using Antimony strings."""
     import tellurium as te  # type: ignore
@@ -40,6 +46,9 @@ def _make_model(antimony_str: str = ANTIMONY_MODEL, model_name: str = "test_mode
     model.num_reaction = rr.getNumReactions()
     model.num_species = len(species_names)
     model.num_assignment_rule = len(rr.getAssignmentRuleIds())
+    model._assignment_constrained_species = set(
+        _ASSIGNMENT_RULE_RE.findall(sbml_str)
+    )
     return model
 
 
