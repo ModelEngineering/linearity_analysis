@@ -356,8 +356,8 @@ class PiecewiseSystemDiscovery(object):
 
     def _makeChangepointsWithElimination(self) -> List[int]:
         """Generate an initial set of evenly spaced changepoints and then repeatedly 
-        eliminates changepoints that do not degrade accuracy by more than
-        ``max_fractional_reduction``.
+        eliminates changepoints as long as the reduction in accuracy is less than ``
+        ``max_fractional_reduction`` relative to the baseline (whole-timecourse) model.
 
         Returns
         -------
@@ -384,7 +384,7 @@ class PiecewiseSystemDiscovery(object):
                 return float(self.score(test_df=self.training_df, col=cn.COL_MEAN, statistic="mean")
                         / self.num_species)
             except Exception:
-                raise
+                raise RuntimeError(f"Error scoring changepoints {cps}")
             finally:
                 self._subsequence_models, self._subsequence_boundaries, self._subsequence_lengths = (
                     saved_m, saved_b, saved_l)
@@ -395,7 +395,7 @@ class PiecewiseSystemDiscovery(object):
         try:
             baseline_score = _score_for(changepoints)
         except Exception:
-            return changepoints
+            raise RuntimeError("Error fitting baseline model")
 
         # (c) Iteratively remove changepoints whose removal is cheap enough. The key difference
         # from ``_makeChangepointsIteratively`` is that ``baseline_score`` is hoisted outside the
@@ -414,12 +414,21 @@ class PiecewiseSystemDiscovery(object):
                     trial_scores[idx] = float('inf')
                     continue
 
-                reduction = baseline_score - ts
-                if reduction <= threshold and reduction < best_reduction:
+                # Find the best reduction
+                """ reduction = baseline_score - ts
+                if reduction <= threshold and reduction > best_reduction:
                     best_reduction = reduction
                     best_rm_idx = idx
-
                 trial_scores[idx] = ts
+                """
+
+                # Find the first reduction that is sufficient. Reduces
+                # computational complexity
+                reduction = baseline_score - ts
+                if reduction <= threshold and reduction > best_reduction:
+                    best_rm_idx = idx
+                    break
+
 
             if best_rm_idx is None:
                 break

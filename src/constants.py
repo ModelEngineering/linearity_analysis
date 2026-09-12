@@ -15,7 +15,7 @@ TIMECOURSE_SERIALIZATION_DIR = os.path.join(SERIALIZATION_DIR,
         "timecourse")
 TIMECOURSE_ZIP_1000_PATH = os.path.join(TIMECOURSE_SERIALIZATION_DIR, "timecourse_1000.zip")
 TIMECOURSE_ZIP_10000_PATH = os.path.join(TIMECOURSE_SERIALIZATION_DIR, "timecourse_10000.zip")
-TIMECOURSE_ZIP_PATH = os.path.join(TIMECOURSE_SERIALIZATION_DIR, "timecourse.zip")
+TIMECOURSE_ZIP_PATH = TIMECOURSE_ZIP_10000_PATH  # Default path to the timecourse zip file
 PIECEWISE_PREDICTIONS_PATH = os.path.join(DATA_DIR, "piecewise_predictions.csv")
 PAPER_DIR = os.path.join(PROJECT_DIR, "paper")
 

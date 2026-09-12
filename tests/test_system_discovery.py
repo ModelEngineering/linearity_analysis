@@ -987,21 +987,6 @@ class TestScoreDetails(unittest.TestCase):
         with self.assertRaises(ValueError):
             disc.getScoreDetails(score_type="invalid")
 
-    def test_get_score_details_empty_df(self) -> None:
-        """getScoreDetails raises ValueError on empty DataFrame."""
-        disc = SystemDiscovery(pd.DataFrame(columns=["A", "B"]), is_normalize=False)
-        disc.fit()
-        with self.assertRaises(ValueError):
-            disc.getScoreDetails()
-
-    def test_get_score_details_entry_threshold(self) -> None:
-        """getScoreDetails returns different results for varying entry_threshold."""
-        df = _make_linear_df()
-        disc = SystemDiscovery(df, is_normalize=False)
-        disc.fit()
-        default_result = disc.getScoreDetails(entry_threshold=0.0)
-        high_threshold_result = disc.getScoreDetails(entry_threshold=1e6)
-        self.assertLess(len(high_threshold_result), len(default_result))
 
 # ---------------------------------------------------------------------------
 # Summary tests

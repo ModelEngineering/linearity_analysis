@@ -18,7 +18,7 @@ from typing import List, Optional
 EXCLUDED_MODELS: List[str] = [
     "BIOMD0000000339",
 ]
-IS_CHANGEPONT_REMOVAL = False  # Whether to remove change points that do not significantly improve the model.
+IS_CHANGEPONT_REMOVAL = True # Whether to remove change points that do not significantly improve the model.
 MAX_CHANGEPOINTS = [0, 1, 5, 10, 12, 15, 17, 18, 19, 20]  # Maximum number of change points to consider in the piecewise model.
 MAX_CHANGEPOINTS = [0, 1, 10, 50, 80]
 MAX_CHANGEPOINTS = [1, 2, 3, 4, 5] + list(range(0, 110, 20)) + [200, 300, 400, 500]
