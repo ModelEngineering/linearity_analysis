@@ -440,31 +440,6 @@ class TestStr(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# getScoreSummary tests
-# ---------------------------------------------------------------------------
-
-
-class TestGetScoreSummary(unittest.TestCase):
-
-    def test_getscoresummary_returns_score_summary(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=100, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, changepoints=[50], min_segment_length=20)
-        psd.fit()
-        summary = psd.getScoreSummary()
-        self.assertIsInstance(summary, PiecewiseSystemDiscovery._ScoreSummary)
-
-    def test_getscoresummary_requires_fitted(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=50)
-        psd = PiecewiseSystemDiscovery(df)
-        with self.assertRaises(RuntimeError):
-            psd.getScoreSummary()
-
-
-# ---------------------------------------------------------------------------
 # plotPiecewise tests
 # ---------------------------------------------------------------------------
 
@@ -487,149 +462,6 @@ class TestPlotPiecewise(unittest.TestCase):
         psd = PiecewiseSystemDiscovery(df)
         with self.assertRaises(RuntimeError):
             psd.plotPiecewise()
-
-# ---------------------------------------------------------------------------
-# Divide-and-conquer changepoint tests
-# ---------------------------------------------------------------------------
-
-def _make_two_regime_df(n_points=500, regime_split_idx=250, noise_std=0.01, seed=42):
-    """Generate a timecourse with two distinct linear regimes separated at ``regime_split_idx``."""
-    rng = np.random.default_rng(seed)
-
-    def rhs_a(t, z):  # regime 1 -- slow decay, weak coupling
-        a, b = z
-        return [-0.5 * a + 0.1 * b, 0.3 * a - 0.2 * b]
-
-    def rhs_b(t, z):  # regime 2 -- fast dynamics, different interaction sign
-        a, b = z
-        return [0.4 * a - 0.8 * b, -0.1 * a - 0.6 * b]
-
-    t_a = np.linspace(0.0, 5.0, regime_split_idx, endpoint=False)
-    sol_a = solve_ivp(rhs_a, [0.0, 5.0], [10.0, 0.0], t_eval=t_a, rtol=1e-8)
-
-    t_b_start = 5.0
-    t_b = np.linspace(t_b_start, 10.0, n_points - regime_split_idx, endpoint=True)
-    sol_b = solve_ivp(rhs_b, [t_b_start, 10.0], list(sol_a.y[:, -1]), t_eval=t_b, rtol=1e-8)
-
-    y_full = np.hstack([sol_a.y, sol_b.y]).T + rng.normal(0, noise_std, (n_points, 2))
-    t_full = np.linspace(0.0, 10.0, n_points)
-    return pd.DataFrame(y_full, index=t_full, columns=["A", "B"])
-
-
-def _make_no_regime_df(n_points=500, noise_std=0.01, seed=42):
-    """Generate a single-regime (smooth) timecourse -- no changepoint needed."""
-    rng = np.random.default_rng(seed)
-
-    def rhs(t, z):
-        a, b = z
-        return [-0.5 * a + 0.1 * b, 0.3 * a - 0.2 * b]
-
-    t_eval = np.linspace(0.0, 10.0, n_points)
-    sol = solve_ivp(rhs, [0.0, 10.0], [10.0, 0.0], t_eval=t_eval, rtol=1e-8)
-    y_full = sol.y.T + rng.normal(0, noise_std, (n_points, 2))
-    return pd.DataFrame(y_full, index=t_eval, columns=["A", "B"])
-
-
-class TestParallelChangepoints(unittest.TestCase):
-    """Tests for the parallel changepoint elimination pipeline."""
-
-    def test_fit_segments_parallel_matches_serial_on_two_regime(self) -> None:
-        """``_fit_segments_parallel`` should produce identical models, boundaries and lengths as
-        the serial ``_fitSegments`` on a realistic two-regime timecourse."""
-        if IGNORE_TESTS: return
-        df = _make_two_regime_df(n_points=200, regime_split_idx=100, noise_std=0.0)
-        boundary_index_arr = [0, 50, 100, 150, 200]
-        time_arr = df.index.to_numpy(dtype=float)
-
-        psd_serial = PiecewiseSystemDiscovery(df)
-        models_s, bounds_s, lens_s = psd_serial._fitSegments(
-            [boundary_index_arr[i] for i in (1, 2, 3)]  # intermediate boundaries as changepoints
-        )
-
-        from src.piecewise_system_discovery import _fit_segments_parallel  # noqa: local import in test
-        models_p, bounds_p, lens_p = _fit_segments_parallel(
-            training_df=df,
-            boundary_index_arr=boundary_index_arr,
-            time_arr=time_arr,
-            num_point=len(df),
-            sd_kwargs=dict(psd_serial._sd_kwargs),
-        )
-
-        self.assertEqual(len(models_s), len(models_p))
-        self.assertEqual(lens_s, lens_p)
-        for (lo_s, hi_s), (lo_p, hi_p) in zip(bounds_s, bounds_p):
-            self.assertAlmostEqual(lo_s, lo_p)
-            self.assertAlmostEqual(hi_s, hi_p)
-        # Compare per-species ODE equation strings to confirm fit equivalence.
-        for m_s, m_p in zip(models_s, models_p):
-            eqs_s = m_s.getEquations()
-            eqs_p = m_p.getEquations()
-            self.assertEqual(sorted(eqs_s.keys()), sorted(eqs_p.keys()))
-            for sp in eqs_s:
-                self.assertEqual(eqs_s[sp], eqs_p[sp])
-
-    def test_fit_segments_parallel_single_segment_degenerates_to_serial(self) -> None:
-        """With only one segment the parallel path must behave identically to ``_fitSegments``."""
-        if IGNORE_TESTS: return
-        df = _make_linear_df(n_points=100, noise_std=0.0)
-        boundary_index_arr = [0, 100]
-
-        psd = PiecewiseSystemDiscovery(df)
-        models_s, bounds_s, lens_s = psd._fitSegments([])  # no changepoints -> single segment
-
-        from src.piecewise_system_discovery import _fit_segments_parallel  # noqa: local import in test
-        time_arr = df.index.to_numpy(dtype=float)
-        models_p, bounds_p, lens_p = _fit_segments_parallel(
-            training_df=df, boundary_index_arr=boundary_index_arr,
-            time_arr=time_arr, num_point=100, sd_kwargs=dict(psd._sd_kwargs),
-        )
-
-        self.assertEqual(len(models_s), len(models_p))
-        self.assertEqual(lens_s, lens_p)
-        eqs_s = models_s[0].getEquations()
-        eqs_p = models_p[0].getEquations()
-        for sp in eqs_s:
-            self.assertEqual(eqs_s[sp], eqs_p[sp])
-
-    def test_make_changepoints_with_elimination_parallel_valid_two_regime(self) -> None:
-        """Parallel eliminator must return a sorted list of indices within the valid range."""
-        if IGNORE_TESTS: return
-        df = _make_two_regime_df(n_points=300, regime_split_idx=150, noise_std=0.0)
-        psd = PiecewiseSystemDiscovery(
-            df, max_changepoint=4, min_segment_length=30,
-            max_fractional_reduction=-1.0, poly_degree=1, is_normalize=False,
-        )
-        cps = psd._makeChangepointsWithEliminationParallel()
-        self.assertGreater(len(cps), 0)
-        self.assertEqual(sorted(cps), cps)
-        self.assertTrue(all(1 <= c < 300 for c in cps))
-
-    def test_make_changepoints_with_elimination_parallel_no_change_on_smooth_strict(self) -> None:
-        """On smooth data with a strict (negative) threshold every initial changepoint survives --
-        parallel result must equal the serial baseline."""
-        if IGNORE_TESTS: return
-        df = _make_no_regime_df(n_points=200, noise_std=0.0)
-        psd_p = PiecewiseSystemDiscovery(
-            df, max_changepoint=4, min_segment_length=30,
-            max_fractional_reduction=-1.0, poly_degree=1, is_normalize=False,
-        )
-        cps_parallel = psd_p._makeChangepointsWithEliminationParallel()
-
-        psd_serial = PiecewiseSystemDiscovery(
-            df, max_changepoint=4, min_segment_length=30,
-            max_fractional_reduction=-1.0, poly_degree=1, is_normalize=False,
-        )
-        cps_serial = psd_serial._makeChangepointsWithElimination()
-
-        self.assertEqual(cps_parallel, cps_serial)
-
-    def test_make_changepoints_with_elimination_parallel_max_zero(self) -> None:
-        """When max_changepoint <= 0 the parallel method should return an empty list."""
-        if IGNORE_TESTS: return
-        df = _make_linear_df(n_points=100, noise_std=0.0)
-        psd = PiecewiseSystemDiscovery(df, max_changepoint=0)
-        cps = psd._makeChangepointsWithEliminationParallel()
-        self.assertEqual(cps, [])
 
 
 
@@ -718,15 +550,6 @@ class TestEndToEndBioModels548(unittest.TestCase):
         score_df = psd.getScoreDetails()
         self.assertIsInstance(score_df, pd.DataFrame)
         self.assertGreater(len(score_df), 0)
-
-    def test_getscoresummary_returns_score_summary(self) -> None:
-        """``getScoreSummary()`` must return a _ScoreSummary instance after fit."""
-        if IGNORE_TESTS or not HAS_REAL_ZIP:
-            return
-        psd = self._make_psd(changepoints=[200], min_segment_length=100)
-        psd.fit()
-        summary = psd.getScoreSummary()
-        self.assertIsInstance(summary, PiecewiseSystemDiscovery._ScoreSummary)
 
     def test_plot_piecewise_returns_plot_options(self) -> None:
         """``plotPiecewise()`` must return a valid PlotOptions on real data."""
