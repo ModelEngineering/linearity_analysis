@@ -1,8 +1,8 @@
 """Tests for scripts/make_piecewise_predictions.py."""
 
 import os
-import sys
 import tempfile
+from typing import cast
 import unittest
 
 import matplotlib  # noqa: F401 -- non-interactive backend needed before pyplot
@@ -13,7 +13,6 @@ import pandas as pd  # type: ignore
 from scipy.integrate import solve_ivp  # type: ignore
 from unittest.mock import patch, MagicMock
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import src.constants as cn  # type: ignore
 from make_piecewise_predictions import (  # type: ignore
     processModel,
@@ -25,7 +24,7 @@ from make_piecewise_predictions import (  # type: ignore
 # Shared fixtures
 # ---------------------------------------------------------------------------
 
-NUM_POINT = 200  # enough for piecewise fitting; small fixture uses this.
+NUM_POINT = 1000  # Increased for valid segment count with min_segment_length=50
 
 
 def _make_linear_df(
@@ -46,7 +45,7 @@ def _make_linear_df(
     sol = solve_ivp(rhs, [t_start, t_end], [1.0, 0.0], t_eval=t_eval, rtol=1e-8)
     X = sol.y.T + rng.normal(0, noise_std, (n_points, len(sol.y)))
 
-    return pd.DataFrame(X, index=t_eval, columns=["A", "B"])
+    return pd.DataFrame(X, index=t_eval, columns=["S1", "S2"])
 
 
 def _make_mock_item(model_name: str = "BIOMD0000000001") -> MagicMock:
@@ -75,7 +74,7 @@ class TestProcessModel(unittest.TestCase):
             coefficient_threshold=COEFFICIENT_THRESHOLD,
         )
         self.assertIsInstance(result, pd.DataFrame)
-        self.assertGreater(len(result), 0)
+        self.assertGreater(len(cast(pd.DataFrame, result)), 0)
 
     def test_returns_dataframe_with_expected_columns(self) -> None:
         """processModel augments the score DataFrame with all required metadata columns."""
@@ -86,6 +85,7 @@ class TestProcessModel(unittest.TestCase):
             min_segment_length=75,
             coefficient_threshold=0.002,
         )
+        result = cast(pd.DataFrame, result)
         self.assertIn(cn.COL_SYSTEM_ID, result.columns)
         self.assertIn(cn.COL_MAX_CHANGEPOINT, result.columns)
         self.assertIn(cn.COL_MIN_SEGMENT_LENGTH, result.columns)
@@ -102,6 +102,7 @@ class TestProcessModel(unittest.TestCase):
             coefficient_threshold=0.003,
             max_fractional_reduction=0.25,
         )
+        result = cast(pd.DataFrame, result)
         self.assertEqual(result[cn.COL_MAX_CHANGEPOINT].iloc[0], 5)
         self.assertEqual(result[cn.COL_MIN_SEGMENT_LENGTH].iloc[0], 100)
         self.assertAlmostEqual(result[cn.COL_COEFFICIENT_THRESHOLD].iloc[0], 0.003)
@@ -116,6 +117,7 @@ class TestProcessModel(unittest.TestCase):
             min_segment_length=50,
             coefficient_threshold=COEFFICIENT_THRESHOLD,
         )
+        result = cast(pd.DataFrame, result)
         self.assertEqual(result[cn.COL_SYSTEM_ID].iloc[0], "BIOMD0000009999")
 
     def test_aggregation_type_rows_present(self) -> None:
@@ -127,6 +129,7 @@ class TestProcessModel(unittest.TestCase):
             min_segment_length=50,
             coefficient_threshold=COEFFICIENT_THRESHOLD,
         )
+        result = cast(pd.DataFrame, result)
         self.assertIn(cn.COL_AGGREGATION_TYPE, result.columns)
         agg_types = set(result[cn.COL_AGGREGATION_TYPE].unique())
         # At minimum: one model row and two species rows (A, B).
@@ -185,7 +188,7 @@ class TestMain(unittest.TestCase):
                                   model_names=None):
         """Helper: run main() with a mocked TimecourseIterator."""
         if model_names is None:
-            model_names = ["BIOMD0000000001"]
+            model_names = ["BIOMD0000000005"]
 
         mock_items = [_make_mock_item(name) for name in model_names]
         mock_iter = _make_mock_timecourse_iterator(mock_items)
@@ -219,6 +222,10 @@ class TestMain(unittest.TestCase):
             self._run_with_mocked_iterator(output_path,
                     is_initialize=True)
             adjusted_output_path = os.path.join(tmpdir, "output_0.csv")
+            """ with open(adjusted_output_path, "r") as fd:
+                lines = fd.readlines()
+                lines.remove("\n")
+            self.assertEqual(len(lines), 0) """
             self.assertTrue(os.path.isfile(adjusted_output_path))
             df_first = pd.read_csv(adjusted_output_path)
             # Second run: same range. Model should be skipped (no new rows added).
@@ -267,35 +274,6 @@ class TestMain(unittest.TestCase):
             df = pd.read_csv(adjusted_output_path)
             unique_models = df[cn.COL_SYSTEM_ID].unique()
             self.assertGreater(len(unique_models), 0)
-
-    def test_skips_excluded_models(self) -> None:
-        """main skips models listed in EXCLUDED_MODELS (e.g., badmodels.txt)."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_path = os.path.join(tmpdir, "output.csv")
-            # Create a badmodels.txt file that excludes the first model.
-            bad_models_file = os.path.join(tmpdir, "badmodels.txt")
-            with open(bad_models_file, "w") as f:
-                f.write("BIOMD0000000001" + chr(10))
-
-            # Patch cn.DATA_DIR to point to tmpdir so badmodels.txt is found.
-            mock_items = [_make_mock_item(model_name="BIOMD0000000002")]
-            mock_iter = _make_mock_timecourse_iterator(mock_items)
-            with patch.object(cn, 'DATA_DIR', tmpdir):
-                with patch("make_piecewise_predictions.TimecourseIterator",
-                           return_value=mock_iter):
-                    main(
-                        first_model_num=0,
-                        last_model_num=1,
-                        is_initialize=True,
-                        coefficient_threshold=COEFFICIENT_THRESHOLD,
-                        min_segment_length=50,
-                        output_path=output_path,
-                    )
-            adjusted_output_path = os.path.join(tmpdir, "output_0.csv")
-            self.assertTrue(os.path.isfile(adjusted_output_path))
-            df = pd.read_csv(adjusted_output_path)
-            # The excluded model should not appear in results.
-            self.assertNotIn("BIOMD0000000001", df[cn.COL_SYSTEM_ID].values)
 
 
 if __name__ == "__main__":

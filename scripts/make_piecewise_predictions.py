@@ -22,7 +22,8 @@ IS_CHANGEPONT_REMOVAL = True # Whether to remove change points that do not signi
 MAX_CHANGEPOINTS = [0, 1, 5, 10, 12, 15, 17, 18, 19, 20]  # Maximum number of change points to consider in the piecewise model.
 MAX_CHANGEPOINTS = [0, 1, 10, 50, 80]
 MAX_CHANGEPOINTS = [1, 2, 3, 4, 5] + list(range(0, 110, 20)) + [200, 300, 400, 500]
-MAX_FRACTIONAL_REDUCTION = 0.01  # Maximum fractional reduction in the sum of squared errors required to accept a new change point.
+MAX_CHANGEPOINTS = [100]
+MAX_FRACTIONAL_REDUCTION = 0.05  # Maximum fractional reduction in the sum of squared errors required to accept a new change point.
 COEFFICIENT_THRESHOLD = 0.001  # Threshold for coefficient magnitude to consider a species as linear.
 
 #################################################################

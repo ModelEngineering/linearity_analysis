@@ -364,11 +364,139 @@ class PiecewiseSystemDiscovery(object):
         list[int]
             Sorted list of surviving changepoint indices into the training data.
         """
-        threshold = self.max_fractional_reduction
         changepoints = self._makeChangepointsWithoutElimination()
         if not changepoints:
             return []
+        return self.eliminateChangepoints(changepoints)
 
+    def eliminateChangepoints(self, changepoints: List[int]) -> List[int]:
+        """Eliminates changepoints as long as the approximate reduction in accuracy is less than
+        ``max_fractional_reduction`` relative to the baseline (full-changepoint) piecewise fit.
+
+        Approximates per-changepoint reduction using pre-fit segment scores; no re-fits are
+        performed inside the elimination loop, so this runs in O(k log k). Each changepoint *j*
+        sits between segment *j* and segment *j+1*, giving it exactly two flanking segments to
+        estimate its marginal contribution.
+
+        Parameters
+        ----------
+        changepoints : list[int]
+            Initial set of changepoint indices to consider for elimination.
+
+        Returns
+        -------
+        list[int]
+            Sorted list of surviving changepoint indices into the training data.
+        """
+        num_changepoint = len(changepoints)
+        self.changepoints = changepoints
+        self.fit()
+
+        # Compute each segment's length-weighted normalized contribution (fraction of total
+        # num_species * num_point observations). There are k + 1 segments for k changepoints,
+        # indexed 0..k.
+        contributions: List[float] = []
+        for idx, sysdisc in enumerate(self._subsequence_models):
+            score = float(sysdisc.score(col=cn.COL_MEAN, statistic="mean"))
+            contribution = score * self._subsequence_lengths[idx] /(self.num_species * self.num_point)
+            contributions.append(contribution)
+        raw_contribution_arr = np.array(contributions, dtype=float)
+        total_arr = np.sum(raw_contribution_arr)
+        if (total_arr <= 0.0) or (num_changepoint == 0):
+            return list(changepoints)
+        mean_contribution = total_arr / len(contributions)
+
+        # The marginal effect of a changepoint is related to the similarity of
+        # of the Jacobians of of adjacent changepoints. Very similar Jacobians
+        # indicate that the marginal reduction will be smaller.
+        marginal_reduction_arr = np.array(self._makeFrobeniusDifferences())
+        total_marginal_reduction = sum(marginal_reduction_arr)
+        if abs(total_marginal_reduction) < 1e-6:
+            return changepoints
+        normalized_marginal_reduction_arr = marginal_reduction_arr/total_marginal_reduction
+        # Approximate each changepoint's marginal reduction as the excess error of its two
+        # flanking segments above overall mean (centered so a neutral changepoint has ~ 0).
+        """ marginal_reductions: List[float] = [
+            contributions[j] + contributions[j + 1] - 2.0 * mean_contribution
+            for j in range(num_changepoint)
+        ] """
+        # Sort changepoints by marginal reduction ascending so we try the "cheapest" removals first.
+        indexed_reductions = sorted(
+                enumerate(normalized_marginal_reduction_arr), key=lambda x: x[1])
+        # Remove change points that are the least impact
+        accumulated_reduction = 0.0
+        to_remove: List[int] = []
+        for cp_idx, reduction in indexed_reductions:
+            new_accumulated = accumulated_reduction + reduction
+            if new_accumulated > self.max_fractional_reduction:
+                break
+            accumulated_reduction = new_accumulated
+            to_remove.append(cp_idx)
+        # Find the surviving changepoints
+        surviving = list(changepoints)
+        for cp_idx in sorted(to_remove, reverse=True):
+            surviving.pop(cp_idx)
+        return surviving
+    
+    def _makeFrobeniusDifferences(self) -> List[float]:
+        """Compute Frobenius distances between consecutive segment Jacobian matrices.
+
+        For a piecewise system with k changepoints, there are k+1 segments and k pairwise
+        differences (between segments 0-1, 1-2, ..., k-1-k). Each difference is the Frobenius
+        norm of the element-wise difference between adjacent segment Jacobians. These
+        differences provide a measure of how much the system dynamics change across detected changepoints.
+
+        Returns
+        -------
+        list[float]
+            List of Frobenius distances between consecutive segments' Jacobian matrices.
+            Length equals ``len(self.changepoints)`` (i.e., the number of detected change points).
+
+        Raises
+        ------
+        RuntimeError
+            If the instance has not been fit or any segment's models are empty.
+        """
+        self._requireFitted()
+        if not hasattr(self, '_subsequence_models') or not self._subsequence_models:
+            raise RuntimeError("No segment models available; call fit() before using this method.")
+
+        # Extract each segment's Jacobian from its SINDy model. For a linear (poly_degree=1)
+        # system the coefficient matrix is already the Jacobian A, but we slice off the bias
+        # column via coef_arr[:, 1:] to match the convention used in ``_simulateSimple`` for
+        # consistency across polynomial degrees.
+        jacobians = []
+        for sys_disc in self._subsequence_models:
+            if not hasattr(sys_disc, 'model'):
+                raise RuntimeError(
+                    f"Segment SystemDiscovery model has no .model attribute: {type(sys_disc).__name__}"
+                )
+            coef_arr = np.asarray(sys_disc.model.coefficients())  # (n_species, n_features)
+            jacobian = coef_arr[:, 1:]                             # drop bias column -> square A
+            jacobians.append(jacobian)
+
+        # Pairwise Frobenius differences between consecutive segments. Length == k changepoints.
+        diffs = [
+            float(np.linalg.norm(jacobians[i] - jacobians[i + 1], ord='fro'))
+            for i in range(len(jacobians) - 1)
+        ]
+        return diffs
+
+    
+    def deprecated_eliminateChangepoints(self, changepoints: List[int]) -> List[int]:
+        """Eliminates changepoints as long as the reduction in accuracy is less than ``
+        ``max_fractional_reduction`` relative to the baseline (whole-timecourse) model.
+
+        Parameters
+        ----------
+        changepoints : list[int]
+            Initial set of changepoint indices to consider for elimination.
+
+        Returns
+        -------
+        list[int]
+            Sorted list of surviving changepoint indices into the training data.
+        """
         def _score_for(cps: List[int]) -> float:
             """Fit piecewise models for the given changepoints and return their score,
             leaving self unchanged on any failure."""
@@ -397,57 +525,29 @@ class PiecewiseSystemDiscovery(object):
         except Exception:
             raise RuntimeError("Error fitting baseline model")
 
-        # (c) Iteratively remove changepoints whose removal is cheap enough. The key difference
-        # from ``_makeChangepointsIteratively`` is that ``baseline_score`` is hoisted outside the
-        # while loop, and after every successful pop we recover the new baseline from the trial
-        # score already computed for that exact removal -- no extra fit needed.
+        # (c) Iteratively remove changepoints whose removal is cheap enough.
+        evaluated_changpoints = [] # Changepoints processed
+        total_accuracy_reduction = 0.0  # Cumulative accuracy reduction from the baseline
+        removal_changepoints = []  # Changepoints that are candidates for removal
         while True:
-            best_rm_idx: Optional[int] = None
-            best_reduction = float('inf')
-            trial_scores: dict[int, float] = {}
-
-            for idx in range(len(changepoints)):
-                trial_cp = changepoints[:idx] + changepoints[idx + 1:]   # slice concat
-                try:
-                    ts = _score_for(trial_cp)
-                except Exception:
-                    trial_scores[idx] = float('inf')
-                    continue
-
-                # Find the best reduction
-                """ reduction = baseline_score - ts
-                if reduction <= threshold and reduction > best_reduction:
-                    best_reduction = reduction
-                    best_rm_idx = idx
-                trial_scores[idx] = ts
-                """
-
-                # Find the first reduction that is sufficient. Reduces
-                # computational complexity
-                reduction = baseline_score - ts
-                if reduction <= threshold and reduction > best_reduction:
-                    best_rm_idx = idx
-                    break
-
-
-            if best_rm_idx is None:
+            evaluation_changepoints = [c for c in changepoints if c not in evaluated_changpoints]
+            if len(evaluation_changepoints) == 0:
                 break
-            changepoints.pop(best_rm_idx)
-
-            """ # Recover new baseline from the just-computed trial score of the removal we just made.
-            winning_ts = trial_scores.get(best_rm_idx, float('inf'))
-            if winning_ts == float('inf'):
-                # Fit failed on the selected candidate in the previous pass (shouldn't happen --
-                # only finite-reduction candidates are selected); refit baseline as a safety net.
-                try:
-                    baseline_score = _score_for(changepoints)
-                except Exception:
-                    return changepoints
-            else:
-                baseline_score = winning_ts """
-
-        return changepoints
-
+            changepoint = evaluation_changepoints[0]
+            trial_cps = evaluation_changepoints[1:]
+            evaluated_changpoints.append(changepoint)
+            try:
+                ts = _score_for(trial_cps)
+            except Exception:
+                continue
+            # Eliminate changepoints that do not degrade accuracy by more than ``max_fractional_reduction`` relative to the baseline (whole-timecourse) model.
+            # computational complexity of searching for the best.
+            if baseline_score - ts <= total_accuracy_reduction + self.max_fractional_reduction:
+                removal_changepoints.append(changepoint)
+                total_accuracy_reduction += baseline_score - ts
+        # 
+        result_changepoints = [cp for cp in changepoints if cp not in removal_changepoints]
+        return result_changepoints
 
     def _parallel_evaluate_removals(
             self,
