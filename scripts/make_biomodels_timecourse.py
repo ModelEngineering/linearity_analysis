@@ -15,7 +15,7 @@ import argparse
 import os
 from typing import List
 
-NUM_POINT = 1000
+NUM_POINT = 100000
 EXCLUDED_MODELS: List[str] = [
     "BIOMD0000000055",
     "BIOMD0000000148",

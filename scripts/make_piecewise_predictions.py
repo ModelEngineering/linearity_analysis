@@ -18,11 +18,11 @@ from typing import List, Optional
 EXCLUDED_MODELS: List[str] = [
     "BIOMD0000000339",
 ]
-IS_CHANGEPONT_REMOVAL = True # Whether to remove change points that do not significantly improve the model.
+IS_CHANGEPONT_REMOVAL = False # Whether to remove change points that do not significantly improve the model.
 MAX_CHANGEPOINTS = [0, 1, 5, 10, 12, 15, 17, 18, 19, 20]  # Maximum number of change points to consider in the piecewise model.
 MAX_CHANGEPOINTS = [0, 1, 10, 50, 80]
 MAX_CHANGEPOINTS = [1, 2, 3, 4, 5] + list(range(0, 110, 20)) + [200, 300, 400, 500]
-MAX_CHANGEPOINTS = [100]
+MAX_CHANGEPOINTS = [0, 1, 2, 3, 5, 50, 500, 5000]
 MAX_FRACTIONAL_REDUCTION = 0.05  # Maximum fractional reduction in the sum of squared errors required to accept a new change point.
 COEFFICIENT_THRESHOLD = 0.001  # Threshold for coefficient magnitude to consider a species as linear.
 
@@ -43,7 +43,6 @@ if os.path.isfile(os.path.join(cn.DATA_DIR, "badmodels.txt")):
 def processModel(
         item: TimecourseIteratorItem,
         max_changepoint: int,
-        min_segment_length: int,
         coefficient_threshold: float,
         max_fractional_reduction: float = MAX_FRACTIONAL_REDUCTION,
 ) -> Optional[pd.DataFrame]:
@@ -53,7 +52,6 @@ def processModel(
     Args:
         item (TimecourseIteratorItem): Information on current model and its timecourse.
         max_changepoint (int): Maximum number of change points to consider.
-        min_segment_length (int): Minimum length of each segment in the piecewise model. 
         max_fractional_reduction (float): Maximum fractional reduction in the sum of squared errors required to accept a new change point.
         coefficient_threshold (float): Threshold for the coefficient of determination (R-squared) to consider a model valid.
 
@@ -65,7 +63,6 @@ def processModel(
     try:
         psd = PiecewiseSystemDiscovery(df,
                 max_changepoint=max_changepoint,
-                min_segment_length=min_segment_length,
                 model_name=model_name,
                 coefficient_threshold=coefficient_threshold,
                 is_changepoint_removal=IS_CHANGEPONT_REMOVAL,
@@ -87,7 +84,6 @@ def processModel(
     accuracy_df[cn.COL_SYSTEM_ID] = model_name
     accuracy_df[cn.COL_CHANGEPOINTS] = str(psd.changepoints)
     accuracy_df[cn.COL_MAX_CHANGEPOINT] = max_changepoint
-    accuracy_df[cn.COL_MIN_SEGMENT_LENGTH] = min_segment_length
     accuracy_df[cn.COL_MAX_FRACTIONAL_REDUCTION] = max_fractional_reduction
     accuracy_df[cn.COL_COEFFICIENT_THRESHOLD] = coefficient_threshold
     accuracy_df[cn.COL_NUM_CHANGEPOINT] = psd.num_changepoint  # Number of change points detected in the piecewise model. 
@@ -106,7 +102,6 @@ def main(
         last_model_num: int = int(1e9),
         is_initialize: bool = False, # Ignore existing serialized Timecourse when initializing (for testing).
         coefficient_threshold: float = COEFFICIENT_THRESHOLD,
-        min_segment_length: int = 50,
         max_fractional_reduction: float = MAX_FRACTIONAL_REDUCTION,  # 0 means "accept any ASS reduction" — aggressive batch mode across thousands of models.
         output_path: str = cn.PIECEWISE_PREDICTIONS_PATH,
 ) -> None:
@@ -126,8 +121,6 @@ def main(
         Whether to initialize the output file.
     coefficient_threshold : float
         Threshold for coefficient magnitude to consider a species as linear.
-    min_segment_length : int
-        Minimum length of each segment in the piecewise model.
     max_fractional_reduction : float
         Maximum fractional reduction in the sum of squared errors required to accept a new change point.
     output_path : str
@@ -160,7 +153,6 @@ def main(
             print(msg)
             pred_df = processModel(item,
                     max_changepoint=max_changepoint,
-                    min_segment_length=min_segment_length,
                     max_fractional_reduction=max_fractional_reduction,
                     coefficient_threshold=coefficient_threshold,
                     )
@@ -186,7 +178,6 @@ if __name__ == "__main__":
     parser.add_argument("--last_model_num", type=int, default=int(1e9))
     parser.add_argument("--initialize", action="store_true",
                         help="Reset output file to empty (reprocess all models).")
-    parser.add_argument("--min_segment_length", type=int, default=50)
     parser.add_argument("--max_fractional_reduction", type=float, default=MAX_FRACTIONAL_REDUCTION,
                         help="Maximum fractional reduction in accuracy to eliminate a changepoint.")
     parser.add_argument("--coefficient_threshold", type=float, default=COEFFICIENT_THRESHOLD,
@@ -197,7 +188,6 @@ if __name__ == "__main__":
             first_model_num=args.first_model_num,
             last_model_num=args.last_model_num,
             is_initialize=args.initialize,
-            min_segment_length=args.min_segment_length,
             max_fractional_reduction=args.max_fractional_reduction,
             coefficient_threshold=args.coefficient_threshold,
         )

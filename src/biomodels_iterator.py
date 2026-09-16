@@ -56,7 +56,8 @@ class BiomodelsItem:
             sbml_paths: List[str],
             sedml_paths: List[str],
             existing_df: pd.DataFrame = pd.DataFrame(),
-            end_time: Optional[float] = None) -> None:
+            end_time: Optional[float] = None,
+            endtime_source: Optional[str] = None) -> None:
         """
         Initialize a BiomodelsItem.
 
@@ -73,11 +74,14 @@ class BiomodelsItem:
             The DataFrame containing existing processed models.
         end_time : Optional[float]
             The simulation end time for this model, or None if unknown.
+        endtime_source : Optional[str]
+            The source of the end time, or None if unknown.
         """
         self.model_name = model_name
         self.sbml_paths = sbml_paths
         self.sedml_paths = sedml_paths
         self.end_time = end_time
+        self.endtime_source = endtime_source
         self.existing_df = pd.DataFrame()
         self.model_num = self.getModelNumber()
         if existing_df is not None:
@@ -264,6 +268,8 @@ class BiomodelsIterator:
             entry = self._endtime_dct.get(model_name)
             if isinstance(entry, tuple):
                 item.end_time = entry[0]
+                item.endtime_source = entry[1]
             else:
                 item.end_time = entry
+                item.endtime_source = None
             yield item

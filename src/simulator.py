@@ -8,7 +8,7 @@ from collections import namedtuple
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 import tellurium as te  # type: ignore
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 MAX_ITERATOR_STEP = 50 * int(1e6)
 
@@ -38,7 +38,7 @@ class Simulator(object):
 
     def __init__(self,
         model: Model,
-        start_time: float,
+        start_time: float = 0,
         end_time: Optional[float] = None,
         num_point: int = cn.NUM_POINT,
         perturbation_value_fraction: float = cn.PERTURBATION_VALUE_FRACTION,
@@ -118,7 +118,7 @@ class Simulator(object):
         """
         if not isinstance(self.end_time, (int, float)):
             raise ValueError("end_time must be a number (int or float) to simulate.")
-        rr, initial_dct = self._makeRoadRunner()
+        rr, initial_dct = self.makeRoadRunner()
 
         # Pre-start simulation if start_time > 0
         if self.start_time > 0:
@@ -182,7 +182,7 @@ class Simulator(object):
             if steady state could not be found, or is degenerate (empty,
             NaN, or infinite).
         """
-        rr, _ = self._makeRoadRunner()
+        rr, _ = self.makeRoadRunner()
         try:
             solver = rr.getSteadyStateSolver()
             for key, value in {
@@ -204,7 +204,9 @@ class Simulator(object):
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _makeRoadRunner(self):
+    def makeRoadRunner(self
+            ) -> Tuple[te.roadrunner.extended_roadrunner.ExtendedRoadRunner, # type: ignore
+            Dict[str, float]] :
         """Load a RoadRunner instance configured with perturbed initial values.
 
         Returns

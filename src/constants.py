@@ -15,9 +15,11 @@ TIMECOURSE_SERIALIZATION_DIR = os.path.join(SERIALIZATION_DIR,
         "timecourse")
 TIMECOURSE_ZIP_1000_PATH = os.path.join(TIMECOURSE_SERIALIZATION_DIR, "timecourse_1000.zip")
 TIMECOURSE_ZIP_10000_PATH = os.path.join(TIMECOURSE_SERIALIZATION_DIR, "timecourse_10000.zip")
-TIMECOURSE_ZIP_PATH = TIMECOURSE_ZIP_10000_PATH  # Default path to the timecourse zip file
+TIMECOURSE_ZIP_100000_PATH = os.path.join(TIMECOURSE_SERIALIZATION_DIR, "timecourse_100000.zip")
+TIMECOURSE_ZIP_PATH = TIMECOURSE_ZIP_100000_PATH  # Default path to the timecourse zip file
 PIECEWISE_PREDICTIONS_PATH = os.path.join(DATA_DIR, "piecewise_predictions.csv")
 PAPER_DIR = os.path.join(PROJECT_DIR, "paper")
+CURATION_PATH = os.path.join(DATA_DIR, "curation.csv")
 
 # Types
 TYPE_ROADRUNNER = "tellurium.roadrunner.extended_roadrunner.ExtendedRoadRunner"
@@ -73,6 +75,7 @@ COL_P90 = "p90"  # 90th percentile of the valid values used in calculating the s
 COL_P95 = "p95"  # 95th percentile of the valid values used in calculating the statistics.
 COL_P99 = "p99"  # 99th percentile of the valid values used
 COL_PERCENTILES = [COL_P05,COL_P10, COL_P20, COL_P25, COL_P30, COL_P50, COL_P80, COL_P90, COL_P95, COL_P99]
+COL_REASON = "reason"  # Reason for exclusion of a model from analysis.
 COL_SPECIES_NAME = "species_name"
 COL_START_TIME = "start_time"
 COL_SYSTEM_ID = "system_id"  # Unique identifier for the system, e.g. model name or species name.

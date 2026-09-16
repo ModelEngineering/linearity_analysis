@@ -70,7 +70,6 @@ class TestProcessModel(unittest.TestCase):
         result = processModel(
             item=item,
             max_changepoint=0,
-            min_segment_length=50,
             coefficient_threshold=COEFFICIENT_THRESHOLD,
         )
         self.assertIsInstance(result, pd.DataFrame)
@@ -82,13 +81,11 @@ class TestProcessModel(unittest.TestCase):
         result = processModel(
             item=item,
             max_changepoint=0,
-            min_segment_length=75,
             coefficient_threshold=0.002,
         )
         result = cast(pd.DataFrame, result)
         self.assertIn(cn.COL_SYSTEM_ID, result.columns)
         self.assertIn(cn.COL_MAX_CHANGEPOINT, result.columns)
-        self.assertIn(cn.COL_MIN_SEGMENT_LENGTH, result.columns)
         self.assertIn(cn.COL_MAX_FRACTIONAL_REDUCTION, result.columns)
         self.assertIn(cn.COL_COEFFICIENT_THRESHOLD, result.columns)
 
@@ -98,13 +95,11 @@ class TestProcessModel(unittest.TestCase):
         result = processModel(
             item=item,
             max_changepoint=5,
-            min_segment_length=100,
             coefficient_threshold=0.003,
             max_fractional_reduction=0.25,
         )
         result = cast(pd.DataFrame, result)
         self.assertEqual(result[cn.COL_MAX_CHANGEPOINT].iloc[0], 5)
-        self.assertEqual(result[cn.COL_MIN_SEGMENT_LENGTH].iloc[0], 100)
         self.assertAlmostEqual(result[cn.COL_COEFFICIENT_THRESHOLD].iloc[0], 0.003)
         self.assertAlmostEqual(result[cn.COL_MAX_FRACTIONAL_REDUCTION].iloc[0], 0.25)
 
@@ -114,7 +109,6 @@ class TestProcessModel(unittest.TestCase):
         result = processModel(
             item=item,
             max_changepoint=0,
-            min_segment_length=50,
             coefficient_threshold=COEFFICIENT_THRESHOLD,
         )
         result = cast(pd.DataFrame, result)
@@ -126,7 +120,6 @@ class TestProcessModel(unittest.TestCase):
         result = processModel(
             item=item,
             max_changepoint=0,
-            min_segment_length=50,
             coefficient_threshold=COEFFICIENT_THRESHOLD,
         )
         result = cast(pd.DataFrame, result)
@@ -146,7 +139,6 @@ class TestProcessModel(unittest.TestCase):
             result = processModel(
                 item=item,
                 max_changepoint=0,
-                min_segment_length=50,
                 coefficient_threshold=COEFFICIENT_THRESHOLD,
             )
         self.assertIsNone(result)
@@ -164,7 +156,6 @@ class TestProcessModel(unittest.TestCase):
             result = processModel(
                 item=item,
                 max_changepoint=0,
-                min_segment_length=50,
                 coefficient_threshold=COEFFICIENT_THRESHOLD,
             )
         self.assertIsNone(result)
@@ -200,7 +191,6 @@ class TestMain(unittest.TestCase):
                 last_model_num=len(model_names),
                 is_initialize=is_initialize,
                 coefficient_threshold=COEFFICIENT_THRESHOLD,
-                min_segment_length=50,
                 output_path=output_path,
             )
 
