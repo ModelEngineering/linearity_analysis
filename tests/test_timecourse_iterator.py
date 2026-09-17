@@ -25,7 +25,7 @@ NUM_POINT = 11
 NUM_SPECIES = 2
 MODEL_NAME = "test_model"
 FIRST_REAL_MODEL = "BIOMD0000000005"
-HAS_REAL_ZIP = os.path.isfile(cn.TIMECOURSE_ZIP_PATH)
+HAS_REAL_ZIP = os.path.isfile(TimecourseIterator.getZipPath(num_point=cn.NUM_POINT))
 
 
 def _makeModel(model_name: str = MODEL_NAME) -> Model:
@@ -229,7 +229,7 @@ class TestTimecourseIteratorRealZip(unittest.TestCase):
     def test_zip_contains_many_timecourses(self) -> None:
         if IGNORE_TESTS:
             return
-        with zipfile.ZipFile(cn.TIMECOURSE_ZIP_PATH) as zf:
+        with zipfile.ZipFile(TimecourseIterator.getZipPath(num_point=NUM_POINT)) as zf:
             count = sum(1 for n in zf.namelist() if n.endswith('_timecourse.pkl'))
         self.assertGreater(count, 1)
 

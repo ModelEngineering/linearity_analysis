@@ -14,9 +14,10 @@ import src.constants as cn  # type: ignore
 from model import Model  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
 from timecourse import Timecourse  # type: ignore
+from src.timecourse_iterator import TimecourseIterator  # type: ignore
 
 IGNORE_TESTS = False
-HAS_REAL_ZIP = os.path.isfile(cn.TIMECOURSE_ZIP_PATH)
+HAS_REAL_ZIP = os.path.isfile(TimecourseIterator.getZipPath(num_point=cn.NUM_POINT))
 BIOMODEL_700 = "BIOMD0000000700"
 
 ANTIMONY_MODEL = """

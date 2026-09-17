@@ -75,7 +75,7 @@ def main(
             continue
         # Create the roadrunner instance
         model = Model.makeBiomodel(item.model_name)
-        simulator = Simulator(model, end_time=item.end_time, num_point=2)
+        simulator = Simulator(model, end_time=item.end_time, num_point=cn.NUM_POINT)
         rr, _ = simulator.makeRoadRunner()
         # Check reasons for exclusion
         reason: Optional[str] = None

@@ -28,7 +28,7 @@ NULL_ROADRUNNER = te.loada("")
 # Default values
 START_TIME = 0.0
 END_TIME = 10.0
-NUM_POINT = 10000
+NUM_POINT = 100000
 SYSTEM_DISCOVERY_THRESHOLD = 0.01
 
 # Diameter metrics

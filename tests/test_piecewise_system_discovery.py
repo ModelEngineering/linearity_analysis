@@ -12,6 +12,7 @@ from scipy.integrate import solve_ivp  # type: ignore
 
 import src.constants as cn  # type: ignore
 from src.timecourse import Timecourse  # type: ignore
+from src.timecourse_iterator import TimecourseIterator  # type: ignore
 from src.model import Model  # type: ignore
 from src.piecewise_system_discovery import (  # type: ignore
     PiecewiseSystemDiscovery,
@@ -23,7 +24,7 @@ from src.piecewise_system_discovery import (  # type: ignore
 # ---------------------------------------------------------------------------
 
 IGNORE_TESTS = False
-HAS_REAL_ZIP = os.path.isfile(cn.TIMECOURSE_ZIP_PATH)
+HAS_REAL_ZIP = os.path.isfile(TimecourseIterator.getZipPath(num_point=cn.NUM_POINT))
 BIOMODEL_548 = "BIOMD0000000548"
 NUM_POINT_LARGE = 500  # used for slow fit/predict tests; small fixtures use 100.
 

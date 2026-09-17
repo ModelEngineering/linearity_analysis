@@ -197,4 +197,5 @@ if __name__ == "__main__":
             is_initialize=args.initialize,
             max_fractional_reduction=args.max_fractional_reduction,
             coefficient_threshold=args.coefficient_threshold,
+            is_changepoint_removal=args.changepoint_removal,
         )

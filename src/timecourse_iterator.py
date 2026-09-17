@@ -38,12 +38,7 @@ class TimecourseIterator:
             num_point (int, optional): number of points in each timecourse. Defaults to cn.NUM_POINT.
         """
         if zip_path is None:
-            if num_point == 1000:
-                zip_path = cn.TIMECOURSE_ZIP_1000_PATH
-            elif num_point == 10000:
-                zip_path = cn.TIMECOURSE_ZIP_10000_PATH
-            else:
-                raise ValueError(f"Unsupported num_point {num_point}. Use 1000 or 10000.")
+            zip_path = self.getZipPath(num_point=num_point)
         self.zip_path = zip_path
         self.num_model = num_model
         self.first_model_num = first_model_num
@@ -56,6 +51,25 @@ class TimecourseIterator:
                     for m, s in endtime_dct.items() if s[1] == "sedml"]
         else:
             self._valid_model_nums = [Model.getBiomodelNum(m) for m in endtime_dct.keys()]
+
+    @staticmethod
+    def getZipPath(num_point: int = cn.NUM_POINT) -> str:
+        """Return the path to the zip file containing serialized Timecourses.
+
+        Args:
+            num_point (int, optional): Number of points in each timecourse. Defaults to cn.NUM_POINT.
+
+        Returns:
+            str: Path to the zip file.
+        """
+        if num_point == 1000:
+            return cn.TIMECOURSE_ZIP_1000_PATH
+        elif num_point == 10000:
+            return cn.TIMECOURSE_ZIP_10000_PATH
+        elif num_point == 100000:
+            return cn.TIMECOURSE_ZIP_100000_PATH
+        else:
+            raise ValueError(f"Unsupported num_point {num_point}. Use 1000, 10000, or 100000.")
 
     @staticmethod
     def getTimecourse(model_name: Union[str, int], zip_path: str = cn.TIMECOURSE_ZIP_PATH,
