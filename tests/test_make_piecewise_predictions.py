@@ -97,12 +97,13 @@ class TestProcessModel(unittest.TestCase):
             max_changepoint=5,
             coefficient_threshold=0.003,
             max_fractional_reduction=0.25,
+            is_changepoint_removal=True,
         )
         result = cast(pd.DataFrame, result)
         self.assertEqual(result[cn.COL_MAX_CHANGEPOINT].iloc[0], 5)
         self.assertAlmostEqual(result[cn.COL_COEFFICIENT_THRESHOLD].iloc[0], 0.003)
         self.assertAlmostEqual(result[cn.COL_MAX_FRACTIONAL_REDUCTION].iloc[0], 0.25)
-
+        self.assertEqual(result[cn.COL_IS_CHANGEPONT_REMOVAL].iloc[0], True)
     def test_system_id_matches_model_name(self) -> None:
         """The COL_SYSTEM_ID column is set to the item model name."""
         item = _make_mock_item(model_name="BIOMD0000009999")

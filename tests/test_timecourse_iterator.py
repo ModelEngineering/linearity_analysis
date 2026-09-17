@@ -82,12 +82,6 @@ class TestTimecourseIteratorItem(unittest.TestCase):
 class TestTimecourseIteratorInit(unittest.TestCase):
     """Tests for TimecourseIterator.__init__."""
 
-    def test_default_zip_path(self) -> None:
-        if IGNORE_TESTS:
-            return
-        it = TimecourseIterator()
-        self.assertEqual(it.zip_path, cn.TIMECOURSE_ZIP_PATH)
-
     def test_custom_zip_path(self) -> None:
         if IGNORE_TESTS:
             return

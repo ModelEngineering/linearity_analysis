@@ -18,11 +18,11 @@ from typing import List, Optional
 EXCLUDED_MODELS: List[str] = [
     "BIOMD0000000339",
 ]
-IS_CHANGEPONT_REMOVAL = False # Whether to remove change points that do not significantly improve the model.
+IS_CHANGEPONT_REMOVAL = True # Whether to remove change points that do not significantly improve the model.
 MAX_CHANGEPOINTS = [0, 1, 5, 10, 12, 15, 17, 18, 19, 20]  # Maximum number of change points to consider in the piecewise model.
 MAX_CHANGEPOINTS = [0, 1, 10, 50, 80]
 MAX_CHANGEPOINTS = [1, 2, 3, 4, 5] + list(range(0, 110, 20)) + [200, 300, 400, 500]
-MAX_CHANGEPOINTS = [0, 1, 2, 3, 5, 50, 500, 5000]
+MAX_CHANGEPOINTS = [5000]
 MAX_FRACTIONAL_REDUCTION = 0.05  # Maximum fractional reduction in the sum of squared errors required to accept a new change point.
 COEFFICIENT_THRESHOLD = 0.001  # Threshold for coefficient magnitude to consider a species as linear.
 
@@ -45,6 +45,7 @@ def processModel(
         max_changepoint: int,
         coefficient_threshold: float,
         max_fractional_reduction: float = MAX_FRACTIONAL_REDUCTION,
+        is_changepoint_removal: bool = IS_CHANGEPONT_REMOVAL,
 ) -> Optional[pd.DataFrame]:
     """
     Process a single item
@@ -65,7 +66,7 @@ def processModel(
                 max_changepoint=max_changepoint,
                 model_name=model_name,
                 coefficient_threshold=coefficient_threshold,
-                is_changepoint_removal=IS_CHANGEPONT_REMOVAL,
+                is_changepoint_removal=is_changepoint_removal,
                 max_fractional_reduction=max_fractional_reduction,
         )
         psd.fit()
@@ -87,7 +88,7 @@ def processModel(
     accuracy_df[cn.COL_MAX_FRACTIONAL_REDUCTION] = max_fractional_reduction
     accuracy_df[cn.COL_COEFFICIENT_THRESHOLD] = coefficient_threshold
     accuracy_df[cn.COL_NUM_CHANGEPOINT] = psd.num_changepoint  # Number of change points detected in the piecewise model. 
-    accuracy_df[cn.COL_IS_CHANGEPONT_REMOVAL] = IS_CHANGEPONT_REMOVAL
+    accuracy_df[cn.COL_IS_CHANGEPONT_REMOVAL] = is_changepoint_removal
     accuracy_df[cn.COL_NUM_SPECIES] = len(psd.species_names)
     #
     return accuracy_df
@@ -104,6 +105,7 @@ def main(
         coefficient_threshold: float = COEFFICIENT_THRESHOLD,
         max_fractional_reduction: float = MAX_FRACTIONAL_REDUCTION,  # 0 means "accept any ASS reduction" — aggressive batch mode across thousands of models.
         output_path: str = cn.PIECEWISE_PREDICTIONS_PATH,
+        is_changepoint_removal: bool = IS_CHANGEPONT_REMOVAL,
 ) -> None:
     '''
     Main function to make piecewise predictions. Iterate across models in the timecourse zip file, and for each model, fit a piecewise linear model
@@ -119,6 +121,8 @@ def main(
         Last model number to include (inclusive).
     is_initialize : bool
         Whether to initialize the output file.
+    is_changepoint_removal : bool
+        Whether to remove change points that do not significantly improve the model.
     coefficient_threshold : float
         Threshold for coefficient magnitude to consider a species as linear.
     max_fractional_reduction : float
@@ -155,6 +159,7 @@ def main(
                     max_changepoint=max_changepoint,
                     max_fractional_reduction=max_fractional_reduction,
                     coefficient_threshold=coefficient_threshold,
+                    is_changepoint_removal=is_changepoint_removal,
                     )
             if pred_df is None:
                 print(f"Skipping {item.model_name} {max_changepoint}--no prediction.")
@@ -178,6 +183,8 @@ if __name__ == "__main__":
     parser.add_argument("--last_model_num", type=int, default=int(1e9))
     parser.add_argument("--initialize", action="store_true",
                         help="Reset output file to empty (reprocess all models).")
+    parser.add_argument("--changepoint_removal", action="store_true",
+                        help="Remove change points that do not significantly improve the model.")
     parser.add_argument("--max_fractional_reduction", type=float, default=MAX_FRACTIONAL_REDUCTION,
                         help="Maximum fractional reduction in accuracy to eliminate a changepoint.")
     parser.add_argument("--coefficient_threshold", type=float, default=COEFFICIENT_THRESHOLD,

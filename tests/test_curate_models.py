@@ -56,8 +56,7 @@ class TestCurateModels(unittest.TestCase):
             mock_iterator_cls.return_value.__iter__ = MagicMock(return_value=iter([item_bad]))
             with patch("curate_models.Model.makeBiomodel"), patch("curate_models.Simulator"):
                 main(output_path=out)
-            df = pd.read_csv(out, dtype={cn.COL_SYSTEM_ID: str})
-            self.assertEqual(len(df), 0)
+            self.assertFalse(os.path.isfile(out))
 
     @patch("curate_models.BiomodelsIterator")
     def test_skips_non_sedml_endtime(self, mock_iterator_cls):
@@ -67,8 +66,7 @@ class TestCurateModels(unittest.TestCase):
             mock_iterator_cls.return_value.__iter__ = MagicMock(return_value=iter([item_bad]))
             with patch("curate_models.Model.makeBiomodel"), patch("curate_models.Simulator"):
                 main(output_path=out)
-            df = pd.read_csv(out, dtype={cn.COL_SYSTEM_ID: str})
-            self.assertEqual(len(df), 0)
+            self.assertFalse(os.path.isfile(out))
 
 
     @patch("curate_models.BiomodelsIterator")
