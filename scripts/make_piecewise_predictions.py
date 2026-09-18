@@ -19,12 +19,27 @@ EXCLUDED_MODELS: List[str] = [
     "BIOMD0000000339",
 ]
 IS_CHANGEPONT_REMOVAL = True # Whether to remove change points that do not significantly improve the model.
-MAX_CHANGEPOINTS = [0, 1, 5, 10, 12, 15, 17, 18, 19, 20]  # Maximum number of change points to consider in the piecewise model.
-MAX_CHANGEPOINTS = [0, 1, 10, 50, 80]
-MAX_CHANGEPOINTS = [1, 2, 3, 4, 5] + list(range(0, 110, 20)) + [200, 300, 400, 500]
-MAX_CHANGEPOINTS = [5000]
+MANY_MAX_CHANGEPOINTS = [0, 1, 2, 3, 4, 5, 10, 50, 500, 5000]
+ONE_MAX_CHANGEPOINT = [5000]
 MAX_FRACTIONAL_REDUCTION = 0.05  # Maximum fractional reduction in the sum of squared errors required to accept a new change point.
 COEFFICIENT_THRESHOLD = 0.001  # Threshold for coefficient magnitude to consider a species as linear.
+NUM_POINT = 100000
+
+#################################################################
+# Functions
+#################################################################
+def makeFilePath(num_point: int, coefficient_threshold: float,
+        is_changepoint_removal: bool, max_fractional_reduction: float,
+        is_many_maxchangepoints: bool) -> str:
+    filename = "piecewise_predictions"
+    filename += f"__numpoint_{num_point}"
+    filename += f"__threshold_{coefficient_threshold}"
+    filename += f"__removal_{int(is_changepoint_removal)}"
+    filename += f"__maxreduction_{max_fractional_reduction}"
+    filename += f"__manycp_{int(is_many_maxchangepoints)}"
+    filename += ".csv"
+    return filename
+
 
 #################################################################
 # Preliminaries
@@ -103,7 +118,8 @@ def main(
         last_model_num: int = int(1e9),
         is_initialize: bool = False, # Ignore existing serialized Timecourse when initializing (for testing).
         coefficient_threshold: float = COEFFICIENT_THRESHOLD,
-        max_fractional_reduction: float = MAX_FRACTIONAL_REDUCTION,  # 0 means "accept any ASS reduction" — aggressive batch mode across thousands of models.
+        max_fractional_reduction: float = 0.01,
+        is_many_maxchangepoints: bool = False,  # 0 means "accept any ASS reduction" — aggressive batch mode across thousands of models.
         output_path: str = cn.PIECEWISE_PREDICTIONS_PATH,
         is_changepoint_removal: bool = IS_CHANGEPONT_REMOVAL,
 ) -> None:
@@ -125,11 +141,18 @@ def main(
         Whether to remove change points that do not significantly improve the model.
     coefficient_threshold : float
         Threshold for coefficient magnitude to consider a species as linear.
+    is_many_maxchangepoint: bool
+        Use more maxchangepoints than 50000
     max_fractional_reduction : float
         Maximum fractional reduction in the sum of squared errors required to accept a new change point.
     output_path : str
         Path to the output file. Is modified by the process index
     '''
+    # Initializations
+    if is_many_maxchangepoints:
+        max_changepoints = MANY_MAX_CHANGEPOINTS
+    else:
+        max_changepoints = ONE_MAX_CHANGEPOINT
     output_path = output_path.replace(".csv", f"_{process_idx}.csv")
     if os.path.isfile(output_path) and (not is_initialize):
         current_df = pd.read_csv(output_path)
@@ -140,6 +163,7 @@ def main(
     # Process the max_changepoint values in order, so that the output file is sorted by max_changepoint.
     for item in TimecourseIterator(
             is_curated=True,
+            num_point=NUM_POINT,
             first_model_num=first_model_num,
             last_model_num=last_model_num):
         # See if this is a model to skip
@@ -147,7 +171,7 @@ def main(
             print(f"Skipping {item.model_name} (excluded)")
             continue
         # Process the model for each max_changepoint valuea
-        for max_changepoint in MAX_CHANGEPOINTS:
+        for max_changepoint in max_changepoints:
             if item.model_name in existing_model_names:
                 model_df = current_df[current_df[cn.COL_SYSTEM_ID] == item.model_name]
                 if max_changepoint in model_df[cn.COL_MAX_CHANGEPOINT].values:
@@ -171,6 +195,12 @@ def main(
 
     # Persist results to disk.
     current_df.to_csv(output_path, index=False)
+    # Construct the desired final file name
+    print(makeFilePath(num_point=NUM_POINT,
+        coefficient_threshold = coefficient_threshold,
+        max_fractional_reduction=max_fractional_reduction,
+        is_changepoint_removal=is_changepoint_removal,
+        is_many_maxchangepoints=is_many_maxchangepoints))
 
 
 #################################################################
@@ -186,8 +216,9 @@ if __name__ == "__main__":
                         help="Reset output file to empty (reprocess all models).")
     parser.add_argument("--changepoint_removal", action="store_true",
                         help="Remove change points that do not significantly improve the model.")
-    parser.add_argument("--max_fractional_reduction", type=float, default=MAX_FRACTIONAL_REDUCTION,
-                        help="Maximum fractional reduction in accuracy to eliminate a changepoint.")
+    parser.add_argument("--many_maxchangepoints", # type: ignore
+                        action="store_true",
+                        help="Use one max changepoint (5000)"),
     parser.add_argument("--coefficient_threshold", type=float, default=COEFFICIENT_THRESHOLD,
                         help="Threshold for coefficient magnitude to consider a species as linear.")
     args = parser.parse_args()
@@ -196,7 +227,7 @@ if __name__ == "__main__":
             first_model_num=args.first_model_num,
             last_model_num=args.last_model_num,
             is_initialize=args.initialize,
-            max_fractional_reduction=args.max_fractional_reduction,
+            is_many_maxchangepoints=args.many_maxchangepoints,
             coefficient_threshold=args.coefficient_threshold,
             is_changepoint_removal=args.changepoint_removal,
         )
