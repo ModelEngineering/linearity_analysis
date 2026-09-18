@@ -60,6 +60,7 @@ class PerturbationAnalyzer:
         model: Union[Model, int],
         training_df=NULL_DF,
         threshold: float = 0.001,
+        num_point: int = cn.NUM_POINT,
         perturbations: Optional[list[float]] = None,
         perturbation_species_fraction: float = 1.0,
         fraction_species_perturbable: float = 1.0,
@@ -78,11 +79,12 @@ class PerturbationAnalyzer:
             model = Model.makeBiomodel(model_num=model)
         self.model = model
         if training_df is NULL_DF:
-            training_df = TimecourseIterator().getTimecourse(model.model_name).timecourse_df
+            training_df = TimecourseIterator().getTimecourse(model.model_name, num_point=num_point).timecourse_df
+        self.num_point = len(training_df)
+        self.end_time = training_df.index.to_list()[-1]
         self.training_df = training_df
         self.species_names = training_df.columns.tolist()
         self.start_time = training_df.index[0]
-        self.end_time = training_df.index[-1]
         self.num_point = len(training_df)
         self.threshold = threshold
         self.perturbations = (

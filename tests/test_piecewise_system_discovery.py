@@ -477,7 +477,7 @@ class TestEndToEndBioModels548(unittest.TestCase):
 
     def setUp(self) -> None:
         from src.timecourse_iterator import TimecourseIterator  # type: ignore
-        self.tc = TimecourseIterator.getTimecourse(BIOMODEL_548)
+        self.tc = TimecourseIterator.getTimecourse(BIOMODEL_548, num_point=1000)
 
     def _make_psd(self, **overrides):
         defaults = dict(

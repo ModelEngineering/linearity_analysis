@@ -139,6 +139,7 @@ def main(
         current_df = pd.DataFrame()
     # Process the max_changepoint values in order, so that the output file is sorted by max_changepoint.
     for item in TimecourseIterator(
+            is_curated=True,
             first_model_num=first_model_num,
             last_model_num=last_model_num):
         # See if this is a model to skip

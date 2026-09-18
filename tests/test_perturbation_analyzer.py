@@ -36,7 +36,7 @@ _ANTIMONY_MODEL_STR = (
 )
 _N_POINTS = 25
 _RNG_SEED = 42
-IS_TEST = False
+IS_TEST = True
 
 
 def _make_model() -> Model:
@@ -88,6 +88,14 @@ def _make_timecourse_mock(test_df: pd.DataFrame):
     tc.timecourse_df = test_df
     return tc
 
+import sys
+
+def logMethod():
+    """Log with caller info for easier debugging."""
+    frame = sys._getframe(1)  # Caller's frame
+    #print(frame.f_code.co_name)
+
+
 
 # ---------------------------------------------------------------------------
 # Tests for PerturbationAnalyzer.__init__.
@@ -111,18 +119,21 @@ class TestPerturbationAnalyzerInit(unittest.TestCase):
     def test_stores_threshold(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         analyzer = self._make_analyzer(threshold=0.37)
         self.assertAlmostEqual(analyzer.threshold, 0.37)
 
     def test_stores_col_percentile_from_constant(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         analyzer = self._make_analyzer(col_percentile=cn.COL_P25)
         self.assertEqual(analyzer.col_percentile, cn.COL_P25)
 
     def test_default_perturbation_values_are_set_when_None(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         """When *perturbations=None* the instance should receive the module default list."""
         analyzer = self._make_analyzer(perturbations=None)
         expected = [-0.5, -0.2, -0.1, 0.0, 0.1, 0.2, 0.5]
@@ -131,6 +142,7 @@ class TestPerturbationAnalyzerInit(unittest.TestCase):
     def test_passed_perturbation_list_is_preserved(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         custom = [-0.3, 0.0, 0.3]
         analyzer = self._make_analyzer(perturbations=custom)
         self.assertEqual(analyzer.perturbations, custom)
@@ -138,6 +150,7 @@ class TestPerturbationAnalyzerInit(unittest.TestCase):
     def test_fraction_species_perturbable_is_stored(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         analyzer = self._make_analyzer(fraction_species_perturbable=0.75)
         self.assertAlmostEqual(analyzer.fraction_species_perturbable, 0.75)
 
@@ -180,6 +193,7 @@ class TestAnalyzePerturbationsDataFrame(unittest.TestCase):
     def test_result_is_analyze_perturbations_result_named_tuple(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         analyzer = PerturbationAnalyzer(
             _make_model(), training_df=self.training_df, perturbations=[-0.1, 0.0, 0.1],
         )
@@ -188,6 +202,7 @@ class TestAnalyzePerturbationsDataFrame(unittest.TestCase):
     def test_result_fig_is_none(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         analyzer = PerturbationAnalyzer(
             _make_model(), training_df=self.training_df, perturbations=[0.0],
         )
@@ -196,6 +211,7 @@ class TestAnalyzePerturbationsDataFrame(unittest.TestCase):
     def test_accuracy_df_contains_model_and_species_rows_for_zero_perturbation(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         """The unperturbed timecourse (p=0.0) should yield both model- and species-level rows."""
         analyzer = PerturbationAnalyzer(
             _make_model(), training_df=self.training_df, perturbations=[0.0],
@@ -216,6 +232,7 @@ class TestAnalyzePerturbationsDataFrame(unittest.TestCase):
     def test_accuracy_df_has_perturbation_column(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         """Each row should carry its perturbation value via COL_PERTURBATION."""
         analyzer = PerturbationAnalyzer(
             _make_model(), training_df=self.training_df, perturbations=[-0.1, 0.0, 0.1],
@@ -226,6 +243,7 @@ class TestAnalyzePerturbationsDataFrame(unittest.TestCase):
     def test_accuracy_df_carries_fraction_species_perturbable(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         """Each row should carry the instance's fraction_species_perturbable value."""
         expected_frac = 0.65
         analyzer = PerturbationAnalyzer(
@@ -242,6 +260,7 @@ class TestAnalyzePerturbationsDataFrame(unittest.TestCase):
     def test_is_analyze_model_false_drops_model_rows(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         analyzer = PerturbationAnalyzer(
             _make_model(), training_df=self.training_df, perturbations=[0.0],
             is_analyze_model=False, is_analyze_species=True,
@@ -254,6 +273,7 @@ class TestAnalyzePerturbationsDataFrame(unittest.TestCase):
     def test_is_analyze_species_false_drops_species_rows(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         analyzer = PerturbationAnalyzer(
             _make_model(), training_df=self.training_df, perturbations=[0.0],
             is_analyze_model=True, is_analyze_species=False,
@@ -279,6 +299,7 @@ class TestPlotTimeseriesSmoke(unittest.TestCase):
     def test_plot_calls_scatter_for_each_species_and_perturbation(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         training_df = _make_training_df(n_species=2)
         analyzer = PerturbationAnalyzer(
             _make_model(), training_df=training_df, perturbations=[-0.1, 0.1],
@@ -322,12 +343,14 @@ _HAS_BIOMODELS_968 = os.path.isdir(cn.BIOMODELS_DIR) and os.path.isdir(
 class TestBioModel968EndToEnd(unittest.TestCase):
     """Exercise PerturbationAnalyzer against the real BioModel BIOMD0000000968."""
 
-    def _make_analyzer(self, perturbations=None) -> PerturbationAnalyzer:
+    def _make_analyzer(self, perturbations=None, model_num: int = _BIOMD_968,
+            ) -> PerturbationAnalyzer:
         if perturbations is None:
             perturbations = [0.5, 0.2, 0.0, -0.2, -0.5]
         return PerturbationAnalyzer(
-            model=_BIOMD_968,
+            model=model_num,
             threshold=0.01,
+            num_point=1000,
             perturbations=perturbations,
             perturbation_species_fraction=1.0,
         )
@@ -335,6 +358,7 @@ class TestBioModel968EndToEnd(unittest.TestCase):
     def test_constructs_end_to_end_with_int_model_number(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         """Passing ``model=int`` should trigger Model.makeBiomodel internally."""
         analyzer = self._make_analyzer()
         self.assertIsInstance(analyzer.model, Model)
@@ -343,6 +367,7 @@ class TestBioModel968EndToEnd(unittest.TestCase):
     def test_result_is_named_tuple_with_non_empty_df(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         """The full pipeline should produce an AnalyzePerturbationsResult with a DataFrame."""
         analyzer = self._make_analyzer()
         result = analyzer.result
@@ -355,6 +380,7 @@ class TestBioModel968EndToEnd(unittest.TestCase):
     def test_df_has_required_columns(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         """The output DataFrame must carry system_id, aggregation_type and perturbation."""
         analyzer = self._make_analyzer()
         required = {cn.COL_SYSTEM_ID, cn.COL_AGGREGATION_TYPE, cn.COL_PERTURBATION}
@@ -364,6 +390,7 @@ class TestBioModel968EndToEnd(unittest.TestCase):
     def test_df_row_count_matches_perturbation_count_times_aggregation_levels(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         """For N perturbations and K species we expect N*(1 model + K species) rows."""
         perturbations = [-0.5, -0.2, 0.0, 0.2, 0.5]
         analyzer = self._make_analyzer(perturbations=perturbations)
@@ -376,6 +403,7 @@ class TestBioModel968EndToEnd(unittest.TestCase):
     def test_perturbation_values_match_requested_list(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         """Each requested perturbation value must appear as a distinct row group."""
         perturbations = [-0.5, -0.2, 0.0, 0.2, 0.5]
         analyzer = self._make_analyzer(perturbations=perturbations)
@@ -385,6 +413,7 @@ class TestBioModel968EndToEnd(unittest.TestCase):
     def test_system_id_matches_model_name_for_all_rows(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         """Every row should carry the BioModel name as system_id."""
         analyzer = self._make_analyzer()
         series = analyzer.result.df[cn.COL_SYSTEM_ID]
@@ -393,6 +422,7 @@ class TestBioModel968EndToEnd(unittest.TestCase):
     def test_fraction_species_perturbable_is_one_dot_zero(self) -> None:
         if IS_TEST:
             return
+        logMethod()
         """The default fraction_species_perturbable=1.0 must flow into every row."""
         analyzer = self._make_analyzer()
         series = analyzer.result.df[COL_FRACTION_SPECIES_PERTURBABLE]
@@ -403,6 +433,8 @@ class TestBioModel968EndToEnd(unittest.TestCase):
     def test_plot_timeseries_returns_cleanly(self) -> None:
         if IS_TEST:
             return
+        logMethod()
+
         """``plotTimeseries()`` must not raise and must leave no open figures behind."""
         # Use the non-interactive Agg backend so we don't need X11 / a display server.
         import matplotlib as _mpl

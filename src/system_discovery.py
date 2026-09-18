@@ -47,7 +47,7 @@ import pandas as pd # type: ignore
 import pysindy as ps # type: ignore
 from scipy.linalg import expm  # type: ignore
 from pysindy.feature_library import PolynomialLibrary # type: ignore
-from pysindy.differentiation import SmoothedFiniteDifference
+from pysindy.differentiation import SmoothedFiniteDifference # type: ignore
 from scipy.integrate import solve_ivp # type: ignore
 from typing import Literal, Dict, Union, Optional
 import warnings
@@ -550,6 +550,7 @@ class SystemDiscovery:
         *,
         threshold: float = 0.01,
         poly_degree: int = 1,
+        num_point: int = cn.NUM_POINT,
         timecourse: Union[Timecourse, None] = None,
     ) -> "SystemDiscovery":
         """Create a SystemDiscovery from a BioModel timecourse.
@@ -567,7 +568,7 @@ class SystemDiscovery:
             from the default zip archive via ``TimecourseIterator``.
         """
         if timecourse is None:
-            timecourse = TimecourseIterator().getTimecourse(model_name)
+            timecourse = TimecourseIterator().getTimecourse(model_name, num_point=num_point)
         return cls(timecourse.timecourse_df, coefficient_threshold=threshold, poly_degree=poly_degree)
 
     def plotResult(

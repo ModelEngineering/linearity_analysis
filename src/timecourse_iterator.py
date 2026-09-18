@@ -8,6 +8,7 @@ from src.timecourse import Timecourse  # type: ignore
 from src.biomodels_iterator import getBiomodelsEndtimes  # type: ignore
 
 import numpy as np  # type: ignore
+import pandas as pd # type: ignore
 import pickle
 import zipfile
 from typing import Iterator, Optional, Union
@@ -27,6 +28,7 @@ class TimecourseIterator:
     def __init__(self, zip_path: Optional[str] = None,
             num_model:int = -1, first_model_num:int = 0, last_model_num:int = -1,
             num_point:int = cn.NUM_POINT, is_sedml_endtime: bool = True,
+            is_curated: bool = False,
             is_report:bool = False) -> None:
         """
         Args:
@@ -36,6 +38,7 @@ class TimecourseIterator:
             last_model_num (int, optional): number of the last model to process. Defaults to -1 (all).
             is_sedml_endtime (bool, optional): only includes models with endtime from SED-ML. Defaults to True.
             num_point (int, optional): number of points in each timecourse. Defaults to cn.NUM_POINT.
+            is_curated (bool): Uses cn.CURATION_PATH to eliminate models
         """
         if zip_path is None:
             zip_path = self.getZipPath(num_point=num_point)
@@ -46,6 +49,7 @@ class TimecourseIterator:
         self.num_point = num_point
         self.is_report = is_report
         endtime_dct = getBiomodelsEndtimes(is_include_endtime_source=True)
+        self._is_curated = is_curated
         if is_sedml_endtime:
             self._valid_model_nums = [Model.getBiomodelNum(m)
                     for m, s in endtime_dct.items() if s[1] == "sedml"]
@@ -71,15 +75,16 @@ class TimecourseIterator:
         else:
             raise ValueError(f"Unsupported num_point {num_point}. Use 1000, 10000, or 100000.")
 
-    @staticmethod
-    def getTimecourse(model_name: Union[str, int], zip_path: str = cn.TIMECOURSE_ZIP_PATH,
-            ) -> Timecourse:
+    @classmethod
+    def getTimecourse(cls, model_name: Union[str, int],
+            zip_path: str = cn.TIMECOURSE_ZIP_PATH, num_point: Optional[int]=None) -> Timecourse:
         """Return the deserialized Timecourse for *model_name* from the zip.
 
         Args:
             model_name (str | int): BioModels identifier (e.g. 'BIOMD0000000001') or model number (e.g. 1).
             zip_path (str, optional): Path to the zip file containing serialized Timecourses.
                 Defaults to ``cn.TIMECOURSE_ZIP_PATH``.
+            num_point: int: Number of points used to select the zippath
 
         Returns
         -------
@@ -92,6 +97,8 @@ class TimecourseIterator:
         KeyError
             If no entry named ``{model_name}_timecourse.pkl`` exists in the zip.
         """
+        if num_point is not None:
+            zip_path = cls.getZipPath(num_point=num_point)
         if not os.path.isfile(zip_path):
             raise FileNotFoundError(
                 f"Zip file not found: {zip_path}. "
@@ -113,7 +120,8 @@ class TimecourseIterator:
                     f"Generating timecourses from SBML on the fly.")
             yield from self._generate_from_sbml()
             return
-
+        curation_eliminated_models = pd.read_csv(cn.CURATION_PATH)[cn.COL_SYSTEM_ID].to_list()
+        # Process the files in the zip path
         with zipfile.ZipFile(self.zip_path, 'r') as zf:
             names = sorted(zf.namelist())
             for name in names:
@@ -128,6 +136,12 @@ class TimecourseIterator:
                     if self.last_model_num >= 0 and model_num > self.last_model_num:
                         break
                 model_name = name[: -len('_timecourse.pkl')]
+                # Check curation
+                if self._is_curated:
+                    if model_name in curation_eliminated_models:
+                        print("Skipping curation excluded model {model_name}")
+                        continue
+                # Process the model
                 try:
                     with zf.open(name) as entry_f:
                         dct = pickle.load(entry_f)

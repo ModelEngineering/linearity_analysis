@@ -229,7 +229,7 @@ class TestTimecourseIteratorRealZip(unittest.TestCase):
     def test_zip_contains_many_timecourses(self) -> None:
         if IGNORE_TESTS:
             return
-        with zipfile.ZipFile(TimecourseIterator.getZipPath(num_point=NUM_POINT)) as zf:
+        with zipfile.ZipFile(TimecourseIterator.getZipPath(num_point=cn.NUM_POINT)) as zf:
             count = sum(1 for n in zf.namelist() if n.endswith('_timecourse.pkl'))
         self.assertGreater(count, 1)
 
