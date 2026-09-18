@@ -219,6 +219,8 @@ if __name__ == "__main__":
     parser.add_argument("--many_maxchangepoints", # type: ignore
                         action="store_true",
                         help="Use one max changepoint (5000)"),
+    parser.add_argument("--max_reduction", type=float, default=0.01,
+                        help="Maximum amount of reduction in the accuracy."),
     parser.add_argument("--coefficient_threshold", type=float, default=COEFFICIENT_THRESHOLD,
                         help="Threshold for coefficient magnitude to consider a species as linear.")
     args = parser.parse_args()
@@ -229,5 +231,6 @@ if __name__ == "__main__":
             is_initialize=args.initialize,
             is_many_maxchangepoints=args.many_maxchangepoints,
             coefficient_threshold=args.coefficient_threshold,
+            max_fractional_reduction=args.max_reduction,
             is_changepoint_removal=args.changepoint_removal,
         )
