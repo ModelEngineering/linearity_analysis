@@ -139,7 +139,7 @@ class TimecourseIterator:
                 # Check curation
                 if self._is_curated:
                     if model_name in curation_eliminated_models:
-                        print("Skipping curation excluded model {model_name}")
+                        print(f"Skipping curation excluded model {model_name}")
                         continue
                 # Process the model
                 try:
