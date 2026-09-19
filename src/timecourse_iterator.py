@@ -120,7 +120,7 @@ class TimecourseIterator:
                     f"Generating timecourses from SBML on the fly.")
             yield from self._generate_from_sbml()
             return
-        curation_eliminated_models = pd.read_csv(cn.CURATION_PATH)[cn.COL_SYSTEM_ID].to_list()
+        checker = CurationChecker()
         # Process the files in the zip path
         with zipfile.ZipFile(self.zip_path, 'r') as zf:
             names = sorted(zf.namelist())
@@ -138,7 +138,7 @@ class TimecourseIterator:
                 model_name = name[: -len('_timecourse.pkl')]
                 # Check curation
                 if self._is_curated:
-                    if model_name in curation_eliminated_models:
+                    if not checker.isCurated():
                         print(f"Skipping curation excluded model {model_name}")
                         continue
                 # Process the model
@@ -193,3 +193,19 @@ class TimecourseIterator:
             num_point=dct['num_point'],
             timecourse_df=dct['timecourse_df'],
         )
+
+class CurationChecker(object):
+
+    def __init__(self):
+        self.curation_eliminated_models = pd.read_csv(cn.CURATION_PATH)[cn.COL_SYSTEM_ID].to_list() 
+
+    def isCurated(self, model_num: Optional[int] = None, model_name: Optional[str] = None,
+            ) -> bool:
+        if (model_num is None) and (model_name is None):
+            raise ValueError("Must specify one of model_num and model_name.")
+        if model_num is not None:
+            model_name = Model.getBiomodelName(model_num)
+        if not model_name in self.curation_eliminated_models:
+            return True
+        else:
+            return False
