@@ -2,6 +2,8 @@
 
 import os  # type: ignore
 import unittest
+from unittest.mock import patch
+from typing import List, cast
 
 import matplotlib  # noqa: F401 -- non-interactive backend needed before pyplot
 matplotlib.use("Agg")
@@ -613,6 +615,224 @@ class TestChangepointSpecification(unittest.TestCase):
                 max_fractional_reduction=0.01, model_name=str(model_num))
         psd.fit()
         self.assertEqual(len(psd.changepoints), 80)  # type: ignore
+
+
+def _make_piecewise_df(n_points: int = 300):
+    """Three-segment piecewise ODE with clearly distinct per-segment Jacobians.
+
+    Returns ``(df, cp1_idx, cp2_idx)`` where the two changepoint indices split
+    the trajectory into equal thirds.
+    """
+    t_eval = np.linspace(0.0, 12.0, n_points)
+    cp1_idx = n_points // 3
+    cp2_idx = 2 * n_points // 3
+
+    t1 = t_eval[:cp1_idx]
+    t2 = t_eval[cp1_idx:cp2_idx]
+    t3 = t_eval[cp2_idx:]
+
+    def rhs1(t, z): return [-2.0 * z[0] + 0.5 * z[1], 0.5 * z[0] - 1.5 * z[1]]
+    sol1 = solve_ivp(rhs1, [t1[0], t1[-1]], [1.0, 0.5], t_eval=t1, rtol=1e-9)
+
+    def rhs2(t, z): return [-0.3 * z[0] + 0.1 * z[1], 0.1 * z[0] - 0.4 * z[1]]
+    sol2 = solve_ivp(rhs2, [t2[0], t2[-1]], [sol1.y[0, -1], sol1.y[1, -1]], t_eval=t2, rtol=1e-9)
+
+    def rhs3(t, z): return [-1.2 * z[0] + 0.2 * z[1], 0.2 * z[0] - 0.9 * z[1]]
+    sol3 = solve_ivp(rhs3, [t3[0], t3[-1]], [sol2.y[0, -1], sol2.y[1, -1]], t_eval=t3, rtol=1e-9)
+
+    A = np.concatenate([sol1.y[0], sol2.y[0], sol3.y[0]])
+    B = np.concatenate([sol1.y[1], sol2.y[1], sol3.y[1]])
+    df = pd.DataFrame({"A": A, "B": B}, index=t_eval)
+    return df, cp1_idx, cp2_idx
+
+
+class TestEstimateAccuracyRate(unittest.TestCase):
+    """Tests for PiecewiseSystemDiscovery._estimateAccuracyRate."""
+
+    @classmethod
+    def setUpClass(cls):
+        """Fit a 3-segment PSD once; all tests in this class reuse it."""
+        df, cls.cp1, cls.cp2 = _make_piecewise_df(n_points=300)
+        cls.changepoints = [cls.cp1, cls.cp2]
+        cls.psd = PiecewiseSystemDiscovery(
+            df,
+            changepoints=cls.changepoints,
+            is_changepoint_removal=False,
+            min_segment_length=10,
+            model_name="test_piecewise",
+        )
+        cls.psd.fit()
+
+    # ------------------------------------------------------------------
+    # Validation / error paths
+    # ------------------------------------------------------------------
+
+    def test_empty_changepoints_raises_value_error(self):
+        if IGNORE_TESTS:
+            return
+        with self.assertRaises(ValueError):
+            self.psd._estimateAccuracyRate([])
+
+    def test_unfitted_psd_raises_runtime_error(self):
+        if IGNORE_TESTS:
+            return
+        df, cp1, cp2 = _make_piecewise_df(n_points=60)
+        unfitted = PiecewiseSystemDiscovery(
+            df, changepoints=[cp1, cp2], is_changepoint_removal=False, min_segment_length=5)
+        with self.assertRaises(RuntimeError):
+            unfitted._estimateAccuracyRate([cp1, cp2])
+
+    def test_no_candidates_passes_threshold_returns_nan_result(self):
+        """When no changepoint has a small enough Frobenius distance, return EstimatorResult with NaN."""
+        if IGNORE_TESTS:
+            return
+        # Distinct Jacobians → all normalized diffs >> 0.01 → idx_arr empty → early-return guard.
+        result = self.psd._estimateAccuracyRate(
+            self.changepoints, num_random_changepoint=999, max_frac_frob_diff=0.01)
+        self.assertIsInstance(result, PiecewiseSystemDiscovery.EstimatorResult)
+        self.assertEqual(result.accuracy_rate, 0)
+        self.assertTrue(np.isnan(result.total_frob_diff))
+        self.assertTrue(np.isnan(result.delta_accuracy))
+
+    def test_one_changepoint_no_candidates_passes_threshold_returns_nan_result(self):
+        """1-changepoint PSD where the Jacobian transition is large → idx_arr empty."""
+        if IGNORE_TESTS:
+            return
+        df, _, _ = _make_piecewise_df(n_points=60)  # unpack into (df, cp1_idx, cp2_idx)
+        psd_1cp = PiecewiseSystemDiscovery(
+            df, changepoints=[20], is_changepoint_removal=False, min_segment_length=5)
+        psd_1cp.fit()
+        result = psd_1cp._estimateAccuracyRate(
+            [20], num_random_changepoint=1, max_frac_frob_diff=0.01)
+        self.assertIsInstance(result, PiecewiseSystemDiscovery.EstimatorResult)
+        self.assertEqual(result.accuracy_rate, 0)
+        self.assertTrue(np.isnan(result.total_frob_diff))
+        self.assertTrue(np.isnan(result.delta_accuracy))
+
+    def test_zero_frob_diff_no_candidates_passes_threshold_returns_nan_result(self):
+        """Mocked zero Frobenius diffs → normalized to 0.5 each → above threshold → early return."""
+        if IGNORE_TESTS:
+            return
+        with patch.object(self.psd, '_makeFrobeniusDifferences', return_value=[0.0, 0.0]):
+            result = self.psd._estimateAccuracyRate(
+                self.changepoints, num_random_changepoint=1, max_frac_frob_diff=0.01)
+        self.assertIsInstance(result, PiecewiseSystemDiscovery.EstimatorResult)
+        self.assertEqual(result.accuracy_rate, 0)
+        self.assertTrue(np.isnan(result.total_frob_diff))
+        self.assertTrue(np.isnan(result.delta_accuracy))
+
+    # ------------------------------------------------------------------
+    # Return-value type and structure
+    # ------------------------------------------------------------------
+
+    def test_num_random_changepoint_zero_raises_value_error(self):
+        """With num_random_changepoint=0 the removed set is empty → total_frob_diff = 0."""
+        if IGNORE_TESTS:
+            return
+        with self.assertRaises(ValueError) as ctx:
+            self.psd._estimateAccuracyRate(
+                self.changepoints, num_random_changepoint=0, max_frac_frob_diff=1.0)
+        self.assertIn("zero", str(ctx.exception).lower())
+
+    def test_returns_estimator_result_namedtuple(self):
+        if IGNORE_TESTS:
+            return
+        np.random.seed(0)
+        result = self.psd._estimateAccuracyRate(
+            self.changepoints, num_random_changepoint=1, max_frac_frob_diff=1.0)
+        self.assertIsInstance(result, PiecewiseSystemDiscovery.EstimatorResult)
+
+    def test_result_fields_are_python_floats(self):
+        if IGNORE_TESTS:
+            return
+        np.random.seed(0)
+        result = self.psd._estimateAccuracyRate(
+            self.changepoints, num_random_changepoint=1, max_frac_frob_diff=1.0)
+        self.assertIsInstance(result.accuracy_rate, float)
+        self.assertIsInstance(result.total_frob_diff, float)
+        self.assertIsInstance(result.delta_accuracy, float)
+
+    def test_result_fields_are_finite(self):
+        if IGNORE_TESTS:
+            return
+        np.random.seed(0)
+        result = self.psd._estimateAccuracyRate(
+            self.changepoints, num_random_changepoint=1, max_frac_frob_diff=1.0)
+        self.assertTrue(np.isfinite(result.accuracy_rate))
+        self.assertTrue(np.isfinite(result.total_frob_diff))
+        self.assertTrue(np.isfinite(result.delta_accuracy))
+
+    def test_total_frob_diff_is_positive(self):
+        if IGNORE_TESTS:
+            return
+        np.random.seed(0)
+        result = self.psd._estimateAccuracyRate(
+            self.changepoints, num_random_changepoint=1, max_frac_frob_diff=1.0)
+        self.assertGreater(result.total_frob_diff, 0.0)
+
+    def test_delta_accuracy_equals_rate_times_frob_diff(self):
+        """accuracy_rate * total_frob_diff == delta_accuracy is an exact arithmetic identity."""
+        if IGNORE_TESTS:
+            return
+        np.random.seed(0)
+        result = self.psd._estimateAccuracyRate(
+            self.changepoints, num_random_changepoint=1, max_frac_frob_diff=1.0)
+        self.assertAlmostEqual(
+            result.delta_accuracy,
+            result.accuracy_rate * result.total_frob_diff,
+            places=10,
+        )
+
+    # ------------------------------------------------------------------
+    # Algorithmic / behavioral correctness
+    # ------------------------------------------------------------------
+
+    def test_num_random_changepoint_one_total_frob_diff_less_than_full_sum(self):
+        """Removing 1 of 2 changepoints → total_frob_diff strictly less than sum of both diffs."""
+        if IGNORE_TESTS:
+            return
+        all_diffs = self.psd._makeFrobeniusDifferences()
+        np.random.seed(42)
+        result = self.psd._estimateAccuracyRate(
+            self.changepoints, num_random_changepoint=1, max_frac_frob_diff=1.0)
+        self.assertGreater(result.total_frob_diff, 0.0)
+        self.assertLess(result.total_frob_diff, sum(all_diffs))
+
+    def test_total_frob_diff_equals_one_of_the_two_element_diffs(self):
+        """With 2 changepoints and num_random=1, total equals exactly one element of normalized frob_diff_arr.
+
+        The function normalizes the raw Frobenius differences by their sum before picking a
+        candidate to remove, so ``total_frob_diff`` must match one of the *normalized* diffs.
+        This is also a regression guard for Bug 3 (positional vs time-series indexing).
+        """
+        if IGNORE_TESTS:
+            return
+        raw_diffs = self.psd._makeFrobeniusDifferences()
+        total_raw = sum(raw_diffs)
+        norm_diffs = [d / total_raw for d in raw_diffs]
+        np.random.seed(42)
+        result = self.psd._estimateAccuracyRate(
+            self.changepoints, num_random_changepoint=1, max_frac_frob_diff=1.0)
+        matches_first = abs(result.total_frob_diff - norm_diffs[0]) < 1e-10
+        matches_second = abs(result.total_frob_diff - norm_diffs[1]) < 1e-10
+        self.assertTrue(
+            matches_first or matches_second,
+            f"total_frob_diff {result.total_frob_diff} should equal one of {norm_diffs}",
+        )
+
+    def test_self_state_unchanged_after_call(self):
+        """_estimateAccuracyRate must not mutate the fitted PSD's state."""
+        if IGNORE_TESTS:
+            return
+        n_models_before = len(self.psd._subsequence_models)
+        changepoints_before = list(cast(List[int], self.psd.changepoints))
+        is_fitted_before = self.psd._is_fitted
+        np.random.seed(0)
+        self.psd._estimateAccuracyRate(
+            self.changepoints, num_random_changepoint=1, max_frac_frob_diff=1.0)
+        self.assertEqual(len(self.psd._subsequence_models), n_models_before)
+        self.assertEqual(self.psd.changepoints, changepoints_before)
+        self.assertEqual(self.psd._is_fitted, is_fitted_before)
 
 
 if __name__ == "__main__":
