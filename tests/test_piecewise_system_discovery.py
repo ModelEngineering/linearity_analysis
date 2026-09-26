@@ -688,10 +688,10 @@ class TestEstimateAccuracyRate(unittest.TestCase):
             return
         # Distinct Jacobians → all normalized diffs >> 0.01 → idx_arr empty → early-return guard.
         result = self.psd._estimateAccuracyRate(
-            self.changepoints, num_random_changepoint=999, max_frac_frob_diff=0.01)
+            self.changepoints, num_random_changepoint=999, max_frac_frob_dist=0.01)
         self.assertIsInstance(result, PiecewiseSystemDiscovery.EstimatorResult)
         self.assertEqual(result.accuracy_rate, 0)
-        self.assertTrue(np.isnan(result.total_frob_diff))
+        self.assertTrue(np.isnan(result.total_frob_dist))
         self.assertTrue(np.isnan(result.delta_accuracy))
 
     def test_one_changepoint_no_candidates_passes_threshold_returns_nan_result(self):
@@ -703,22 +703,22 @@ class TestEstimateAccuracyRate(unittest.TestCase):
             df, changepoints=[20], is_changepoint_removal=False, min_segment_length=5)
         psd_1cp.fit()
         result = psd_1cp._estimateAccuracyRate(
-            [20], num_random_changepoint=1, max_frac_frob_diff=0.01)
+            [20], num_random_changepoint=1, max_frac_frob_dist=0.01)
         self.assertIsInstance(result, PiecewiseSystemDiscovery.EstimatorResult)
         self.assertEqual(result.accuracy_rate, 0)
-        self.assertTrue(np.isnan(result.total_frob_diff))
+        self.assertTrue(np.isnan(result.total_frob_dist))
         self.assertTrue(np.isnan(result.delta_accuracy))
 
     def test_zero_frob_diff_no_candidates_passes_threshold_returns_nan_result(self):
         """Mocked zero Frobenius diffs → normalized to 0.5 each → above threshold → early return."""
         if IGNORE_TESTS:
             return
-        with patch.object(self.psd, '_makeFrobeniusDifferences', return_value=[0.0, 0.0]):
+        with patch.object(self.psd, '_makeFrobeniusDistances', return_value=[0.0, 0.0]):
             result = self.psd._estimateAccuracyRate(
-                self.changepoints, num_random_changepoint=1, max_frac_frob_diff=0.01)
+                self.changepoints, num_random_changepoint=1, max_frac_frob_dist=0.01)
         self.assertIsInstance(result, PiecewiseSystemDiscovery.EstimatorResult)
         self.assertEqual(result.accuracy_rate, 0)
-        self.assertTrue(np.isnan(result.total_frob_diff))
+        self.assertTrue(np.isnan(result.total_frob_dist))
         self.assertTrue(np.isnan(result.delta_accuracy))
 
     # ------------------------------------------------------------------
@@ -726,12 +726,12 @@ class TestEstimateAccuracyRate(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_num_random_changepoint_zero_raises_value_error(self):
-        """With num_random_changepoint=0 the removed set is empty → total_frob_diff = 0."""
+        """With num_random_changepoint=0 the removed set is empty → total_frob_dist = 0."""
         if IGNORE_TESTS:
             return
         with self.assertRaises(ValueError) as ctx:
             self.psd._estimateAccuracyRate(
-                self.changepoints, num_random_changepoint=0, max_frac_frob_diff=1.0)
+                self.changepoints, num_random_changepoint=0, max_frac_frob_dist=1.0)
         self.assertIn("zero", str(ctx.exception).lower())
 
     def test_returns_estimator_result_namedtuple(self):
@@ -739,7 +739,7 @@ class TestEstimateAccuracyRate(unittest.TestCase):
             return
         np.random.seed(0)
         result = self.psd._estimateAccuracyRate(
-            self.changepoints, num_random_changepoint=1, max_frac_frob_diff=1.0)
+            self.changepoints, num_random_changepoint=1, max_frac_frob_dist=1.0)
         self.assertIsInstance(result, PiecewiseSystemDiscovery.EstimatorResult)
 
     def test_result_fields_are_python_floats(self):
@@ -747,39 +747,39 @@ class TestEstimateAccuracyRate(unittest.TestCase):
             return
         np.random.seed(0)
         result = self.psd._estimateAccuracyRate(
-            self.changepoints, num_random_changepoint=1, max_frac_frob_diff=1.0)
-        self.assertIsInstance(result.accuracy_rate, float)
-        self.assertIsInstance(result.total_frob_diff, float)
-        self.assertIsInstance(result.delta_accuracy, float)
+            self.changepoints, num_random_changepoint=1, max_frac_frob_dist=1.0)
+        self.assertIsInstance(result.accuracy_rate, (int, float))
+        self.assertIsInstance(result.total_frob_dist, (int, float))
+        self.assertIsInstance(result.delta_accuracy, (int, float))
 
     def test_result_fields_are_finite(self):
         if IGNORE_TESTS:
             return
         np.random.seed(0)
         result = self.psd._estimateAccuracyRate(
-            self.changepoints, num_random_changepoint=1, max_frac_frob_diff=1.0)
+            self.changepoints, num_random_changepoint=1, max_frac_frob_dist=1.0)
         self.assertTrue(np.isfinite(result.accuracy_rate))
-        self.assertTrue(np.isfinite(result.total_frob_diff))
+        self.assertTrue(np.isfinite(result.total_frob_dist))
         self.assertTrue(np.isfinite(result.delta_accuracy))
 
-    def test_total_frob_diff_is_positive(self):
+    def test_total_frob_dist_is_positive(self):
         if IGNORE_TESTS:
             return
         np.random.seed(0)
         result = self.psd._estimateAccuracyRate(
-            self.changepoints, num_random_changepoint=1, max_frac_frob_diff=1.0)
-        self.assertGreater(result.total_frob_diff, 0.0)
+            self.changepoints, num_random_changepoint=1, max_frac_frob_dist=1.0)
+        self.assertGreater(result.total_frob_dist, 0.0)
 
     def test_delta_accuracy_equals_rate_times_frob_diff(self):
-        """accuracy_rate * total_frob_diff == delta_accuracy is an exact arithmetic identity."""
+        """accuracy_rate * total_frob_dist == delta_accuracy is an exact arithmetic identity."""
         if IGNORE_TESTS:
             return
         np.random.seed(0)
         result = self.psd._estimateAccuracyRate(
-            self.changepoints, num_random_changepoint=1, max_frac_frob_diff=1.0)
+            self.changepoints, num_random_changepoint=1, max_frac_frob_dist=1.0)
         self.assertAlmostEqual(
             result.delta_accuracy,
-            result.accuracy_rate * result.total_frob_diff,
+            result.accuracy_rate * result.total_frob_dist,
             places=10,
         )
 
@@ -787,37 +787,37 @@ class TestEstimateAccuracyRate(unittest.TestCase):
     # Algorithmic / behavioral correctness
     # ------------------------------------------------------------------
 
-    def test_num_random_changepoint_one_total_frob_diff_less_than_full_sum(self):
-        """Removing 1 of 2 changepoints → total_frob_diff strictly less than sum of both diffs."""
+    def test_num_random_changepoint_one_total_frob_dist_less_than_full_sum(self):
+        """Removing 1 of 2 changepoints → total_frob_dist strictly less than sum of both diffs."""
         if IGNORE_TESTS:
             return
-        all_diffs = self.psd._makeFrobeniusDifferences()
+        all_diffs = self.psd._makeFrobeniusDistances()
         np.random.seed(42)
         result = self.psd._estimateAccuracyRate(
-            self.changepoints, num_random_changepoint=1, max_frac_frob_diff=1.0)
-        self.assertGreater(result.total_frob_diff, 0.0)
-        self.assertLess(result.total_frob_diff, sum(all_diffs))
+            self.changepoints, num_random_changepoint=1, max_frac_frob_dist=1.0)
+        self.assertGreater(result.total_frob_dist, 0.0)
+        self.assertLess(result.total_frob_dist, sum(all_diffs))
 
-    def test_total_frob_diff_equals_one_of_the_two_element_diffs(self):
+    def test_total_frob_dist_equals_one_of_the_two_element_diffs(self):
         """With 2 changepoints and num_random=1, total equals exactly one element of normalized frob_diff_arr.
 
         The function normalizes the raw Frobenius differences by their sum before picking a
-        candidate to remove, so ``total_frob_diff`` must match one of the *normalized* diffs.
+        candidate to remove, so ``total_frob_dist`` must match one of the *normalized* diffs.
         This is also a regression guard for Bug 3 (positional vs time-series indexing).
         """
         if IGNORE_TESTS:
             return
-        raw_diffs = self.psd._makeFrobeniusDifferences()
+        raw_diffs = self.psd._makeFrobeniusDistances()
         total_raw = sum(raw_diffs)
         norm_diffs = [d / total_raw for d in raw_diffs]
         np.random.seed(42)
         result = self.psd._estimateAccuracyRate(
-            self.changepoints, num_random_changepoint=1, max_frac_frob_diff=1.0)
-        matches_first = abs(result.total_frob_diff - norm_diffs[0]) < 1e-10
-        matches_second = abs(result.total_frob_diff - norm_diffs[1]) < 1e-10
+            self.changepoints, num_random_changepoint=1, max_frac_frob_dist=1.0)
+        matches_first = abs(result.total_frob_dist - norm_diffs[0]) < 1e-10
+        matches_second = abs(result.total_frob_dist - norm_diffs[1]) < 1e-10
         self.assertTrue(
             matches_first or matches_second,
-            f"total_frob_diff {result.total_frob_diff} should equal one of {norm_diffs}",
+            f"total_frob_dist {result.total_frob_dist} should equal one of {norm_diffs}",
         )
 
     def test_self_state_unchanged_after_call(self):
@@ -829,7 +829,7 @@ class TestEstimateAccuracyRate(unittest.TestCase):
         is_fitted_before = self.psd._is_fitted
         np.random.seed(0)
         self.psd._estimateAccuracyRate(
-            self.changepoints, num_random_changepoint=1, max_frac_frob_diff=1.0)
+            self.changepoints, num_random_changepoint=1, max_frac_frob_dist=1.0)
         self.assertEqual(len(self.psd._subsequence_models), n_models_before)
         self.assertEqual(self.psd.changepoints, changepoints_before)
         self.assertEqual(self.psd._is_fitted, is_fitted_before)

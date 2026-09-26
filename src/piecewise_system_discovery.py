@@ -107,33 +107,6 @@ def _fit_segments_parallel(
     return models, boundaries, lengths
 
 
-def _worker_evaluate_removal(
-        training_df: pd.DataFrame,
-        time_arr_full: np.ndarray,
-        num_point: int,
-        species_names: List[str],
-        sd_kwargs: Dict[str, Any],
-        trial_changepoints: List[int]) -> float:
-    """Worker function (runs in its own process).
-
-    Fits a piecewise model for *trial_changepoints* using parallel segment fits
-    and returns the median p10 accuracy score.  Returns ``float('inf')`` on any
-    fit failure so the caller can treat it as infinitely bad and skip that trial.
-    """
-    try:
-        boundary_index_arr = [0] + list(trial_changepoints) + [num_point]
-        models, boundaries, lengths = _fit_segments_parallel(
-            training_df=training_df,
-            boundary_index_arr=boundary_index_arr,
-            time_arr=time_arr_full,
-            num_point=num_point,
-            sd_kwargs=dict(sd_kwargs),  # copy to avoid pickle surprises with nested defaults
-        )
-        return _compute_median_score(models, boundaries, training_df)
-    except Exception:
-        return float("inf")
-
-
 class PiecewiseSystemDiscovery(object):
     """Piecewise-linear ODE discovery across detected change-points."""
 
@@ -369,7 +342,9 @@ class PiecewiseSystemDiscovery(object):
         return self.eliminateChangepoints(changepoints)
 
     def eliminateChangepoints(self, changepoints: List[int],
-            statistic: str = "mean") -> List[int]:
+            col: str = "p10",
+            statistic: str = "mean",
+            num_estimate: int = 5) -> List[int]:
         """Eliminates changepoints as long as the estimated reduction in accuracy is less than
         ``max_fractional_reduction`` relative to the baseline (full-changepoint) piecewise fit.
 
@@ -377,8 +352,12 @@ class PiecewiseSystemDiscovery(object):
         ----------
         changepoints : list[int]
             Initial set of changepoint indices to consider for elimination.
+        col: str
+            Column used in calculating statistics
         statistic: str
             Statistic used to assess accuracy
+        num_estimate: int
+            Number of estimates used for calculating accuracy rate
 
         Returns
         -------
@@ -388,53 +367,36 @@ class PiecewiseSystemDiscovery(object):
         self.changepoints = changepoints
         self.fit()
 
-        # Eliminate unnecessary changepoints based on the estimated accuracy rate and the maximum fractional reduction allowed.
-        estimator_result = self._estimateAccuracyRate(changepoints)
-        surviving_changepoint_arr = np.array(changepoints)
-        if estimator_result.accuracy_rate <= 0:
-            max_frob_diff = np.inf
-        else:
-            max_frob_diff = self.max_fractional_reduction / estimator_result.accuracy_rate
-        # Find the changepoints that are candidates for removal based by using estimated accuracy rate
-        # to convert from Frobenius distance to accuracy reduction.  If the estimated accuracy reduction is less than
-        # the maximum allowed, then the changepoint is a candidate for removal.
-        culmulative_reduction = np.cumsum(estimator_result.frob_diff_arr[estimator_result.remove_idx_arr])
-        sel_arr = culmulative_reduction <= max_frob_diff
-        surviving_checkpoints = list(surviving_changepoint_arr[estimator_result.remove_idx_arr[sel_arr]])
+        # Calculate the accuracy rate
+        accuracy_rate_estimators = [self._estimateAccuracyRate(changepoints, col=col, statistic=statistic)
+                for _ in range(num_estimate)]
+        sorted_estimator_result = sorted(accuracy_rate_estimators, key = lambda x: x.accuracy_rate)
+        idx = (len(accuracy_rate_estimators) + 1)//2
+        accuracy_rate_estimate = sorted_estimator_result[idx]
 
-#        # The marginal effect of a changepoint is related to the similarity of
-#        # of the Jacobians of of adjacent changepoints. Very similar Jacobians
-#        # indicate that the marginal reduction will be smaller.
-#        marginal_reduction_arr = np.array(self._makeFrobeniusDifferences())
-#        total_marginal_reduction = sum(marginal_reduction_arr)
-#        if abs(total_marginal_reduction) < 1e-6:
-#            return changepoints
-#        normalized_marginal_reduction_arr = marginal_reduction_arr/total_marginal_reduction
-#        # Sort changepoints by marginal reduction ascending so we try the "cheapest" removals first.
-#        indexed_reductions = sorted(
-#                enumerate(normalized_marginal_reduction_arr), key=lambda x: x[1])
-#        # Remove change points that have the least impact
-#        accumulated_reduction = 0.0
-#        to_remove: List[int] = []
-#        for cp_idx, reduction in indexed_reductions:
-#            new_accumulated = accumulated_reduction + reduction
-#            if new_accumulated > self.max_fractional_reduction:
-#                break
-#            accumulated_reduction = new_accumulated
-#            to_remove.append(cp_idx)
-#        # Find the surviving changepoints
-#        surviving_checkpoints = list(changepoints)
-#        for cp_idx in sorted(to_remove, reverse=True):
-#            surviving_checkpoints.pop(cp_idx)
-        return surviving_checkpoints
+        # Find the surviving changepoints
+        surviving_changepoint_arr = np.array(changepoints)
+        if accuracy_rate_estimate.accuracy_rate <= 0:
+            total_frob_dist = np.inf
+        else:
+            # Convert the maxiumum fraction reduction in accuracy to a Frobenius distance 
+            total_frob_dist = self.max_fractional_reduction / accuracy_rate_estimate.accuracy_rate
+        # Eliminate changepoints with the smallest Forbenius distances
+        # that sum to the total Frobenius distance 
+        frob_dist_idx = np.argsort(accuracy_rate_estimate.frob_dist_arr)
+        culmulative_frobenius_dist = np.cumsum(accuracy_rate_estimate.frob_dist_arr[frob_dist_idx])
+        sel_arr = culmulative_frobenius_dist > total_frob_dist
+        surviving_changepoints = list(surviving_changepoint_arr[frob_dist_idx[sel_arr]])
+        #
+        return surviving_changepoints
     
-    def _makeFrobeniusDifferences(self) -> List[float]:
+    def _makeFrobeniusDistances(self) -> List[float]:
         """Compute Frobenius distances between consecutive segment Jacobian matrices.
 
         For a piecewise system with k changepoints, there are k+1 segments and k pairwise
-        differences (between segments 0-1, 1-2, ..., k-1-k). Each difference is the Frobenius
+        differences (between segments 0-1, 1-2, ..., k-1-k). Each distance is the Frobenius
         norm of the element-wise difference between adjacent segment Jacobians. These
-        differences provide a measure of how much the system dynamics change across detected changepoints.
+        distances provide a measure of how much the system dynamics change across detected changepoints.
 
         Returns
         -------
@@ -473,27 +435,27 @@ class PiecewiseSystemDiscovery(object):
         return diffs
 
     EstimatorResult = collections.namedtuple("EstimatorResult",
-            ["accuracy_rate", "total_frob_diff", "delta_accuracy", "num_candidate",
-            "remove_idx_arr", "frob_diff_arr"]) 
+            ["accuracy_rate", "total_frob_dist", "delta_accuracy", "num_candidate",
+            "remove_idx_arr", "frob_dist_arr"]) 
     # accuracy_rate: rate at which accuracy decreases with Frobenius distance
-    # total_frob_diff: total Frobenius distance eliminated
+    # total_frob_dist: total Frobenius distance eliminated
     # delta_accuracy: change in accuracy for the trial PiecewiseSystemDiscovery
     # num_candidate: number of candidate changepoints for removal
     # remove_idx_arr: indices of the changepoints that are candidates for removal
-    # frob_diff_arr: Frobenius differences for the removed changepoints
+    # frob_dist_arr: Frobenius differences for the removed changepoints. Ordered by time sequence
     def _estimateAccuracyRate(
             self,
             changepoints: List[int],
             statistic: str = "min", col: str = cn.COL_P10,
             num_random_changepoint: int = 5,
-            max_frac_frob_diff: float = 0.01) -> EstimatorResult:
+            max_frac_frob_dist: float = 0.01) -> EstimatorResult:
         """Estimate the accuracy_rate, the reduction in accuracy per Frobenius Jacobian difference.
 
         The estimate is constructed as follows:
             1. Compute Frobenius distances D between consecutive segment Jacobians. 
             2. Create a trial piecewise system discovery by randomly removing num_random_changepoint
                 that have a small difference in the fractional Frobenius distance.
-            3. Calculate the total_frob_diff for the selected changepoints.
+            3. Calculate the total_frob_dist for the selected changepoints.
             4. Calculate baseline_score and trail_score from the 
                 baseline and trial PiecewiseSystemDiscoverys
             5. accuracy_rate = (score_baseline - score_trial)/total_frobenius_distance
@@ -508,7 +470,7 @@ class PiecewiseSystemDiscovery(object):
             Score column name, e.g., ``cn.COL_P10`` (default).
         num_random_changepoint: int
             Number of changepoints used to estimate accuracy rate
-        max_frac_frob_diff: float
+        max_frac_frob_dist: float
             Maximum fractional Frobenius distance between the Jacobians of
             adjust segments
             for the associated changepoint to be included in the estimate of
@@ -518,11 +480,11 @@ class PiecewiseSystemDiscovery(object):
         -------
         EstimatorResult
             accuracy_rate: rate at which accuracy decreases with Frobenius distance
-            total_frob_diff: total frobenius distance eliminated
+            total_frob_dist: total frobenius distance eliminated
             delta_accuracy: change in accuracy for the trail PiecewiseSystemDiscovery
             num_candidate: number of candidate changepoints for removal
             remove_idx_arr: indices of the changepoints that are candidates for removal
-            frob_diff_arr: Frobenius differences for the removed changepoints
+            frob_dist_arr: Frobenius differences for the removed changepoints
 
         Raises
         ------
@@ -539,8 +501,8 @@ class PiecewiseSystemDiscovery(object):
         changepoint_arr = np.sort(changepoint_arr)
 
         # 1. Get Frobenius distances between consecutive segment Jacobians.
-        frob_diff_arr = np.array(self._makeFrobeniusDifferences())
-        frob_diff_arr = frob_diff_arr/np.sum(frob_diff_arr)
+        frob_dist_arr = np.array(self._makeFrobeniusDistances())
+        frob_dist_arr = frob_dist_arr/np.sum(frob_dist_arr)
 
         # Compute baseline (piecewise) score across all segments.
         base_score = float(self.score(col=col, statistic=statistic))
@@ -548,18 +510,18 @@ class PiecewiseSystemDiscovery(object):
         # Randomly select which changepoints to KEEP in the trial (positional indices).
         # The removed changepoints are the complement: those present in self but absent in trial_psd.
         all_idx_arr = np.random.permutation(len(changepoint_arr))
-        sorted_frob_diff_arr = frob_diff_arr[all_idx_arr]
-        # Only choose changepoints whose fractional distance is below max_frac_frob_diff
+        sorted_frob_dist_arr = frob_dist_arr[all_idx_arr]
+        # Only choose changepoints whose fractional distance is below max_frac_frob_dist
         all_remove_idx_arr = np.array([i for i in all_idx_arr
-                if  sorted_frob_diff_arr[i] < max_frac_frob_diff])
+                if  sorted_frob_dist_arr[i] < max_frac_frob_dist])
         if len(all_remove_idx_arr) == 0:
             return self.EstimatorResult(
-                accuracy_rate=0,
-                total_frob_diff=np.nan,
+                accuracy_rate=0.0,
+                total_frob_dist=np.nan,
                 delta_accuracy=np.nan,
-                num_candidate=np.nan,
+                num_candidate=-1,
                 remove_idx_arr=[],
-                frob_diff_arr=frob_diff_arr)
+                frob_dist_arr=frob_dist_arr)
         num_candidate = min(len(all_remove_idx_arr), num_random_changepoint)
         remove_idx_arr = all_remove_idx_arr[:num_candidate]
         # Want ones not selected for removal
@@ -588,19 +550,19 @@ class PiecewiseSystemDiscovery(object):
         # Estimate the accuracy rate without the removed changepoints
         # (those in self but absent from trial_psd), which is what was "eliminated".
         accuracy_diff = max(0, base_score - adjusted_score)
-        total_frob_diff = float(np.sum(frob_diff_arr[remove_idx_arr]))
-        if total_frob_diff == 0.0:
+        total_frob_dist = float(np.sum(frob_dist_arr[remove_idx_arr]))
+        if total_frob_dist == 0.0:
             raise ValueError(
                 f"Total Frobenius distance for removed changepoints is zero; "
                 f"cannot estimate accuracy rate for {self.model_name}")
-        accuracy_rate = accuracy_diff / total_frob_diff
+        accuracy_rate = accuracy_diff / total_frob_dist
         return self.EstimatorResult(
                 accuracy_rate=accuracy_rate,
-                total_frob_diff=total_frob_diff,
+                total_frob_dist=total_frob_dist,
                 delta_accuracy=accuracy_diff,
                 remove_idx_arr=remove_idx_arr,
                 num_candidate=num_candidate,
-                frob_diff_arr=frob_diff_arr)
+                frob_dist_arr=frob_dist_arr)
 
     def _adjustMaxChangepoints(self) -> int:
         """Adjust the maximum number of changepoints based on data points and species."""
