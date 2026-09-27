@@ -344,7 +344,7 @@ class PiecewiseSystemDiscovery(object):
     def eliminateChangepoints(self, changepoints: List[int],
             col: str = "p10",
             statistic: str = "mean",
-            num_estimate: int = 5) -> List[int]:
+            num_estimate: int = 3) -> List[int]:
         """Eliminates changepoints as long as the estimated reduction in accuracy is less than
         ``max_fractional_reduction`` relative to the baseline (full-changepoint) piecewise fit.
 
@@ -532,6 +532,7 @@ class PiecewiseSystemDiscovery(object):
         # Fit a trial PiecewiseSystemDiscovery on the reduced changepoint set.
         # We only want to estimate a score for the system with the reduced set of
         # changepoints, and so internal state is not changed.
+        # FIXME: Reuse same SystemDiscovery for existing change points
         try:
             trial_psd = PiecewiseSystemDiscovery(
                     self.training_df,
