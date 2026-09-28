@@ -344,7 +344,7 @@ class PiecewiseSystemDiscovery(object):
     def eliminateChangepoints(self, changepoints: List[int],
             col: str = "p10",
             statistic: str = "mean",
-            num_estimate: int = 3) -> List[int]:
+            num_estimate: int = 7) -> List[int]:
         """Eliminates changepoints as long as the estimated reduction in accuracy is less than
         ``max_fractional_reduction`` relative to the baseline (full-changepoint) piecewise fit.
 
@@ -388,7 +388,7 @@ class PiecewiseSystemDiscovery(object):
         sel_arr = culmulative_frobenius_dist > total_frob_dist
         surviving_changepoints = list(surviving_changepoint_arr[frob_dist_idx[sel_arr]])
         #
-        return surviving_changepoints
+        return list(np.sort(surviving_changepoints))
     
     def _makeFrobeniusDistances(self) -> List[float]:
         """Compute Frobenius distances between consecutive segment Jacobian matrices.
@@ -433,6 +433,126 @@ class PiecewiseSystemDiscovery(object):
             for i in range(len(jacobians) - 1)
         ]
         return diffs
+
+    def _buildTrialSegments(self, remove_positions):
+        """Build trial segment (models, boundaries) via incremental merging.
+
+        Only re-fits models for merged segments (those spanning multiple original 
+        intervals); unchanged segments reuse their existing fitted models from ``self``.
+        This avoids the O(k) segment re-fits that would occur if a full trial 
+        PiecewiseSystemDiscovery were fit, reducing cost to O(c) where c is the number 
+        of changepoints removed.
+
+        Parameters
+        ----------
+        remove_positions : array-like of int
+            Sorted indices (into ``changepoint_arr``) of changeppoints to be removed.
+
+        Returns
+        -------
+        tuple[list[SystemDiscovery], list[tuple[float, float]]]
+            ``(models, boundaries)`` for the trial configuration with merged segments 
+            re-fit and unchanged segments reused from the original fit.
+        """
+        if self.changepoints is None or not self._subsequence_models:
+            raise RuntimeError("PiecewiseSystemDiscovery must be fit() before building trial segments.")
+        #
+        num_changeppoints = len(self._subsequence_models) - 1
+        orig_boundaries = list(self._subsequence_boundaries)
+        orig_seg_lengths = list(self._subsequence_lengths)
+        time_arr = self.training_df.index.to_numpy(dtype=float)
+        n_rows = len(time_arr)
+
+        remove_set = set(int(x) for x in remove_positions)
+
+        # Surviving changeppoint row indices (sorted ascending), plus boundaries 0 and n_rows.
+        surviving_cps_rows = [int(self.changepoints[i])
+                for i in range(num_changeppoints) if i not in remove_set]
+        new_seg_end_rows = [0] + surviving_cps_rows + [n_rows]
+
+        # Precompute original segment start row indices (cumulative).
+        orig_cum_starts = np.cumsum([0] + list(orig_seg_lengths))  # length k+2
+
+        def _find_orig_seg_idx(row):
+            """Find which original segment contains the given row index."""
+            if row <= 0:
+                return 0
+            for i in range(len(orig_cum_starts) - 1):
+                if orig_cum_starts[i] <= row < orig_cum_starts[i + 1]:
+                    return i
+            return len(orig_seg_lengths) - 1
+
+        new_models = []
+        new_boundaries = []
+
+        for seg_i in range(len(new_seg_end_rows) - 1):
+            s_row = new_seg_end_rows[seg_i]
+            e_row = new_seg_end_rows[seg_i + 1]
+
+            first_idx = _find_orig_seg_idx(s_row)
+            last_idx = (_find_orig_seg_idx(e_row - 1) if e_row > 0 else first_idx)
+
+            if first_idx == last_idx:
+                # Spans exactly one original segment -- reuse model (no re-fit needed).
+                new_models.append(self._subsequence_models[first_idx])
+                new_boundaries.append(orig_boundaries[first_idx])
+            else:
+                # Multiple segments merged -- need to re-fit on combined data.
+                start_time = (float(time_arr[s_row]) 
+                              if s_row < n_rows else float(time_arr[-1]))
+                end_time = (float(time_arr[e_row - 1]) 
+                            if e_row > 0 and e_row <= n_rows else float(time_arr[-1]))
+
+                merged_data = self.training_df.iloc[s_row:e_row]
+                new_model = SystemDiscovery(merged_data, **self._sd_kwargs).fit()
+
+                new_models.append(new_model)
+                new_boundaries.append((start_time, end_time))
+
+        return new_models, new_boundaries
+
+    def _scoreFromSegmentList(self, models, boundaries, col=cn.COL_P10, statistic="median"):
+        """Score an arbitrary list of (model, boundary) pairs using the same aggregation 
+        as :meth:`PiecewiseSystemDiscovery.score`.
+
+        Parameters
+        ----------
+        models : list[SystemDiscovery]
+            Fitted SystemDiscovery models for each segment.
+        boundaries : list[tuple[float, float]]
+            Start/end times for each segment.
+        col : str
+            Score column name (e.g., ``cn.COL_P10``).
+        statistic : str
+            Aggregation: ``'min'``, ``'median'`` or ``'mean'``.
+
+        Returns
+        -------
+        float
+            Aggregated score across all segments and species.
+        """
+        score_dfs = []
+        for model, (start, end) in zip(models, boundaries):
+            test_seg_df = self.training_df.iloc[
+                (self.training_df.index >= start) & 
+                (self.training_df.index <= end)]
+            score_info = model.getScoreDetails(
+                test_df=test_seg_df, score_type="timecourse")
+            score_dfs.append(score_info)
+
+        if not score_dfs:
+            raise RuntimeError("No segments to score.")
+
+        combined = pd.concat(score_dfs, ignore_index=True)
+
+        if statistic == "min":
+            return float(combined[col].min())
+        elif statistic == "median":
+            return float(combined[col].median())
+        elif statistic == "mean":
+            return float(combined[col].mean())
+        else:
+            raise ValueError(f"Unknown statistic: {statistic}")
 
     EstimatorResult = collections.namedtuple("EstimatorResult",
             ["accuracy_rate", "total_frob_dist", "delta_accuracy", "num_candidate",
@@ -524,32 +644,17 @@ class PiecewiseSystemDiscovery(object):
                 frob_dist_arr=frob_dist_arr)
         num_candidate = min(len(all_remove_idx_arr), num_random_changepoint)
         remove_idx_arr = all_remove_idx_arr[:num_candidate]
-        # Want ones not selected for removal
-        selected_changepoints = list(changepoint_arr[remove_idx_arr])
-        surviving_changepoints = [cp for cp in changepoint_arr if cp not in selected_changepoints]
-        adjusted_changepoints = sorted(surviving_changepoints)
-
-        # Fit a trial PiecewiseSystemDiscovery on the reduced changepoint set.
-        # We only want to estimate a score for the system with the reduced set of
-        # changepoints, and so internal state is not changed.
-        # FIXME: Reuse same SystemDiscovery for existing change points
+        # Build trial segment list via incremental merge of adjacent segments 
+        # around removed changeppoints. Only re-fits merged segments; unchanged 
+        # segments reuse existing fitted models from self to avoid O(k) re-fits.
         try:
-            trial_psd = PiecewiseSystemDiscovery(
-                    self.training_df,
-                    changepoints=adjusted_changepoints,
-                    is_changepoint_removal=False,
-                    **self._sd_kwargs,
-                )
-            (trial_psd._subsequence_models,
-            trial_psd._subsequence_boundaries,
-            trial_psd._subsequence_lengths) = trial_psd._fitSegments(adjusted_changepoints)
-            trial_psd._is_fitted = True
-            adjusted_score = trial_psd.score(col=col, statistic=statistic)
+            trial_models, trial_boundaries = self._buildTrialSegments(remove_idx_arr)
+            adjusted_score = self._scoreFromSegmentList(
+                trial_models, trial_boundaries, col=col, statistic=statistic)
         except Exception as e:
             raise ValueError(
                 f"Cannot estimate reduction in accuracy for {self.model_name}: {e}") from e
-        # Estimate the accuracy rate without the removed changepoints
-        # (those in self but absent from trial_psd), which is what was "eliminated".
+        # Estimate the accuracy rate without the removed changepoints, which is what was "eliminated".
         accuracy_diff = max(0, base_score - adjusted_score)
         total_frob_dist = float(np.sum(frob_dist_arr[remove_idx_arr]))
         if total_frob_dist == 0.0:

@@ -835,5 +835,108 @@ class TestEstimateAccuracyRate(unittest.TestCase):
         self.assertEqual(self.psd._is_fitted, is_fitted_before)
 
 
+class TestIncrementalMergeConsistency(unittest.TestCase):
+    """Regression guard for the incremental merge optimization in _estimateAccuracyRate.
+
+    Verifies that ``_buildTrialSegments`` + ``_scoreFromSegmentList`` produce the same 
+    score as fitting a full trial PiecewiseSystemDiscovery, confirming correctness of 
+    the O(c) merge approach over the original O(k) re-fit approach.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        np.random.seed(12345)
+        cls.time = np.arange(0, 600, dtype=float)
+        n_species = 2
+        y = np.zeros((len(cls.time), n_species))
+        # Create a piecewise-linear signal with two distinct changeppoints.
+        y[:180, 0] = cls.time[:180] * 0.03 + 1.0
+        y[180:420, 0] = (cls.time[180:420] - 180) * (-0.02) + 6.4
+        y[420:, 0] = (cls.time[420:] - 420) * 0.01 + 1.6
+        y[:180, 1] = cls.time[:180] * 0.01 + 5.0
+        y[180:420, 1] = (cls.time[180:420] - 180) * 0.005 + 6.8
+        y[420:, 1] = (cls.time[420:] - 420) * (-0.03) + 8.0
+        # Add enough noise to make scores non-trivial but not so much that fits are degenerate.
+        y += np.random.normal(0, 0.15, y.shape)
+        cls.df = pd.DataFrame(y, columns=[f's{j}' for j in range(n_species)])
+        cls.df.index.name = 'time'
+        cls.changeppoints = [179, 419]
+
+    def test_single_removal_matches_full_trial_fit(self):
+        """Removing one changeppoint: incremental merge score equals full trial PSD fit."""
+        if IGNORE_TESTS:
+            return
+        psd = PiecewiseSystemDiscovery(
+            self.df.copy(), changepoints=self.changeppoints).fit()
+
+        # Incremental approach
+        remove_positions = np.array([0])  # remove first changeppoint (row 179)
+        trial_models, trial_boundaries = psd._buildTrialSegments(remove_positions)
+        new_score = psd._scoreFromSegmentList(
+            trial_models, trial_boundaries, col=cn.COL_P10, statistic="median")
+
+        # Old approach: fit full trial PSD on surviving changeppoints.
+        surviving_cps = [int(cp) for i, cp in enumerate(psd.changepoints)
+                         if i not in set(remove_positions)]
+        trial_psd_old = PiecewiseSystemDiscovery(
+            self.df.copy(), changepoints=surviving_cps, is_changepoint_removal=False,
+            **psd._sd_kwargs)
+        (trial_psd_old._subsequence_models,
+         trial_psd_old._subsequence_boundaries,
+         trial_psd_old._subsequence_lengths) = trial_psd_old._fitSegments(surviving_cps)
+        trial_psd_old._is_fitted = True
+        old_score = trial_psd_old.score(col=cn.COL_P10, statistic="median")
+
+        self.assertAlmostEqual(
+            new_score, old_score, places=8,
+            msg=(f"Incremental score {new_score:.12f} should match full-fit "
+                 f"score {old_score:.12f} for single removal"))
+
+    def test_both_removals_matches_full_trial_fit(self):
+        """Removing all changeppoints: incremental merge produces a single merged segment 
+        with score matching the single-segment trial PSD fit."""
+        if IGNORE_TESTS:
+            return
+        psd = PiecewiseSystemDiscovery(
+            self.df.copy(), changepoints=self.changeppoints).fit()
+
+        remove_positions = np.array([0, 1])
+        trial_models, trial_boundaries = psd._buildTrialSegments(remove_positions)
+        new_score = psd._scoreFromSegmentList(
+            trial_models, trial_boundaries, col=cn.COL_P10, statistic="median")
+
+        surviving_cps = [int(cp) for i, cp in enumerate(psd.changepoints)
+                         if i not in set(remove_positions)]
+        trial_psd_old = PiecewiseSystemDiscovery(
+            self.df.copy(), changepoints=surviving_cps, is_changepoint_removal=False,
+            **psd._sd_kwargs)
+        (trial_psd_old._subsequence_models,
+         trial_psd_old._subsequence_boundaries,
+         trial_psd_old._subsequence_lengths) = trial_psd_old._fitSegments(surviving_cps)
+        trial_psd_old._is_fitted = True
+        old_score = trial_psd_old.score(col=cn.COL_P10, statistic="median")
+
+        self.assertAlmostEqual(
+            new_score, old_score, places=8,
+            msg=(f"Incremental score {new_score:.12f} should match full-fit "
+                 f"score {old_score:.12f} for all-removals case"))
+
+    def test_build_trial_segments_reuses_unchanged_models(self):
+        """When only one changeppoint is removed, the unchanged segment's model object 
+        must be identical to self._subsequence_models (no re-fit)."""
+        if IGNORE_TESTS:
+            return
+        psd = PiecewiseSystemDiscovery(
+            self.df.copy(), changepoints=self.changeppoints).fit()
+
+        remove_positions = np.array([0])  # removes cp at row 179, merges segs [0, 1]
+        trial_models, _ = psd._buildTrialSegments(remove_positions)
+
+        # Segment index 2 (the one starting at row 419 and extending to end) should be reused.
+        self.assertIs(
+            trial_models[1], psd._subsequence_models[2],
+            "Unchanged segment model must be the same object as in original fit")
+
+
 if __name__ == "__main__":
     unittest.main()
