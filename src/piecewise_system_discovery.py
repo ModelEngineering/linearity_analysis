@@ -622,7 +622,17 @@ class PiecewiseSystemDiscovery(object):
 
         # 1. Get Frobenius distances between consecutive segment Jacobians.
         frob_dist_arr = np.array(self._makeFrobeniusDistances())
-        frob_dist_arr = frob_dist_arr/np.sum(frob_dist_arr)
+        total_frob_dist = np.sum(frob_dist_arr)
+        if np.isclose(total_frob_dist, 0.0):
+            return self.EstimatorResult(
+                accuracy_rate=0.0,
+                total_frob_dist=np.nan,
+                delta_accuracy=np.nan,
+                num_candidate=-1,
+                remove_idx_arr=[],
+                frob_dist_arr=frob_dist_arr)
+        else:
+            frob_dist_arr = frob_dist_arr/total_frob_dist
 
         # Compute baseline (piecewise) score across all segments.
         base_score = float(self.score(col=col, statistic=statistic))
