@@ -21,7 +21,6 @@ EXCLUDED_MODELS: List[str] = [
 IS_CHANGEPONT_REMOVAL = False # Whether to remove change points that do not significantly improve the model.
 MANY_MAX_CHANGEPOINTS = [0, 1, 2, 3, 4, 5, 10, 50, 500, 5000]
 ONE_MAX_CHANGEPOINT = [5000]
-ONE_MAX_CHANGEPOINT = [500]
 MAX_FRACTIONAL_REDUCTION = 0.01  # Maximum fractional reduction in the sum of squared errors required to accept a new change point.
 COEFFICIENT_THRESHOLD = 0.001  # Threshold for coefficient magnitude to consider a species as linear.
 NUM_POINT = 100000
