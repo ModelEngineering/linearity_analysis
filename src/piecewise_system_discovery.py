@@ -567,8 +567,8 @@ class PiecewiseSystemDiscovery(object):
             self,
             changepoints: List[int],
             statistic: str = "min", col: str = cn.COL_P10,
-            num_random_changepoint: int = 5,
-            max_frac_frob_dist: float = 0.01) -> EstimatorResult:
+            num_random_changepoint: int =10,
+            max_frac_frob_dist: float = 0.1) -> EstimatorResult:
         """Estimate the accuracy_rate, the reduction in accuracy per Frobenius Jacobian difference.
 
         The estimate is constructed as follows:
