@@ -19,7 +19,7 @@ import pandas as pd # type: ignore
 from typing import List, Union, Optional, cast # type: ignore
 
 
-class SegmentAnalyzer(object):
+class NLCurve(object):
 
     def __init__(self, changepoints: List[Union[int, float]]) -> None:
         self._changepoints = changepoints
@@ -110,13 +110,13 @@ class SegmentAnalyzer(object):
 
     @classmethod
     def fromChangpoints(cls, path: str, model_num: int,
-                        species_name: Optional[str] = None) -> 'SegmentAnalyzer':
-        """Creates a SegmentAnalyzer from changepoints stored in a CSV file.
+                        species_name: Optional[str] = None) -> 'NLCurve':
+        """Creates a NLCurve from changepoints stored in a CSV file.
 
         Filters the CSV rows to match the given ``model_num`` and aggregation type
         (species name or ``cn.COL_AGGREGATION_TYPE_MODEL``), extracts the single
         matching changepoint series, parses it into a list of numbers, and returns
-        a new SegmentAnalyzer instance.
+        a new NLCurve instance.
 
         Args:
             path: Path to a CSV file with changepoints data.
@@ -125,7 +125,7 @@ class SegmentAnalyzer(object):
                 otherwise select the model-level aggregation row.
 
         Returns:
-            A new SegmentAnalyzer initialized with the parsed changepoints list.
+            A new NLCurve initialized with the parsed changepoints list.
 
         Raises:
             ValueError: If no single matching row is found for the given filters,

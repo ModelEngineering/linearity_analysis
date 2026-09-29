@@ -13,7 +13,7 @@ import io  # type: ignore
 import tempfile  # type: ignore
 import os  # type: ignore
 
-from src.segment_analyzer import SegmentAnalyzer  # type: ignore
+from nl_curve import NLCurve  # type: ignore
 import src.constants as cn  # type: ignore
 from src.model import Model  # type: ignore
 
@@ -89,7 +89,7 @@ _SINGLE_CHANGEPINT = [0.0]
 
 def _make_analyzer(changepoints=None):
     """Return a SegmentAnalyzer with the given changepoints (or defaults)."""
-    return SegmentAnalyzer(changepoints if changepoints is not None else _FLOAT_CHANGEPOINTS)
+    return NLCurve(changepoints if changepoints is not None else _FLOAT_CHANGEPOINTS)
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +245,7 @@ class TestGetChangpoints(unittest.TestCase):
 
     def test_raises_value_error_for_missing_path(self) -> None:
         with self.assertRaises(ValueError):
-            SegmentAnalyzer.getChangpoints("/nonexistent/path/to/file.csv")
+            NLCurve.getChangpoints("/nonexistent/path/to/file.csv")
 
     def _make_changpoints_csv(self, rows):
         """Build a CSV file from changepoint rows and return its path."""
@@ -260,7 +260,7 @@ class TestGetChangpoints(unittest.TestCase):
                  cn.COL_AGGREGATION_TYPE: cn.COL_AGGREGATION_TYPE_MODEL}]
         path = self._make_changpoints_csv(rows)
         try:
-            result = SegmentAnalyzer.getChangpoints(path)
+            result = NLCurve.getChangpoints(path)
             self.assertIsInstance(result, pd.DataFrame)
             expected_cols = {cn.COL_CHANGEPOINTS, cn.COL_SYSTEM_ID, cn.COL_AGGREGATION_TYPE}
             self.assertEqual(set(result.columns), expected_cols)
@@ -276,7 +276,7 @@ class TestGetChangpoints(unittest.TestCase):
         ]
         path = self._make_changpoints_csv(rows)
         try:
-            result = SegmentAnalyzer.getChangpoints(path)
+            result = NLCurve.getChangpoints(path)
             pd.testing.assert_series_equal(
                 result[cn.COL_SYSTEM_ID].reset_index(drop=True),
                 pd.Series(["BIOMD0000000001", "BIOMD0000000002"]),
@@ -296,7 +296,7 @@ class TestGetChangpoints(unittest.TestCase):
         ]
         path = self._make_changpoints_csv(rows)
         try:
-            result = SegmentAnalyzer.getChangpoints(path)
+            result = NLCurve.getChangpoints(path)
             pd.testing.assert_series_equal(
                 result[cn.COL_AGGREGATION_TYPE].reset_index(drop=True),
                 pd.Series([cn.COL_AGGREGATION_TYPE_MODEL, "S1", cn.COL_SPECIES_NAME]),
@@ -320,7 +320,7 @@ class TestFromChangpointsModelLevel(unittest.TestCase):
         with os.fdopen(fd, "w") as fh:
             df.to_csv(fh, index=False)
         try:
-            analyzer = SegmentAnalyzer.fromChangpoints(path, model_num=1)
+            analyzer = NLCurve.fromChangpoints(path, model_num=1)
             self.assertEqual(analyzer._changepoints, changepoints)
         finally:
             _remove_if_exists(path)
@@ -336,7 +336,7 @@ class TestFromChangpointsModelLevel(unittest.TestCase):
         with os.fdopen(fd, "w") as fh:
             df.to_csv(fh, index=False)
         try:
-            analyzer = SegmentAnalyzer.fromChangpoints(path, model_num=42)
+            analyzer = NLCurve.fromChangpoints(path, model_num=42)
             self.assertEqual(analyzer._changepoints, changepoints)
         finally:
             _remove_if_exists(path)
@@ -351,7 +351,7 @@ class TestFromChangpointsModelLevel(unittest.TestCase):
             df.to_csv(fh, index=False)
         try:
             with self.assertRaises(ValueError) as ctx:
-                SegmentAnalyzer.fromChangpoints(path, model_num=1)
+                NLCurve.fromChangpoints(path, model_num=1)
             self.assertIn("model 1", str(ctx.exception))
         finally:
             _remove_if_exists(path)
@@ -376,7 +376,7 @@ class TestFromChangpointsSpeciesLevel(unittest.TestCase):
         with os.fdopen(fd, "w") as fh:
             df.to_csv(fh, index=False)
         try:
-            analyzer = SegmentAnalyzer.fromChangpoints(path, model_num=1, species_name="Species_S1")
+            analyzer = NLCurve.fromChangpoints(path, model_num=1, species_name="Species_S1")
             self.assertEqual(analyzer._changepoints, species_cp)
         finally:
             _remove_if_exists(path)
@@ -391,7 +391,7 @@ class TestFromChangpointsSpeciesLevel(unittest.TestCase):
             df.to_csv(fh, index=False)
         try:
             with self.assertRaises(ValueError):
-                SegmentAnalyzer.fromChangpoints(path, model_num=1, species_name="NONEXISTENT")
+                NLCurve.fromChangpoints(path, model_num=1, species_name="NONEXISTENT")
         finally:
             _remove_if_exists(path)
 
