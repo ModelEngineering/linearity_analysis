@@ -1,8 +1,7 @@
 '''Constructs the non-linearity curve (NLCurve) for analyzing segments of multivariate timecourses.'''
 
 """
-This module analyzes segment lengths from changepoints.
-A changepoint is a transition between segments.
+This module analyzes segment lengths induced by changepoints in a timecourse.
 The NLCurve is a plot of the culmulative fraction of the timecourse that is contained in segments of length
 less than or equal to a given length.
 The area under the NLCurve is a measure of the non-linearity of the timecourse.
@@ -22,11 +21,49 @@ from typing import List, Union, Optional, cast # type: ignore
 class NLCurve(object):
 
     def __init__(self, changepoints: List[Union[int, float]]) -> None:
-        self._changepoints = changepoints
-        self._segment_length_arr = np.diff(changepoints)
+        self._changepoints = list(changepoints)
+        self._segment_length_arr = np.diff(self._changepoints)
+        #
+        self.nl_curve = self._makeNLCurve()
 
-    def makeSegmentAreaCDF(self) -> pd.Series:
-        """Calculates the CDF of area for the segment lengths.
+    def copy(self) -> 'NLCurve':
+        """Creates a copy of the NLCurve instance.
+
+        Returns:
+            A new NLCurve instance with the same changepoints.
+        """
+        return NLCurve(self._changepoints)
+
+    def dist(self, other: 'NLCurve') -> float:
+        """Computes the distance between two NLCurves.
+
+        Args:
+            other: Another NLCurve instance to compare with.
+
+        Returns:
+            A float representing the distance between the two NLCurves.
+        """
+        this_ser = self.nl_curve
+        other_ser = other.nl_curve
+        this_ser = self.reindex(other_ser, this_ser)
+        other_ser = self.reindex(this_ser, other_ser)
+        return np.linalg.norm(this_ser.to_numpy() - other_ser.to_numpy()) # type: ignore
+
+    def reindex(self, other_ser: pd.Series, this_ser : Optional[pd.Series] = None) -> pd.Series:
+        """Reindex the NLCurve
+
+        Args:
+            other_ser: A pandas Series with segment lengths as the index.
+        """
+        if this_ser is None:
+            this_ser = self.nl_curve
+        indexes = np.array(set(this_ser.index).union(set(other_ser.index)))
+        this_ser = this_ser.reindex(indexes, fill_value=0)
+        return this_ser
+
+    def _makeNLCurve(self) -> pd.Series:
+        """
+        Computes the NLCurve, the cumulative area function (CDF) of segment lengths.
 
         Returns:
             pd.Series:
@@ -39,9 +76,9 @@ class NLCurve(object):
         cdf = cdf.cumsum()  # cumulative sum to get the CDF
         return cdf
 
-    def plotSegmentAreaCDF(self) -> None:
-        """Plots the CDF of area for the segment lengths."""
-        cdf = self.makeSegmentAreaCDF()
+    def plotNLCurve(self) -> None:
+        """Plots the NLCurve for the segment lengths."""
+        cdf = self._makeNLCurve()
         plt.step(cdf.index, cdf.to_numpy(), where='post')
         plt.xlabel('Segment Length')
         plt.ylabel('Cumulative Area')

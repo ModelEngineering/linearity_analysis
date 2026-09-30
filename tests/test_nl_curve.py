@@ -127,16 +127,16 @@ class TestNLCurveInit(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Tests for NLCurve.makeSegmentAreaCDF.
+# Tests for NLCurve.makeNLCurve.
 # ---------------------------------------------------------------------------
 
-class TestMakeSegmentAreaCDFAgainstKnownValues(unittest.TestCase):
-    """Tests that pin down the exact numeric output of makeSegmentAreaCDF."""
+class TestMakeNLCurveAgainstKnownValues(unittest.TestCase):
+    """Tests that pin down the exact numeric output of makeNLCurve."""
 
     def test_uniform_segments_yield_single_step_at_length(self) -> None:
         changepoints = [0.0, 5.0, 10.0, 15.0]  # lengths: 5, 5, 5
         analyzer = _make_analyzer(changepoints)
-        cdf = analyzer.makeSegmentAreaCDF()
+        cdf = analyzer._makeNLCurve()
         self.assertEqual(len(cdf), 1)
         self.assertIn(5.0, cdf.index)
         self.assertAlmostEqual(cdf[5.0], 5.0)
@@ -144,14 +144,14 @@ class TestMakeSegmentAreaCDFAgainstKnownValues(unittest.TestCase):
     def test_mixed_lengths_produce_weighted_cumsum(self) -> None:
         changepoints = [0.0, 2.0, 4.0, 10.0]  # lengths: 2, 2, 6
         analyzer = _make_analyzer(changepoints)
-        cdf = analyzer.makeSegmentAreaCDF()
+        cdf = analyzer._makeNLCurve()
         self.assertAlmostEqual(cdf[2.0], 4 / 3, places=10)
         self.assertAlmostEqual(cdf[6.0], 10 / 3, places=10)
 
     def test_all_distinct_lengths_cumsum_is_quadratic(self) -> None:
         changepoints = [0.0, 1.0, 3.0, 6.0]  # lengths: 1, 2, 3 (all unique)
         analyzer = _make_analyzer(changepoints)
-        cdf = analyzer.makeSegmentAreaCDF()
+        cdf = analyzer._makeNLCurve()
         self.assertAlmostEqual(cdf[1.0], 1 / 3, places=10)
         self.assertAlmostEqual(cdf[2.0], 1.0, places=10)
         self.assertAlmostEqual(cdf[3.0], 2.0, places=10)
@@ -165,7 +165,7 @@ class TestMakeSegmentAreaCDFAgainstKnownValues(unittest.TestCase):
         rng = np.random.default_rng(7)
         changepoints = [0.0] + list(np.sort(rng.uniform(1, 50, size=20)))
         analyzer = _make_analyzer(changepoints)
-        cdf = analyzer.makeSegmentAreaCDF()
+        cdf = analyzer._makeNLCurve()
 
         expected = np.mean(analyzer._segment_length_arr)
         self.assertAlmostEqual(cdf.iloc[-1], expected, places=10)
@@ -175,19 +175,19 @@ class TestMakeSegmentAreaCDFProperties(unittest.TestCase):
 
     def test_returns_pandas_series(self) -> None:
         analyzer = _make_analyzer()
-        cdf = analyzer.makeSegmentAreaCDF()
+        cdf = analyzer._makeNLCurve()
         self.assertIsInstance(cdf, pd.Series)
 
     def test_index_is_sorted_ascending(self) -> None:
         changepoints = [0.0, 1.0, 3.0, 2.5]
         analyzer = _make_analyzer(changepoints)
-        cdf = analyzer.makeSegmentAreaCDF()
+        cdf = analyzer._makeNLCurve()
         self.assertTrue(cdf.index.is_monotonic_increasing)
 
     def test_index_matches_sorted_segment_lengths(self) -> None:
         changepoints = [0.0, 4.0, 1.0, 3.0]  # lengths: 4, -3, 2
         analyzer = _make_analyzer(changepoints)
-        cdf = analyzer.makeSegmentAreaCDF()
+        cdf = analyzer._makeNLCurve()
         expected_index = pd.Index(np.sort(analyzer._segment_length_arr))
         pd.testing.assert_index_equal(cdf.index, expected_index)
 
@@ -195,45 +195,45 @@ class TestMakeSegmentAreaCDFProperties(unittest.TestCase):
         rng = np.random.default_rng(0)
         changepoints = [0.0] + list(np.sort(rng.uniform(1, 20, size=8)))
         analyzer = _make_analyzer(changepoints)
-        cdf = analyzer.makeSegmentAreaCDF()
+        cdf = analyzer._makeNLCurve()
         diffs = cdf.diff().dropna()
         self.assertTrue((diffs >= -1e-12).all())
 
     def test_uniform_segments_collapse_to_one_step(self) -> None:
         changepoints = [0.0, 3.0, 6.0, 9.0, 12.0]
         analyzer = _make_analyzer(changepoints)
-        cdf = analyzer.makeSegmentAreaCDF()
+        cdf = analyzer._makeNLCurve()
         self.assertEqual(len(cdf), 1)
 
     def test_duplicate_lengths_produce_one_entry_per_unique_value(self) -> None:
         changepoints = [0.0, 2.0, 4.0, 7.0]  # lengths: 2, 2, 3 (two unique)
         analyzer = _make_analyzer(changepoints)
-        cdf = analyzer.makeSegmentAreaCDF()
+        cdf = analyzer._makeNLCurve()
         self.assertEqual(len(cdf), len(set(analyzer._segment_length_arr)))
 
     def test_negative_segment_lengths_allowed(self) -> None:
         changepoints = [0.0, 4.0, 1.0, 3.0]  # lengths: 4, -3, 2
         analyzer = _make_analyzer(changepoints)
-        cdf = analyzer.makeSegmentAreaCDF()
+        cdf = analyzer._makeNLCurve()
         self.assertIsInstance(cdf, pd.Series)
         self.assertEqual(len(cdf), 3)
 
     def test_empty_changpoints_yields_empty_series(self) -> None:
         analyzer = _make_analyzer([])
-        cdf = analyzer.makeSegmentAreaCDF()
+        cdf = analyzer._makeNLCurve()
         self.assertIsInstance(cdf, pd.Series)
         self.assertTrue(cdf.empty)
 
     def test_single_changpoint_yields_empty_series(self) -> None:
         analyzer = _make_analyzer([0.0])
-        cdf = analyzer.makeSegmentAreaCDF()
+        cdf = analyzer._makeNLCurve()
         self.assertIsInstance(cdf, pd.Series)
         self.assertTrue(cdf.empty)
 
     def test_two_changpoints_single_segment(self) -> None:
         changepoints = [0.0, 7.5]
         analyzer = _make_analyzer(changepoints)
-        cdf = analyzer.makeSegmentAreaCDF()
+        cdf = analyzer._makeNLCurve()
         self.assertEqual(len(cdf), 1)
         self.assertIn(7.5, cdf.index)
         self.assertAlmostEqual(cdf[7.5], 7.5)
