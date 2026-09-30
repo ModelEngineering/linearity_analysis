@@ -88,16 +88,16 @@ _SINGLE_CHANGEPINT = [0.0]
 
 
 def _make_analyzer(changepoints=None):
-    """Return a SegmentAnalyzer with the given changepoints (or defaults)."""
+    """Return a NLCurve with the given changepoints (or defaults)."""
     return NLCurve(changepoints if changepoints is not None else _FLOAT_CHANGEPOINTS)
 
 
 # ---------------------------------------------------------------------------
-# Tests for SegmentAnalyzer.__init__.
+# Tests for NLCurve.__init__.
 # ---------------------------------------------------------------------------
 
-class TestSegmentAnalyzerInit(unittest.TestCase):
-    """Tests for SegmentAnalyzer construction."""
+class TestNLCurveInit(unittest.TestCase):
+    """Tests for NLCurve construction."""
 
     def test_stores_changpoints_as_given(self) -> None:
         changepoints = [0.0, 1.5, 4.0]
@@ -127,7 +127,7 @@ class TestSegmentAnalyzerInit(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Tests for SegmentAnalyzer.makeSegmentAreaCDF.
+# Tests for NLCurve.makeSegmentAreaCDF.
 # ---------------------------------------------------------------------------
 
 class TestMakeSegmentAreaCDFAgainstKnownValues(unittest.TestCase):
