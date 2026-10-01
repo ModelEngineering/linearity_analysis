@@ -8,6 +8,7 @@ The area under the NLCurve is a measure of the non-linearity of the timecourse.
 """
 
 import ast  # type: ignore
+import re  # type: ignore
 import src.constants as cn
 from src.model import Model  # type: ignore
 
@@ -16,6 +17,9 @@ import numpy as np  # type: ignore
 import os  # type: ignore
 import pandas as pd # type: ignore
 from typing import List, Union, Optional, cast # type: ignore
+
+
+_NP_INT64_PATTERN = re.compile(r'np\.int64\(([^)]*)\)')
 
 
 class NLCurve(object):
@@ -31,7 +35,6 @@ class NLCurve(object):
             raise ValueError("At least two boundaries are required to define segments.")
         self._boundaries = list(np.sort(boundaries))
         self._segment_arr = np.diff(self._boundaries)  # lengths of segments between boundaries
-        #
         self.curve_ser = self._makeNLCurve()
 
     def __repr__(self) -> str:
@@ -54,28 +57,28 @@ class NLCurve(object):
         Returns:
             A float representing the distance between the two NLCurves.
         """
-        common_idx = np.union1d(self.curve_ser.index.to_numpy(), other.curve_ser.index.to_numpy())  # type: ignore
-        a = self.curve_ser.reindex(common_idx, fill_value=0)
-        b = other.curve_ser.reindex(common_idx, fill_value=0)
+        # Get common indices
+        a = self.makeMergedCurve(other)
+        b = other.makeMergedCurve(self)
+        # Compute the Euclidean distance between the two series
         return float(np.linalg.norm(a.to_numpy() - b.to_numpy()))
 
-    def reindex(self, other_ser: pd.Series, this_ser : Optional[pd.Series] = None) -> pd.Series:
-        """Merges the index of the foreign series with the index of this NLCurve's series,
-            filling missing values with 0.
+    def makeMergedCurve(self, other: 'NLCurve') -> pd.Series:
+        """Reindexes this NLCurve's series to include the union of its index and the other NLCurve's
+
 
         Args:
-            other_ser: A pandas Series with segment lengths as the index.
+            other: Another NLCurve instance whose index will be merged with this one.
+
+        Returns:
+            A pd.Series with the merged index and values from this NLCurve's series,
         """
-        if this_ser is None:
-            this_ser = self.curve_ser.copy()
-        else:
-            this_ser = this_ser.copy()  # Do no modify the original series in place
         # Calculate density
-        daf_ser = self._makeNLDensity()
+        this_daf_ser = self._makeNLDensity()
         # Reindex the desnity
-        indexes = np.union1d(daf_ser.index.to_numpy(), other_ser.index.to_numpy())  # type: ignore
-        daf_ser = daf_ser.reindex(indexes, fill_value=0)
-        return daf_ser.cumsum()
+        indexes = np.union1d(this_daf_ser.index.to_numpy(), other.curve_ser.index.to_numpy())
+        this_daf_ser = this_daf_ser.reindex(indexes, fill_value=0)
+        return this_daf_ser.cumsum()
 
     def _makeNLDensity(self) -> pd.Series:
         """
@@ -145,14 +148,21 @@ class NLCurve(object):
             ValueError: If the value cannot be converted to a list of numbers.
         """
         if isinstance(value, str):
-            try:
-                return cast(List[Union[int, float]], ast.literal_eval(value))
-            except (ValueError, SyntaxError) as e:
-                raise ValueError(
-                    f"Cannot parse changepoints string '{value}': {e}"
-                ) from e
+            candidates = [value]
+            normalized = _NP_INT64_PATTERN.sub(r'\1', value)
+            if normalized != value:
+                candidates.append(normalized)
+            last_err: Optional[Exception] = None
+            for s in candidates:
+                try:
+                    return cast(List[Union[int, float]], ast.literal_eval(s))
+                except (ValueError, SyntaxError) as e:  # noqa: PERF203
+                    last_err = e
+            raise ValueError(
+                f"Cannot parse changepoints string '{value}': {last_err!r}"
+            ) from last_err
         if isinstance(value, list):
-            if all(isinstance(x, (int, float)) for x in value): 
+            if all(isinstance(x, (int, float)) for x in value):
                 return value
         raise ValueError(
             f"Expected changepoints to be a list or string, got "
@@ -171,7 +181,7 @@ class NLCurve(object):
             path: Path to a CSV file with changepoints data.
 
         Returns:
-            pd.DataFrame with columns: changepoints, aggregation_type, system_id.
+            pd.DataFrame with columns: boundaries, aggregation_type, system_id.
 
         Raises:
             ValueError: If the path does not exist or required columns are missing.
@@ -228,5 +238,5 @@ class NLCurve(object):
                 f"and aggregation_type '{species_name or cn.COL_AGGREGATION_TYPE_MODEL}', "
                 f"but found {len(ser)} rows."
             )
-        boundaries = ser[0]
+        boundaries = ser.iloc[0]
         return cls(boundaries)
