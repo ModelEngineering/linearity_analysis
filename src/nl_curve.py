@@ -20,19 +20,30 @@ from typing import List, Union, Optional, cast # type: ignore
 
 class NLCurve(object):
 
-    def __init__(self, changepoints: List[Union[int, float]]) -> None:
-        self._changepoints = list(np.sort(changepoints))
-        self._segment_length_arr = np.diff(self._changepoints)
+    def __init__(self, boundaries: List[Union[int, float]]) -> None:
+        """
+
+        Args:
+            boundaries (List[Union[int, float]]): Endpoints of segment
+                (includes the first and last timepoints of the timecourse). Must be sorted in ascending order.
+        """
+        if len(boundaries) < 2:
+            raise ValueError("At least two boundaries are required to define segments.")
+        self._boundaries = list(np.sort(boundaries))
+        self._segment_arr = np.diff(self._boundaries)  # lengths of segments between boundaries
         #
-        self.nl_curve = self._makeNLCurve()
+        self.curve_ser = self._makeNLCurve()
+
+    def __repr__(self) -> str:
+        return f"NLCurve(NLCurve={self.curve_ser})"
 
     def copy(self) -> 'NLCurve':
         """Creates a copy of the NLCurve instance.
 
         Returns:
-            A new NLCurve instance with the same changepoints.
+            A new NLCurve instance with the same boundaries.
         """
-        return NLCurve(self._changepoints)
+        return NLCurve(self._boundaries)
 
     def dist(self, other: 'NLCurve') -> float:
         """Computes the distance between two NLCurves.
@@ -43,22 +54,54 @@ class NLCurve(object):
         Returns:
             A float representing the distance between the two NLCurves.
         """
-        common_idx = np.union1d(self.nl_curve.index.to_numpy(), other.nl_curve.index.to_numpy())  # type: ignore
-        a = self.nl_curve.reindex(common_idx, fill_value=0)
-        b = other.nl_curve.reindex(common_idx, fill_value=0)
+        common_idx = np.union1d(self.curve_ser.index.to_numpy(), other.curve_ser.index.to_numpy())  # type: ignore
+        a = self.curve_ser.reindex(common_idx, fill_value=0)
+        b = other.curve_ser.reindex(common_idx, fill_value=0)
         return float(np.linalg.norm(a.to_numpy() - b.to_numpy()))
 
     def reindex(self, other_ser: pd.Series, this_ser : Optional[pd.Series] = None) -> pd.Series:
-        """Reindex the NLCurve
+        """Merges the index of the foreign series with the index of this NLCurve's series,
+            filling missing values with 0.
 
         Args:
             other_ser: A pandas Series with segment lengths as the index.
         """
         if this_ser is None:
-            this_ser = self.nl_curve.copy()
-        indexes = np.union1d(this_ser.index.to_numpy(), other_ser.index.to_numpy())  # type: ignore
-        this_ser = this_ser.reindex(indexes, fill_value=0)
-        return this_ser
+            this_ser = self.curve_ser.copy()
+        else:
+            this_ser = this_ser.copy()  # Do no modify the original series in place
+        # Calculate density
+        daf_ser = self._makeNLDensity()
+        # Reindex the desnity
+        indexes = np.union1d(daf_ser.index.to_numpy(), other_ser.index.to_numpy())  # type: ignore
+        daf_ser = daf_ser.reindex(indexes, fill_value=0)
+        return daf_ser.cumsum()
+
+    def _makeNLDensity(self) -> pd.Series:
+        """
+        Computes the NLDensity, the density function of segment lengths.
+
+        Returns:
+            pd.Series:
+                index: unique segment lengths (sorted ascending)
+                values: fraction of total time contained in segments with length
+                        equal to the corresponding index value
+        """
+        if len(self._segment_arr) == 0:
+            return pd.Series(dtype=float)
+
+        segment_areas = np.sort(self._segment_arr)
+        total_area = float(np.sum(segment_areas))
+        # Use segment lengths as both index and data, group duplicates by summing
+        # their areas, then sort ascending by length.
+        grouped = (
+            pd.Series(segment_areas, index=segment_areas)
+            .groupby(level=0)
+            .sum()
+            .sort_index()
+        )
+        density_ser = grouped / total_area
+        return density_ser
 
     def _makeNLCurve(self) -> pd.Series:
         """
@@ -73,21 +116,8 @@ class NLCurve(object):
                 values: cumulative fraction of total time contained in segments
                         with length less than or equal to the corresponding index value
         """
-        if len(self._segment_length_arr) == 0:
-            return pd.Series(dtype=float)
-
-        segment_areas = np.sort(self._segment_length_arr)
-        total_area = float(np.sum(segment_areas))
-        # Use segment lengths as both index and data, group duplicates by summing
-        # their areas, then sort ascending by length.
-        grouped = (
-            pd.Series(segment_areas, index=segment_areas)
-            .groupby(level=0)
-            .sum()
-            .sort_index()
-        )
-        caf_ser = (grouped / total_area).cumsum()
-        return caf_ser
+        caf = self._makeNLDensity().cumsum()
+        return caf
 
     def plotNLCurve(self) -> None:
         """Plots the NLCurve for the segment lengths."""
@@ -97,7 +127,6 @@ class NLCurve(object):
         plt.ylabel('Cumulative Area')
         plt.title('Segment Area CDF')
         plt.grid()
-        plt.show()
 
     @staticmethod
     def _parseChangepoints(value) -> List[Union[int, float]]:
@@ -123,15 +152,16 @@ class NLCurve(object):
                     f"Cannot parse changepoints string '{value}': {e}"
                 ) from e
         if isinstance(value, list):
-            return value
+            if all(isinstance(x, (int, float)) for x in value): 
+                return value
         raise ValueError(
             f"Expected changepoints to be a list or string, got "
             f"{type(value).__name__}: {value!r}"
         )
 
     @staticmethod
-    def getChangepoints(path: str) -> pd.DataFrame:
-        """Reads a changepoints CSV file and returns only the relevant columns.
+    def getDataframeColumns(path: str) -> pd.DataFrame:
+        """Reads a PiecewisePredictions CSV file and construct the columns needed for NLCurve analysis.
 
         The changepoints column may contain either Python lists (e.g., from pickle)
         or string representations like "[0.0, 2.5]" (from CSV). Both are preserved
@@ -150,18 +180,22 @@ class NLCurve(object):
             raise ValueError(f"Path {path} does not exist.")
         df = pd.read_csv(path)
         missing_cols = [c for c in (
-            cn.COL_CHANGEPOINTS, cn.COL_AGGREGATION_TYPE, cn.COL_SYSTEM_ID
+            cn.COL_CHANGEPOINTS, cn.COL_AGGREGATION_TYPE, cn.COL_SYSTEM_ID, cn.COL_NUM_TIMEPOINT
         ) if c not in df.columns]
         if missing_cols:
             raise ValueError(
                 f"CSV file {path} is missing required columns: {missing_cols}"
             )
-        return df[[cn.COL_CHANGEPOINTS, cn.COL_AGGREGATION_TYPE, cn.COL_SYSTEM_ID]]
+        df[cn.COL_BOUNDARIES] = df.apply(
+            lambda row: [0.0] + NLCurve._parseChangepoints(row[cn.COL_CHANGEPOINTS]) + [row[cn.COL_NUM_TIMEPOINT] -1],
+            axis=1
+        )
+        return df[[cn.COL_BOUNDARIES, cn.COL_AGGREGATION_TYPE, cn.COL_SYSTEM_ID]]
 
     @classmethod
-    def fromChangepoints(cls, path: str, model_num: int,
+    def fromPSDPredictions(cls, path: str, model_num: int,
                         species_name: Optional[str] = None) -> 'NLCurve':
-        """Creates a NLCurve from changepoints stored in a CSV file.
+        """Creates a NLCurve from data in a PiecewisePredictions CSV file.
 
         Filters the CSV rows to match the given ``model_num`` and aggregation type
         (species name or ``cn.COL_AGGREGATION_TYPE_MODEL``), extracts the single
@@ -181,22 +215,18 @@ class NLCurve(object):
             ValueError: If no single matching row is found for the given filters,
                 or if the changepoints value cannot be parsed into a list of numbers.
         """
-        df = cls.getChangepoints(path)
+        df = cls.getDataframeColumns(path)
         system_id = Model.getBiomodelName(model_num)
         system_df = df[df[cn.COL_SYSTEM_ID] == system_id]
         if species_name is not None:
-            ser = system_df[
-                system_df[cn.COL_AGGREGATION_TYPE] == species_name
-            ][cn.COL_CHANGEPOINTS].values
+            ser = system_df[system_df[cn.COL_AGGREGATION_TYPE] == species_name][cn.COL_BOUNDARIES]
         else:
-            ser = system_df[
-                system_df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL
-            ][cn.COL_CHANGEPOINTS].values
+            ser = system_df[system_df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL][cn.COL_BOUNDARIES]
         if len(ser) != 1:
             raise ValueError(
-                f"Expected one changepoint series for model {model_num} and "
-                f"species {species_name}, but found {len(ser)}."
+                f"Expected exactly one matching row for system_id '{system_id}' "
+                f"and aggregation_type '{species_name or cn.COL_AGGREGATION_TYPE_MODEL}', "
+                f"but found {len(ser)} rows."
             )
-        raw = ser[0]
-        changepoints = cls._parseChangepoints(raw)
-        return cls(changepoints)
+        boundaries = ser[0]
+        return cls(boundaries)
