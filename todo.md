@@ -7,6 +7,3 @@
    4. getChangepointsFromFile
       1. Preparation: file selects "model" from all PWPrediction files
       2. In PSD: create a DF of this file; check parameters to match prediction; return changepoints if match, else None.
-
-1. Possible narratives:
-   1. How many changepoints are needed to effectively linearize models in biomodels? This is an upper bound since we don't have a good algorithm for changepoint detection in terms of non-linearity. It is also an approximation since models with a large number of species are limited in the number of changepoints that they can accommodate because of data required for estimating the Jacobian.

@@ -14,7 +14,7 @@ from scipy.integrate import solve_ivp  # type: ignore
 from unittest.mock import patch, MagicMock
 
 import src.constants as cn  # type: ignore
-from make_piecewise_predictions import (  # type: ignore
+from scripts.make_piecewise_predictions import (  # type: ignore
     processModel,
     main,
     COEFFICIENT_THRESHOLD,
@@ -48,11 +48,14 @@ def _make_linear_df(
     return pd.DataFrame(X, index=t_eval, columns=["S1", "S2"])
 
 
-def _make_mock_item(model_name: str = "BIOMD0000000001") -> MagicMock:
+def _make_mock_item(model_name: str = "BIOMD0000000001", is_timecourse_valid: bool = True) -> MagicMock:
     """Build a mock TimecourseIteratorItem with a synthetic timecourse."""
     item = MagicMock()
     item.model_name = model_name
-    df = _make_linear_df(n_points=NUM_POINT)
+    if is_timecourse_valid:
+        df = _make_linear_df(n_points=NUM_POINT)
+    else:
+        df = pd.DataFrame()  # Empty DataFrame to simulate invalid timecourse
     item.timecourse.timecourse_df = df
     return item
 
@@ -132,7 +135,7 @@ class TestProcessModel(unittest.TestCase):
 
     def test_returns_none_on_exception(self) -> None:
         """processModel returns None when the underlying pipeline raises an exception."""
-        item = _make_mock_item()
+        item = _make_mock_item(is_timecourse_valid=False)
         with patch(
             "make_piecewise_predictions.PiecewiseSystemDiscovery",
             side_effect=ValueError("simulated failure"),
@@ -146,7 +149,7 @@ class TestProcessModel(unittest.TestCase):
 
     def test_returns_none_when_predict_returns_none(self) -> None:
         """processModel returns None when psd.predict() returns None (defensive check)."""
-        item = _make_mock_item()
+        item = _make_mock_item(is_timecourse_valid=False)
         mock_psd = MagicMock()
         mock_psd.fit.return_value = None
         mock_psd.predict.return_value = None
@@ -177,7 +180,7 @@ def _make_mock_timecourse_iterator(mock_items):
 class TestMain(unittest.TestCase):
 
     def _run_with_mocked_iterator(self, output_path, is_initialize=False,
-                                  model_names=None):
+            model_names=None):
         """Helper: run main() with a mocked TimecourseIterator."""
         if model_names is None:
             model_names = ["BIOMD0000000005"]
@@ -186,7 +189,7 @@ class TestMain(unittest.TestCase):
         mock_iter = _make_mock_timecourse_iterator(mock_items)
 
         with patch("make_piecewise_predictions.TimecourseIterator",
-                   return_value=mock_iter):
+                return_value=mock_iter):
             main(
                 first_model_num=0,
                 last_model_num=len(model_names),

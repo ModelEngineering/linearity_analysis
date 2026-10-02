@@ -76,6 +76,9 @@ def processModel(
     """
     model_name = item.model_name
     df = item.timecourse.timecourse_df
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        print(f"Skipping {model_name} (no timecourse data)")
+        return None
     try:
         psd = PiecewiseSystemDiscovery(df,
                 max_changepoint=max_changepoint,
