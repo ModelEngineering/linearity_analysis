@@ -7,6 +7,7 @@ import tellurium as te  # type: ignore
 # Directories and paths
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PROJECT_DIR, "data")
+TEST_DIR = os.path.join(PROJECT_DIR, "tests")
 REPO_DIR = os.path.dirname(PROJECT_DIR)
 BIOMODELS_DIR = os.path.join(REPO_DIR, "temp-biomodels", "final")
 CALCULATED_ENTIMES_PATH = os.path.join(DATA_DIR, "biomodels_endtime.csv")

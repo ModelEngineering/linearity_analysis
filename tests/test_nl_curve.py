@@ -4,12 +4,11 @@ import os
 import tempfile
 import unittest
 
-import matplotlib  # type: ignore
-matplotlib.use("Agg")  # headless backend so plots don't open display windows
+#matplotlib.use("Agg")  #  type: ignore
 
 import matplotlib.pyplot as plt  # noqa: E402  # type: ignore
 import numpy as np  # type: ignore
-import pandas as pd
+import pandas as pd # type: ignore
 
 import src.constants as cn  # type: ignore
 from nl_curve import NLCurve  # type: ignore
@@ -53,7 +52,7 @@ class TestNLCurveInit(unittest.TestCase):
         if IGNORE_TESTS:
             return
         for bounds in [[0, 1, 2], [0, 1, 3], [0, 2, 5]]:
-            nl = NLCurve(bounds)
+            nl = NLCurve(bounds)  # type: ignore
             self.assertAlmostEqual(float(nl.curve_ser.iloc[-1]), 1.0)
 
     def test_curve_values_in_unit_interval(self) -> None:
@@ -164,6 +163,7 @@ class TestMakeMergedCurve(unittest.TestCase):
         b = NLCurve([0, 2, 5])   # lengths {2, 3}
         merged = a.makeMergedCurve(b)
         expected_index = sorted({1.0, 2.0, 3.0})
+        import pdb; pdb.set_trace()
         self.assertEqual(list(merged.index), expected_index)
 
     def test_cumsum_ends_at_one(self) -> None:
@@ -197,8 +197,8 @@ class TestMakeNLDensity(unittest.TestCase):
         nl = NLCurve([0, 5])
         density = nl._makeNLDensity()
         self.assertEqual(len(density), 1)
-        self.assertIn(5.0, density.index)
-        self.assertAlmostEqual(float(density[5.0]), 1.0)
+        self.assertIn(5.0/5.0, density.index)
+        self.assertAlmostEqual(float(density[1.0]), 1.0)
 
     def test_duplicate_lengths_grouped(self) -> None:
         """Equal-length segments are grouped into a single index entry."""
@@ -207,14 +207,14 @@ class TestMakeNLDensity(unittest.TestCase):
         nl = NLCurve([0, 1, 2, 3])   # three segments of length 1
         density = nl._makeNLDensity()
         self.assertEqual(len(density), 1)
-        self.assertIn(1.0, density.index)
+        self.assertIn(1.0/3.0, density.index)
 
     def test_density_values_sum_to_one(self) -> None:
         """Density values sum to 1.0 (within floating-point tolerance)."""
         if IGNORE_TESTS:
             return
         for bounds in [[0, 1, 2], [0, 1, 3], [0, 2, 5, 7]]:
-            nl = NLCurve(bounds)
+            nl = NLCurve(bounds)  # type: ignore
             density = nl._makeNLDensity()
             self.assertAlmostEqual(float(density.sum()), 1.0)
 
@@ -384,7 +384,7 @@ class TestFromPSDPredictions(unittest.TestCase):
                     cn.COL_NUM_TIMEPOINT: 10,
                 }],
             )
-            nl = NLCurve.fromPSDPredictions(path, model_num=1)
+            nl, _ = NLCurve.fromPSDPredictions(path, model_num=1)
             self.assertIsInstance(nl, NLCurve)
 
     def test_species_level_filters_by_name(self) -> None:
@@ -409,7 +409,7 @@ class TestFromPSDPredictions(unittest.TestCase):
                     },
                 ],
             )
-            nl = NLCurve.fromPSDPredictions(path, model_num=1, species_name="S1")
+            nl, _ = NLCurve.fromPSDPredictions(path, model_num=1, species_name="S1")
             self.assertIn(2.0, nl._boundaries)
 
     def test_no_matching_rows_raises(self) -> None:
@@ -462,10 +462,43 @@ class TestPlotNLCurve(unittest.TestCase):
         """plotNLCurve executes without raising an exception."""
         if IGNORE_TESTS:
             return
-        nl = NLCurve([0, 1, 2, 3, 5])
+        import matplotlib.pyplot as plt  # noqa: E402  # type: ignore
+        nl = NLCurve([0, 1, 2, 3, 5], name="Test Curve")
         fig = plt.figure()
         try:
             nl.plotNLCurve()
+            #plt.show()
+        finally:
+            plt.close(fig)
+
+class TestEnd2End(unittest.TestCase):
+    """Tests for NLCurve.fromPSDPredictions()."""
+
+    model_num = 234
+    model_num = 42
+    model_num = 10
+    model_num = 343
+    model_path = os.path.join(cn.TEST_DIR, "testdata", "piecewise_predictions.csv")
+    nl_curve = NLCurve.fromPSDPredictions(model_path, model_num=model_num)[0]
+
+    def test_model_level_creates_curve(self) -> None:
+        """Selecting model-level aggregation returns a valid NLCurve."""
+        if IGNORE_TESTS:
+            return
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.assertIsInstance(self.nl_curve, NLCurve)
+            self.assertGreater(len(self.nl_curve.curve_ser), 0)
+
+    def test_plot_does_not_raise(self) -> None:
+        """plotNLCurve executes without raising an exception."""
+        if IGNORE_TESTS:
+            return
+        import matplotlib.pyplot as plt  # noqa: E402  # type: ignore
+        nl = self.nl_curve
+        fig = plt.figure()
+        try:
+            nl.plotNLCurve()
+            #plt.show()
         finally:
             plt.close(fig)
 

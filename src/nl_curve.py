@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import os  # type: ignore
 import pandas as pd # type: ignore
-from typing import List, Union, Optional, cast # type: ignore
+from typing import List, Union, Optional, cast, Tuple # type: ignore
 
 
 _NP_INT64_PATTERN = re.compile(r'np\.int64\(([^)]*)\)')
@@ -24,7 +24,7 @@ _NP_INT64_PATTERN = re.compile(r'np\.int64\(([^)]*)\)')
 
 class NLCurve(object):
 
-    def __init__(self, boundaries: List[Union[int, float]]) -> None:
+    def __init__(self, boundaries: List[Union[int, float]], name: Optional[str] = None) -> None:
         """
 
         Args:
@@ -33,6 +33,7 @@ class NLCurve(object):
         """
         if len(boundaries) < 2:
             raise ValueError("At least two boundaries are required to define segments.")
+        self._name = name
         self._boundaries = list(np.sort(boundaries))
         self._segment_arr = np.diff(self._boundaries)  # lengths of segments between boundaries
         self.curve_ser = self._makeNLCurve()
@@ -40,13 +41,25 @@ class NLCurve(object):
     def __repr__(self) -> str:
         return f"NLCurve(NLCurve={self.curve_ser})"
 
+    def calculateAUC(self) -> float:
+        """Calculates the area under the NLCurve.
+
+        Returns:
+            float: Area under the NLCurve.
+        """
+        # Differences in x
+        dx = np.diff(self.curve_ser.index.to_numpy()) 
+        total_integral = np.sum(self.curve_ser.iloc[:-1].values * dx)
+        total_integral += self.curve_ser.iloc[-1] * (1 - self.curve_ser.index[-1])  # Add the last segment to reach x=1
+        return total_integral
+
     def copy(self) -> 'NLCurve':
         """Creates a copy of the NLCurve instance.
 
         Returns:
             A new NLCurve instance with the same boundaries.
         """
-        return NLCurve(self._boundaries)
+        return NLCurve(self._boundaries, name=self._name)
 
     def dist(self, other: 'NLCurve') -> float:
         """Computes the distance between two NLCurves.
@@ -98,7 +111,7 @@ class NLCurve(object):
         # Use segment lengths as both index and data, group duplicates by summing
         # their areas, then sort ascending by length.
         grouped = (
-            pd.Series(segment_areas, index=segment_areas)
+            pd.Series(segment_areas, index=segment_areas / total_area, dtype=float)
             .groupby(level=0)
             .sum()
             .sort_index()
@@ -119,17 +132,20 @@ class NLCurve(object):
                 values: cumulative fraction of total time contained in segments
                         with length less than or equal to the corresponding index value
         """
-        caf = self._makeNLDensity().cumsum()
-        return caf
+        curve_ser = self._makeNLDensity().cumsum()
+        return curve_ser
 
     def plotNLCurve(self) -> None:
         """Plots the NLCurve for the segment lengths."""
-        cdf = self._makeNLCurve()
-        plt.step(cdf.index, cdf.to_numpy(), where='post')
-        plt.xlabel('Segment Length')
+        xv = self.curve_ser.index.to_numpy()
+        plt.step(xv, self.curve_ser.to_numpy(), where='post')
+        plt.xlabel('Normalized Segment Length')
         plt.ylabel('Cumulative Area')
-        plt.title('Segment Area CDF')
+        name = "NLCurve" if self._name is None else f"BioModel {self._name}"
+        plt.title(f"{name}: AUC = {self.calculateAUC():.2f}")
         plt.grid()
+        plt.xlim(0, 1)
+        plt.ylim(0, 1)
 
     @staticmethod
     def _parseChangepoints(value) -> List[Union[int, float]]:
@@ -190,21 +206,23 @@ class NLCurve(object):
             raise ValueError(f"Path {path} does not exist.")
         df = pd.read_csv(path)
         missing_cols = [c for c in (
-            cn.COL_CHANGEPOINTS, cn.COL_AGGREGATION_TYPE, cn.COL_SYSTEM_ID, cn.COL_NUM_TIMEPOINT
+            cn.COL_CHANGEPOINTS, cn.COL_AGGREGATION_TYPE, cn.COL_SYSTEM_ID, cn.COL_COUNT
         ) if c not in df.columns]
         if missing_cols:
             raise ValueError(
                 f"CSV file {path} is missing required columns: {missing_cols}"
             )
         df[cn.COL_BOUNDARIES] = df.apply(
-            lambda row: [0.0] + NLCurve._parseChangepoints(row[cn.COL_CHANGEPOINTS]) + [row[cn.COL_NUM_TIMEPOINT] -1],
+            lambda row: [0.0] + NLCurve._parseChangepoints(row[cn.COL_CHANGEPOINTS]) 
+                    + [row[cn.COL_COUNT] -1],
             axis=1
         )
         return df[[cn.COL_BOUNDARIES, cn.COL_AGGREGATION_TYPE, cn.COL_SYSTEM_ID]]
 
     @classmethod
     def fromPSDPredictions(cls, path: str, model_num: int,
-                        species_name: Optional[str] = None) -> 'NLCurve':
+                        species_name: Optional[str] = None,
+                        df: Optional[pd.DataFrame] = None) -> Tuple['NLCurve', pd.DataFrame]:
         """Creates a NLCurve from data in a PiecewisePredictions CSV file.
 
         Filters the CSV rows to match the given ``model_num`` and aggregation type
@@ -217,6 +235,7 @@ class NLCurve(object):
             model_num: The BioModel number (e.g., 1 matches system_id "BIOMD0000000001").
             species_name: If provided, select the species-specific aggregation row;
                 otherwise select the model-level aggregation row.
+            df: Optional pre-loaded DataFrame to use instead of reading from CSV.
 
         Returns:
             A new NLCurve initialized with the parsed changepoints list.
@@ -232,11 +251,5 @@ class NLCurve(object):
             ser = system_df[system_df[cn.COL_AGGREGATION_TYPE] == species_name][cn.COL_BOUNDARIES]
         else:
             ser = system_df[system_df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL][cn.COL_BOUNDARIES]
-        if len(ser) != 1:
-            raise ValueError(
-                f"Expected exactly one matching row for system_id '{system_id}' "
-                f"and aggregation_type '{species_name or cn.COL_AGGREGATION_TYPE_MODEL}', "
-                f"but found {len(ser)} rows."
-            )
         boundaries = ser.iloc[0]
-        return cls(boundaries)
+        return (cls(boundaries, name=str(model_num)), df)
