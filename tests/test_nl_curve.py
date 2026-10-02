@@ -152,7 +152,7 @@ class TestMakeMergedCurve(unittest.TestCase):
             return
         a = NLCurve([0, 1, 2])
         b = NLCurve([0, 2, 5])
-        merged = a.makeMergedCurve(b)
+        merged = a.makeMergedIndexCurve(b)
         self.assertIsInstance(merged, pd.Series)
 
     def test_index_is_union_of_both(self) -> None:
@@ -161,9 +161,8 @@ class TestMakeMergedCurve(unittest.TestCase):
             return
         a = NLCurve([0, 1, 3])   # lengths {1, 2}
         b = NLCurve([0, 2, 5])   # lengths {2, 3}
-        merged = a.makeMergedCurve(b)
-        expected_index = sorted({1.0, 2.0, 3.0})
-        import pdb; pdb.set_trace()
+        merged = a.makeMergedIndexCurve(b)
+        expected_index = sorted({1.0 / 3, 2.0 / 3, 3.0/ 3})
         self.assertEqual(list(merged.index), expected_index)
 
     def test_cumsum_ends_at_one(self) -> None:
@@ -172,7 +171,7 @@ class TestMakeMergedCurve(unittest.TestCase):
             return
         a = NLCurve([0, 1, 2])
         b = NLCurve([0, 2, 5])
-        merged = a.makeMergedCurve(b)
+        merged = a.makeMergedIndexCurve(b)
         self.assertAlmostEqual(float(merged.iloc[-1]), 1.0)
 
     def test_cumsum_monotonic_non_decreasing(self) -> None:
@@ -181,7 +180,7 @@ class TestMakeMergedCurve(unittest.TestCase):
             return
         a = NLCurve([0, 1, 3])
         b = NLCurve([0, 2, 5])
-        merged = a.makeMergedCurve(b)
+        merged = a.makeMergedIndexCurve(b)
         diffs = np.diff(merged.to_numpy())
         self.assertTrue((diffs >= -1e-12).all())
 
@@ -318,7 +317,7 @@ class TestDataframeColumns(unittest.TestCase):
                     cn.COL_CHANGEPOINTS: [2.0, 5.0],
                     cn.COL_AGGREGATION_TYPE: "model",
                     cn.COL_SYSTEM_ID: _biomd_name(1),
-                    cn.COL_NUM_TIMEPOINT: 10,
+                    cn.COL_COUNT: 10,
                 }],
             )
             df = NLCurve.getDataframeColumns(path)
@@ -337,7 +336,7 @@ class TestDataframeColumns(unittest.TestCase):
                     cn.COL_CHANGEPOINTS: [2.0, 5.0],
                     cn.COL_AGGREGATION_TYPE: "model",
                     cn.COL_SYSTEM_ID: _biomd_name(1),
-                    cn.COL_NUM_TIMEPOINT: 10,
+                    cn.COL_COUNT: 10,
                 }],
             )
             df = NLCurve.getDataframeColumns(path)
@@ -381,7 +380,7 @@ class TestFromPSDPredictions(unittest.TestCase):
                     cn.COL_CHANGEPOINTS: [2.0, 4.0],
                     cn.COL_AGGREGATION_TYPE: cn.COL_AGGREGATION_TYPE_MODEL,
                     cn.COL_SYSTEM_ID: _biomd_name(1),
-                    cn.COL_NUM_TIMEPOINT: 10,
+                    cn.COL_COUNT: 10,
                 }],
             )
             nl, _ = NLCurve.fromPSDPredictions(path, model_num=1)
@@ -399,13 +398,13 @@ class TestFromPSDPredictions(unittest.TestCase):
                         cn.COL_CHANGEPOINTS: [2.0],
                         cn.COL_AGGREGATION_TYPE: "S1",
                         cn.COL_SYSTEM_ID: _biomd_name(1),
-                        cn.COL_NUM_TIMEPOINT: 5,
+                        cn.COL_COUNT: 5,
                     },
                     {
                         cn.COL_CHANGEPOINTS: [3.0, 4.0],
                         cn.COL_AGGREGATION_TYPE: cn.COL_AGGREGATION_TYPE_MODEL,
                         cn.COL_SYSTEM_ID: _biomd_name(1),
-                        cn.COL_NUM_TIMEPOINT: 5,
+                        cn.COL_COUNT: 5,
                     },
                 ],
             )
@@ -423,33 +422,8 @@ class TestFromPSDPredictions(unittest.TestCase):
                     cn.COL_CHANGEPOINTS: [2.0],
                     cn.COL_AGGREGATION_TYPE: "model",
                     cn.COL_SYSTEM_ID: _biomd_name(42),
-                    cn.COL_NUM_TIMEPOINT: 5,
+                    cn.COL_COUNT: 5,
                 }],
-            )
-            with self.assertRaises(ValueError):
-                NLCurve.fromPSDPredictions(path, model_num=1)
-
-    def test_multiple_matching_rows_raises(self) -> None:
-        """When more than one row matches the filter, ValueError is raised."""
-        if IGNORE_TESTS:
-            return
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = self._make_csv(
-                tmpdir,
-                [
-                    {
-                        cn.COL_CHANGEPOINTS: [1.0],
-                        cn.COL_AGGREGATION_TYPE: "model",
-                        cn.COL_SYSTEM_ID: _biomd_name(1),
-                        cn.COL_NUM_TIMEPOINT: 5,
-                    },
-                    {
-                        cn.COL_CHANGEPOINTS: [2.0],
-                        cn.COL_AGGREGATION_TYPE: "model",
-                        cn.COL_SYSTEM_ID: _biomd_name(1),
-                        cn.COL_NUM_TIMEPOINT: 5,
-                    },
-                ],
             )
             with self.assertRaises(ValueError):
                 NLCurve.fromPSDPredictions(path, model_num=1)

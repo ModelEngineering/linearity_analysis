@@ -71,12 +71,12 @@ class NLCurve(object):
             A float representing the distance between the two NLCurves.
         """
         # Get common indices
-        a = self.makeMergedCurve(other)
-        b = other.makeMergedCurve(self)
+        a = self.makeMergedIndexCurve(other)
+        b = other.makeMergedIndexCurve(self)
         # Compute the Euclidean distance between the two series
         return float(np.linalg.norm(a.to_numpy() - b.to_numpy()))
 
-    def makeMergedCurve(self, other: 'NLCurve') -> pd.Series:
+    def makeMergedIndexCurve(self, other: 'NLCurve') -> pd.Series:
         """Reindexes this NLCurve's series to include the union of its index and the other NLCurve's
 
 
@@ -87,11 +87,20 @@ class NLCurve(object):
             A pd.Series with the merged index and values from this NLCurve's series,
         """
         # Calculate density
+        other_range = other._boundaries[-1]
+        this_range = self._boundaries[-1]
         this_daf_ser = self._makeNLDensity()
+        other_daf_ser = other._makeNLDensity()
+        # Adjust the indicies to reflect the timecourse lengths
+        this_daf_ser.index = this_daf_ser.index.to_numpy() * this_range
+        other_daf_ser.index = other_daf_ser.index.to_numpy() * other_range
         # Reindex the desnity
-        indexes = np.union1d(this_daf_ser.index.to_numpy(), other.curve_ser.index.to_numpy())
+        max_index = max(this_daf_ser.index.max(), other_daf_ser.index.max())
+        indexes = np.array(np.union1d(this_daf_ser.index.to_numpy(), other_daf_ser.index.to_numpy()))
         this_daf_ser = this_daf_ser.reindex(indexes, fill_value=0)
-        return this_daf_ser.cumsum()
+        this_daf_ser.index = this_daf_ser.index.to_numpy() / max_index
+        result = this_daf_ser.cumsum()
+        return result
 
     def _makeNLDensity(self) -> pd.Series:
         """
@@ -238,18 +247,24 @@ class NLCurve(object):
             df: Optional pre-loaded DataFrame to use instead of reading from CSV.
 
         Returns:
-            A new NLCurve initialized with the parsed changepoints list.
+            A tuple containing the new NLCurve initialized with the parsed changepoints list and the DataFrame used.
 
         Raises:
             ValueError: If no single matching row is found for the given filters,
                 or if the changepoints value cannot be parsed into a list of numbers.
         """
-        df = cls.getDataframeColumns(path)
+        if df is None:
+            df = cls.getDataframeColumns(path)
         system_id = Model.getBiomodelName(model_num)
         system_df = df[df[cn.COL_SYSTEM_ID] == system_id]
         if species_name is not None:
             ser = system_df[system_df[cn.COL_AGGREGATION_TYPE] == species_name][cn.COL_BOUNDARIES]
         else:
             ser = system_df[system_df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL][cn.COL_BOUNDARIES]
+        if len(ser) == 0:
+            raise ValueError(
+                f"Expected exactly a matching row for model_num={model_num}, "
+                f"species_name={species_name}, found {len(ser)}."
+            )
         boundaries = ser.iloc[0]
         return (cls(boundaries, name=str(model_num)), df)
