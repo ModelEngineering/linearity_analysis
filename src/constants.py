@@ -20,6 +20,8 @@ TIMECOURSE_ZIP_100000_PATH = os.path.join(TIMECOURSE_SERIALIZATION_DIR, "timecou
 TIMECOURSE_ZIP_PATH = TIMECOURSE_ZIP_100000_PATH  # Default path to the timecourse zip file
 PIECEWISE_PREDICTIONS_PATH = os.path.join(DATA_DIR, "piecewise_predictions.csv")
 PAPER_DIR = os.path.join(PROJECT_DIR, "paper")
+PLOT_DIR = os.path.join(PAPER_DIR, "plots")
+NOTEBOOK_DIR = os.path.join(PROJECT_DIR, "notebooks")
 CURATION_PATH = os.path.join(DATA_DIR, "curation.csv")
 
 # Types
@@ -54,7 +56,6 @@ COL_ENDTIME_SOURCE = "end_time_source"  # How end_time was determined (e.g. "rec
 COL_INVALID_COUNT = "invalid_count"  # Number of invalid (sentinel -1) values excluded from aggregation.
 COL_MAX_CHANGEPOINT = "max_changepoint"
 COL_NUM_CHANGEPOINT = "num_changepoint"
-COL_MIN_SEGMENT_LENGTH = "min_segment_length"
 COL_MAX_FRACTIONAL_REDUCTION = "max_fractional_reduction"
 COL_NUM_REACTION = "num_reaction"
 COL_PERTURBATION = "perturbation"  # Perturbation value fraction used in simulation

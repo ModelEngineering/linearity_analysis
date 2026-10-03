@@ -12,7 +12,9 @@ from src.model import Model  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
 from src.system_discovery import SystemDiscovery, NULL_DF  # type: ignore
 
+import ast
 import collections
+from pathlib import Path
 import concurrent.futures  # noqa: E402 (used by parallel helpers below)
 from dataclasses import dataclass  # noqa: E402 (dataclass used by PiecewiseSystemDiscovery._ScoreSummary)
 import matplotlib.pyplot as plt  # type: ignore
@@ -24,87 +26,6 @@ from typing import cast
 
 PlotBiomodelsSignalResult = collections.namedtuple('PlotBiomodelsSignalResult',
         ['plot_options', 'piecewise_system_discovery', 'change_point_times'])
-
-
-# ---------------------------------------------------------------------------
-# Module-level helpers used by the parallel changepoint elimination pipeline.
-# They live at module scope so they are picklable and can be dispatched across
-# process boundaries by ``concurrent.futures.ProcessPoolExecutor``.
-# ---------------------------------------------------------------------------
-
-def _compute_median_score(
-        models: List[SystemDiscovery],
-        boundaries: List[Tuple[float, float]],
-        training_df: pd.DataFrame) -> float:
-    """Return the median p10 accuracy across all fitted segment models."""
-    score_dfs = []
-    for sys_disc, (start, end) in zip(models, boundaries):
-        test_seg_df = training_df.iloc[(training_df.index >= start) & (training_df.index <= end)]
-        score_info = sys_disc.getScoreDetails(test_df=test_seg_df, score_type="timecourse")
-        score_dfs.append(score_info)
-    combined = pd.concat(score_dfs, ignore_index=True) if score_dfs else pd.DataFrame()
-    return float(combined[cn.COL_P10].median())
-
-
-def _fit_segments_parallel(
-        training_df: pd.DataFrame,
-        boundary_index_arr: List[int],
-        time_arr: np.ndarray,
-        num_point: int,
-        sd_kwargs: Dict[str, Any]) -> Tuple[List[SystemDiscovery],
-                                            List[Tuple[float, float]],
-                                            List[int]]:
-    """Fit one ``SystemDiscovery`` per segment in parallel threads.
-
-    Each segment's fit is dispatched to its own thread so that GIL-releasing
-    scipy/numpy work (PySINDy STLSQ sparse regression) can run concurrently
-    across segments.  Within a single call no mutable state is shared between
-    threads -- each gets its own ``SystemDiscovery`` instance and its own data slice.
-
-    Parameters
-    ----------
-    training_df : pd.DataFrame
-        Full timecourse used to build per-segment slices.
-    boundary_index_arr : list[int]
-        Boundary indices including the leading 0 and trailing num_point, e.g.
-        ``[0, 150, 300, 500]`` for three segments on a 500-row timecourse.
-    time_arr : np.ndarray
-        Full index as a float numpy array (used to compute boundary end-times).
-    num_point : int
-        Number of rows in ``training_df``; used to clamp the last segment's end-time.
-    sd_kwargs : dict
-        Keyword arguments forwarded to every ``SystemDiscovery(...)`` call.
-
-    Returns
-    -------
-    tuple[list[SystemDiscovery], list[tuple[float, float]], list[int]]
-        ``(models, boundaries, lengths)`` -- identical shape to
-        :meth:`PiecewiseSystemDiscovery._fitSegments`.
-    """
-    models: List[SystemDiscovery] = []
-    boundaries: List[Tuple[float, float]] = []
-    lengths: List[int] = []
-
-    def _fit_one_segment(lo: int, hi: int) -> Tuple[SystemDiscovery, float, float, int]:
-        subsequence_df = training_df.iloc[lo:hi].copy()  # defensive copy for thread safety
-        end_time_idx = hi if hi < num_point else len(time_arr) - 1
-        return (SystemDiscovery(subsequence_df, **sd_kwargs).fit(),
-                float(time_arr[lo]), float(time_arr[end_time_idx]), hi - lo)
-
-    n_segments = max(len(boundary_index_arr) - 1, 1)
-    max_workers = min(4, n_segments) if n_segments > 0 else 1
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-        future_to_idx: Dict[int, concurrent.futures.Future] = {}
-        for i, (lo, hi) in enumerate(zip(boundary_index_arr[:-1], boundary_index_arr[1:])):
-            future_to_idx[i] = pool.submit(_fit_one_segment, lo, hi)
-        # Collect results in order so the returned list matches ``boundary_index_arr``.
-        for idx in sorted(future_to_idx.keys()):
-            sys_disc, bnd_lo, bnd_hi, length = future_to_idx[idx].result()  # type: ignore[index]
-            models.append(sys_disc)
-            boundaries.append((bnd_lo, bnd_hi))
-            lengths.append(length)
-
-    return models, boundaries, lengths
 
 
 class PiecewiseSystemDiscovery(object):
@@ -126,7 +47,6 @@ class PiecewiseSystemDiscovery(object):
         training_df:  pd.DataFrame,
         max_changepoint: int = 2,
         max_fractional_reduction: float = 0.01,  
-        min_segment_length: int = 100,
         model_name: str = "",
         num_trail: int = 1,
         changepoints: Optional[List[int]] = None,
@@ -141,7 +61,6 @@ class PiecewiseSystemDiscovery(object):
             max_changepoint (int, optional): Maximum number of change points to detect. Defaults to 2.
                 Can be adjusted so that there is enough data per segment.
             max_fractional_reduction (float, optional): Maximum fractional reduction in the sum of squared errors required to accept a new change point. Defaults to 0.01.
-            min_segment_length (int, optional): Minimum length of segments for splitting. Defaults to 100.
             model_name (str, optional): Optional name tag used in plots and error messages. Defaults to "".
             num_trail (int, optional): Number of random changepoint trials.
                 Only used if is_random_changepoints is True.
@@ -156,7 +75,6 @@ class PiecewiseSystemDiscovery(object):
         self.model_name = model_name
         self.max_changepoint = max_changepoint
         self.max_fractional_reduction = max_fractional_reduction
-        self.min_segment_length = min_segment_length
         self.is_random_changepoints = sd_kwargs.pop("is_random_changepoints", False)
         self.num_trail = num_trail
         sd_kwargs["poly_degree"] = sd_kwargs.get("poly_degree", 1)
@@ -190,91 +108,64 @@ class PiecewiseSystemDiscovery(object):
             raise RuntimeError(
                     "PiecewiseSystemDiscovery must be fit() before this operation.")
 
-    def _makeRandomChangepoints(self, seed: Optional[int] = None) -> List[int]:
-        """Generate random change points respecting ``max_changepoint`` and
-        ``min_segment_length``.
+    def _getChangepointsFromFile(self) -> Optional[List[int]]:
+        """Look up pre-computed changepoints in ``data/piecewise_predictions_model.csv``.
 
-        Indices are drawn uniformly from ``[1, num_point - 1)`; each new point is
-        rejected if it lies within ``min_segment_length`` of a previously chosen one.
-        If the constraint set cannot accommodate all ``max_changepoint`` placements,
-        fewer points are returned rather than raising — callers should treat the
-        returned length as an upper bound.
-
-        Parameters
-        ----------
-        seed : int or None
-            RNG seed for deterministic generation.  Defaults to a fresh random state.
+        Matches the CSV row whose ``(system_id, max_changepoint,
+        max_fractional_reduction)`` equals ``(self.model_name,
+        self.max_changepoint, self.max_fractional_reduction)`` and returns its
+        ``changepoints`` column parsed back into a list of ints.
 
         Returns
         -------
-        list[int]
-            Sorted, unique indices in ``[1, num_point - 1)`` with pairwise distance
-            at least ``min_segment_length`` (or fewer elements if constraints make
-            that impossible).
+        list[int] or None
+            The changepoint indices for this configuration, or an empty list
+            when the matching row exists but carries no change points.  Returns
+            ``None`` only when (a) the CSV is missing, (b) no row matches the
+            three-key lookup, or (c) the ``changepoints`` cell on a matching row
+            could not be parsed as a list of ints.
+
+        Notes
+        -----
+        The CSV has no ``model_name`` column; we match against ``system_id``,
+        which holds values like ``"BIOMD0000000005"`` and is the only model
+        identifier in that file.
         """
-        if self.max_changepoint <= 0:
+        csv_path = (
+            Path(__file__).resolve().parent.parent / "data"
+            / "piecewise_predictions_model.csv"
+        )
+        if not csv_path.exists():
+            return None
+
+        df = pd.read_csv(csv_path)
+        mask = (df["max_changepoint"] == self.max_changepoint) & \
+               (df["max_fractional_reduction"] == self.max_fractional_reduction) & \
+               (df["system_id"] == self.model_name)
+
+        if not mask.any():
+            return None
+
+        raw = df.loc[mask, "changepoints"].iloc[0]
+
+        # Missing or empty cell on a matching row => no change points to apply.
+        if pd.isna(raw):
             return []
-        max_changepoint = self._adjustMaxChangepoints()
-        cutoff = self.num_species # Minimum distance between changepoints that allows estimation of the system parameters
+        text = str(raw).strip()
+        if not text:
+            return []
 
-        rng = np.random.default_rng(seed)
-        changepoints: List[int] = []
-        candidates = list(range(1, self.num_point - 1))
-        for _ in range(max_changepoint):
-            if not candidates:
-                break
-            idx = int(rng.integers(0, len(candidates)))
-            changepoint = candidates[idx]
-            changepoints.append(changepoint)
-            # Reject future candidates within min_segment_length of the chosen point.
-            candidates = [c for c in candidates if abs(changepoint - c) >= cutoff]
-        return sorted(changepoints)
+        try:
+            parsed = ast.literal_eval(text)
+        except (ValueError, SyntaxError):
+            return None
 
-    def _makeBestRandomChangepoints(self) -> List[int]:
-        """Try several random changepoint sets and keep the one whose piecewise fit scores best.
-
-        For each trial a fresh PiecewiseSystemDiscovery is built with that candidate set, fit() against
-        training data, and scored via accuracy across all species/segments. The candidate producing
-        the highest score wins; ties go to the first (lowest seed) trial.
-
-        Returns
-        -------
-        list[int]
-            Sorted changepoint indices in ``[1, num_point - 1)`` for the best trial (or the only one when
-            ``num_trail <= 1``).  May be shorter than ``max_changepoint`` if segment constraints prevent it.
-        """
-        best_cp: Optional[List[int]] = None
-        best_score = float("-inf")
-        rng = np.random.default_rng()
-        for trial_idx in range(self.num_trail):
-            seed = int(rng.integers(0, 2 ** 31)) if self.num_trail > 1 else None
-            cp = self._makeRandomChangepoints(seed=seed)
-            if self.num_trail <= 1:
-                best_cp = cp
-                break
-            # Score this candidate by fitting a full PiecewiseSystemDiscovery against training data.
-            try:
-                trial_psd = PiecewiseSystemDiscovery(
-                    self.training_df,
-                    max_changepoint=0,
-                    changepoints=cp,
-                    max_fractional_reduction=self.max_fractional_reduction,
-                    min_segment_length=self.min_segment_length,
-                    model_name=f"{self.model_name}_trial_{trial_idx}",
-                    **self._sd_kwargs,
-                )
-                trial_psd.changepoints = cp
-                trial_psd._is_fitted = True  # bypass recursion into _getChangepoints()
-                trial_psd._subsequence_models, trial_psd._subsequence_boundaries, trial_psd._subsequence_lengths = \
-                    self._fitSegments(cp)
-                score = trial_psd.score(col=cn.COL_P50, statistic="median")
-            except Exception:
-                # Treat fit failures as infinitely bad so they don't win.
-                score = float("-inf")
-            if score > best_score:
-                best_score = score
-                best_cp = cp
-        return list(best_cp or [])
+        if not isinstance(parsed, list):
+            raise ValueError(
+                f"Unexpected changepoints type in CSV for {self.model_name}: "
+                f"{type(parsed).__name__}"
+            )
+        return [int(cp) for cp in parsed]
 
     def _fitSegments(self, changepoints: List[int]) -> Tuple[List[SystemDiscovery],
             List[Tuple[float, float]], List[int]]:
@@ -698,7 +589,10 @@ class PiecewiseSystemDiscovery(object):
         """
         if self.changepoints is None:
             if self._is_random_changepoints:
-                self.changepoints = self._makeBestRandomChangepoints()
+                raise ValueError(
+                    "Random changepoints requested, but no changepoints provided. "
+                    "Set is_random_changepoints=False or provide a list of changepoints."
+                )
             else:
                 if self._is_changepoint_removal:
                     self.changepoints = self._makeChangepointsWithElimination()

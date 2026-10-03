@@ -76,7 +76,6 @@ class TestPiecewiseSystemDiscoveryConstructor(unittest.TestCase):
         psd = PiecewiseSystemDiscovery(df)
         self.assertEqual(psd.max_changepoint, 2)
         self.assertAlmostEqual(psd.max_fractional_reduction, 0.01)
-        self.assertEqual(psd.min_segment_length, 100)
         self.assertEqual(psd.num_trail, 1)
         self.assertIsNone(psd.changepoints)
 
@@ -86,12 +85,11 @@ class TestPiecewiseSystemDiscoveryConstructor(unittest.TestCase):
         df = _make_linear_df(n_points=50)
         psd = PiecewiseSystemDiscovery(
             df, max_changepoint=3, max_fractional_reduction=0.2,
-            min_segment_length=20, model_name="my_model",
+            model_name="my_model",
             num_trail=5, changepoints=[10, 20],
         )
         self.assertEqual(psd.max_changepoint, 3)
         self.assertAlmostEqual(psd.max_fractional_reduction, 0.2)
-        self.assertEqual(psd.min_segment_length, 20)
         self.assertEqual(psd.model_name, "my_model")
         self.assertEqual(psd.num_trail, 5)
         self.assertEqual(psd.changepoints, [10, 20])
@@ -143,160 +141,6 @@ class TestPiecewiseSystemDiscoveryConstructor(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# _makeRandomChangepoints tests
-# ---------------------------------------------------------------------------
-
-
-class TestMakeRandomChangepoints(unittest.TestCase):
-
-    def test_empty_when_max_is_zero(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=50)
-        psd = PiecewiseSystemDiscovery(df, max_changepoint=0)
-        self.assertEqual(psd._makeRandomChangepoints(), [])
-
-    def test_empty_when_max_is_negative(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=50)
-        psd = PiecewiseSystemDiscovery(df, max_changepoint=-1)
-        self.assertEqual(psd._makeRandomChangepoints(), [])
-
-    def test_returns_sorted_indices(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=200)
-        psd = PiecewiseSystemDiscovery(df, max_changepoint=3)
-        result = psd._makeRandomChangepoints()
-        self.assertEqual(result, sorted(result))
-
-    def test_deterministic_with_seed(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=200)
-        a = PiecewiseSystemDiscovery(df, max_changepoint=3)._makeRandomChangepoints(seed=42)
-        b = PiecewiseSystemDiscovery(df, max_changepoint=3)._makeRandomChangepoints(seed=42)
-        self.assertEqual(a, b)
-
-    def test_different_seeds_differ(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=500, noise_std=0.0)
-        psd = PiecewiseSystemDiscovery(df, max_changepoint=2, min_segment_length=10)
-        a = psd._makeRandomChangepoints(seed=1)
-        b = psd._makeRandomChangepoints(seed=999)
-        self.assertNotEqual(a, b)
-
-    def test_fewer_than_max_when_constraints_tight(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=30)
-        psd = PiecewiseSystemDiscovery(df, max_changepoint=10, min_segment_length=5)
-        result = psd._makeRandomChangepoints()
-        self.assertLessEqual(len(result), 12)
-
-    def test_single_changepoint_in_valid_range(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=200)
-        psd = PiecewiseSystemDiscovery(df, max_changepoint=1)
-        result = psd._makeRandomChangepoints(seed=7)
-        self.assertEqual(len(result), 1)
-        idx = result[0]
-        self.assertGreater(idx, 0)
-        self.assertLess(idx, df.shape[0] - 1)
-
-
-# ---------------------------------------------------------------------------
-# _makeBestRandomChangepoints tests
-# ---------------------------------------------------------------------------
-
-
-class TestGetBestRandomChangepoints(unittest.TestCase):
-
-    def test_single_trial_returns_changepoints(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=200, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, num_trail=1, min_segment_length=20)
-        cp = psd._makeBestRandomChangepoints()
-        self.assertIsInstance(cp, list)
-
-    def test_multiple_trials_returns_changepoints(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=200, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, num_trail=3, min_segment_length=20)
-        cp = psd._makeBestRandomChangepoints()
-        self.assertIsInstance(cp, list)
-
-    def test_returns_sorted(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=200, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, num_trail=3, min_segment_length=10)
-        cp = psd._makeBestRandomChangepoints()
-        self.assertEqual(cp, sorted(cp))
-
-
-# ---------------------------------------------------------------------------
-# _fitSegments tests
-# ---------------------------------------------------------------------------
-
-
-class TestFitSegments(unittest.TestCase):
-
-    def test_single_segment(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=100, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, min_segment_length=20)
-        models, boundaries, lengths = psd._fitSegments([])
-        self.assertEqual(len(models), 1)
-        self.assertEqual(len(boundaries), 1)
-        self.assertEqual(lengths[0], df.shape[0])
-
-    def test_two_segments(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=200, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, min_segment_length=30)
-        models, boundaries, lengths = psd._fitSegments([100])
-        self.assertEqual(len(models), 2)
-        self.assertEqual(lengths[0], 100)
-        self.assertEqual(lengths[1], 100)
-
-    def test_three_segments(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=300, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, min_segment_length=30)
-        models, boundaries, lengths = psd._fitSegments([100, 200])
-        self.assertEqual(len(models), 3)
-        self.assertEqual(boundaries[0][0], df.index[0])
-
-    def test_boundaries_are_floating_point(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=100, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, min_segment_length=20)
-        _, boundaries, _ = psd._fitSegments([50])
-        for start, end in boundaries:
-            self.assertIsInstance(start, float)
-            self.assertIsInstance(end, float)
-
-    def test_models_are_fitted(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=100, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, min_segment_length=20)
-        models, _, _ = psd._fitSegments([])
-        for m in models:
-            self.assertTrue(m.is_fitted)
-
-
-# ---------------------------------------------------------------------------
 # fit() tests
 # ---------------------------------------------------------------------------
 
@@ -307,7 +151,7 @@ class TestFit(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(n_points=100, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, changepoints=[50], min_segment_length=20)
+        psd = PiecewiseSystemDiscovery(df, changepoints=[50])
         result = psd.fit()
         self.assertTrue(psd._is_fitted)
         self.assertEqual(len(psd._subsequence_models), 2)
@@ -317,7 +161,7 @@ class TestFit(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(n_points=100, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, changepoints=[40], min_segment_length=20)
+        psd = PiecewiseSystemDiscovery(df, changepoints=[40])
         psd.fit()
         self.assertEqual(psd._subsequence_lengths[0], 40)
         self.assertEqual(psd._subsequence_lengths[1], 60)
@@ -326,7 +170,7 @@ class TestFit(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(n_points=200, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, num_trail=1, min_segment_length=30)
+        psd = PiecewiseSystemDiscovery(df, num_trail=1)
         psd.fit()
         self.assertTrue(psd._is_fitted)
 
@@ -342,7 +186,7 @@ class TestPredict(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(n_points=100, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, changepoints=[50], min_segment_length=20)
+        psd = PiecewiseSystemDiscovery(df, changepoints=[50])
         psd.fit()
         pred_df = psd.predict()
         self.assertIsInstance(pred_df, pd.DataFrame)
@@ -359,7 +203,7 @@ class TestPredict(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(n_points=100, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, changepoints=[50], min_segment_length=20)
+        psd = PiecewiseSystemDiscovery(df, changepoints=[50])
         psd.fit()
         pred_df = psd.predict()
         self.assertEqual(list(pred_df.columns), ["A", "B"])
@@ -368,7 +212,7 @@ class TestPredict(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(n_points=100, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, changepoints=[50], min_segment_length=20)
+        psd = PiecewiseSystemDiscovery(df, changepoints=[50])
         psd.fit()
         pred_df = psd.predict(test_df=df)
         self.assertIsInstance(pred_df, pd.DataFrame)
@@ -385,7 +229,7 @@ class TestScore(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(n_points=100, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, changepoints=[50], min_segment_length=20)
+        psd = PiecewiseSystemDiscovery(df, changepoints=[50])
         psd.fit()
         score_val = psd.score()
         self.assertIsInstance(score_val, float)
@@ -402,7 +246,7 @@ class TestScore(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(n_points=100, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, changepoints=[50], min_segment_length=20)
+        psd = PiecewiseSystemDiscovery(df, changepoints=[50])
         psd.fit()
         score_df = psd.getScoreDetails()
         self.assertIsInstance(score_df, pd.DataFrame)
@@ -419,7 +263,7 @@ class TestStr(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(n_points=100, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, changepoints=[50], min_segment_length=20)
+        psd = PiecewiseSystemDiscovery(df, changepoints=[50])
         psd.fit()
         s = str(psd)
         self.assertIsInstance(s, str)
@@ -437,7 +281,7 @@ class TestStr(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(n_points=100, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, changepoints=[50], min_segment_length=20)
+        psd = PiecewiseSystemDiscovery(df, changepoints=[50])
         psd.fit()
         psd.printEquations()  # just ensure it doesn't raise
 
@@ -453,7 +297,7 @@ class TestPlotPiecewise(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_linear_df(n_points=100, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, changepoints=[50], min_segment_length=20)
+        psd = PiecewiseSystemDiscovery(df, changepoints=[50])
         psd.fit()
         po = psd.plotPiecewise(num_true_point=-1)
         self.assertIsNotNone(po.fig)
@@ -484,7 +328,6 @@ class TestEndToEndBioModels548(unittest.TestCase):
     def _make_psd(self, **overrides):
         defaults = dict(
             max_changepoint=2,
-            min_segment_length=100,
             poly_degree=1,
             coefficient_threshold=0.01,
             num_trail=1,
@@ -497,7 +340,7 @@ class TestEndToEndBioModels548(unittest.TestCase):
         """``fit()`` on real BioModel 548 data must populate subsequence models."""
         if IGNORE_TESTS or not HAS_REAL_ZIP:
             return
-        psd = self._make_psd(changepoints=[200], min_segment_length=100)
+        psd = self._make_psd(changepoints=[200])
         result = psd.fit()
         self.assertTrue(psd._is_fitted)
         self.assertGreaterEqual(len(psd._subsequence_models), 1)
@@ -507,7 +350,7 @@ class TestEndToEndBioModels548(unittest.TestCase):
         """``predict()`` must return a DataFrame whose columns match the training species."""
         if IGNORE_TESTS or not HAS_REAL_ZIP:
             return
-        psd = self._make_psd(changepoints=[200], min_segment_length=100)
+        psd = self._make_psd(changepoints=[200])
         psd.fit()
         pred_df = psd.predict()
         self.assertIsInstance(pred_df, pd.DataFrame)
@@ -517,7 +360,7 @@ class TestEndToEndBioModels548(unittest.TestCase):
         """``predict()`` must return predictions aligned with the training time index."""
         if IGNORE_TESTS or not HAS_REAL_ZIP:
             return
-        psd = self._make_psd(changepoints=[200], min_segment_length=100)
+        psd = self._make_psd(changepoints=[200])
         psd.fit()
         pred_df = psd.predict()
         # Values must match; index names may differ (predict does not propagate the column name).
@@ -527,7 +370,7 @@ class TestEndToEndBioModels548(unittest.TestCase):
         """Predicted values that are finite must equal the corresponding training values within tolerance."""
         if IGNORE_TESTS or not HAS_REAL_ZIP:
             return
-        psd = self._make_psd(changepoints=[200], min_segment_length=100)
+        psd = self._make_psd(changepoints=[200])
         psd.fit()
         pred_df = psd.predict()
         # At minimum every predicted column must contain some finite values.
@@ -538,7 +381,7 @@ class TestEndToEndBioModels548(unittest.TestCase):
         """``score()`` must return a finite float on real data."""
         if IGNORE_TESTS or not HAS_REAL_ZIP:
             return
-        psd = self._make_psd(changepoints=[200], min_segment_length=100)
+        psd = self._make_psd(changepoints=[200])
         psd.fit()
         score_val = psd.score()
         self.assertIsInstance(score_val, float)
@@ -548,7 +391,7 @@ class TestEndToEndBioModels548(unittest.TestCase):
         """``getScoreDetails()`` must return a non-empty DataFrame on real data."""
         if IGNORE_TESTS or not HAS_REAL_ZIP:
             return
-        psd = self._make_psd(changepoints=[200], min_segment_length=100)
+        psd = self._make_psd(changepoints=[200])
         psd.fit()
         score_df = psd.getScoreDetails()
         self.assertIsInstance(score_df, pd.DataFrame)
@@ -558,7 +401,7 @@ class TestEndToEndBioModels548(unittest.TestCase):
         """``plotPiecewise()`` must return a valid PlotOptions on real data."""
         if IGNORE_TESTS or not HAS_REAL_ZIP:
             return
-        psd = self._make_psd(changepoints=[200], min_segment_length=100)
+        psd = self._make_psd(changepoints=[200])
         psd.fit()
         po = psd.plotPiecewise(num_true_point=-1)
         self.assertIsNotNone(po.fig)
@@ -567,7 +410,7 @@ class TestEndToEndBioModels548(unittest.TestCase):
         """``str(psd)`` after fit should mention every species name."""
         if IGNORE_TESTS or not HAS_REAL_ZIP:
             return
-        psd = self._make_psd(changepoints=[200], min_segment_length=100)
+        psd = self._make_psd(changepoints=[200])
         psd.fit()
         s = str(psd)
         for sp in self.tc.timecourse_df.columns:
@@ -579,7 +422,7 @@ class TestEndToEndBioModels548(unittest.TestCase):
             return
         n = len(self.tc.timecourse_df)
         mid = n // 2
-        psd = self._make_psd(changepoints=[mid], min_segment_length=50)
+        psd = self._make_psd(changepoints=[mid])
         psd.fit()
         self.assertEqual(len(psd._subsequence_models), 2)
         self.assertEqual(psd._subsequence_lengths[0], mid)
@@ -658,7 +501,6 @@ class TestEstimateAccuracyRate(unittest.TestCase):
             df,
             changepoints=cls.changepoints,
             is_changepoint_removal=False,
-            min_segment_length=10,
             model_name="test_piecewise",
         )
         cls.psd.fit()
@@ -678,7 +520,7 @@ class TestEstimateAccuracyRate(unittest.TestCase):
             return
         df, cp1, cp2 = _make_piecewise_df(n_points=60)
         unfitted = PiecewiseSystemDiscovery(
-            df, changepoints=[cp1, cp2], is_changepoint_removal=False, min_segment_length=5)
+            df, changepoints=[cp1, cp2], is_changepoint_removal=False)
         with self.assertRaises(RuntimeError):
             unfitted._estimateAccuracyRate([cp1, cp2])
 
@@ -700,7 +542,7 @@ class TestEstimateAccuracyRate(unittest.TestCase):
             return
         df, _, _ = _make_piecewise_df(n_points=60)  # unpack into (df, cp1_idx, cp2_idx)
         psd_1cp = PiecewiseSystemDiscovery(
-            df, changepoints=[20], is_changepoint_removal=False, min_segment_length=5)
+            df, changepoints=[20], is_changepoint_removal=False)
         psd_1cp.fit()
         result = psd_1cp._estimateAccuracyRate(
             [20], num_random_changepoint=1, max_frac_frob_dist=0.01)
