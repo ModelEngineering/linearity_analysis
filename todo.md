@@ -7,6 +7,10 @@
    4. getChangepointsFromFile
       1. Preparation: file selects "model" from all PWPrediction files
       2. In PSD: create a DF of this file; check parameters to match prediction; return changepoints if match, else None.
+1. Analyze variability of the AUC, number changepoints, and accuracy relationship.
+2. Piecewise Network Discovery
+   1. _getChangepointsFromFile
+      1. Optionally specify a minimum accuracy (and so ignore max_fractional_reduction). Min num_changepoints subject to constraint on accuracy.
    
 # Plots
 
