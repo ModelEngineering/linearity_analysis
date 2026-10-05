@@ -25,6 +25,8 @@ from typing import cast
 
 PlotBiomodelsSignalResult = collections.namedtuple('PlotBiomodelsSignalResult',
         ['plot_options', 'piecewise_system_discovery', 'change_point_times'])
+ChangepointLookupResult = collections.namedtuple("ChangepointLookupResult",
+        ["changepoints", "accuracy"])
 
 
 class PiecewiseSystemDiscovery(object):
@@ -107,28 +109,61 @@ class PiecewiseSystemDiscovery(object):
             raise RuntimeError(
                     "PiecewiseSystemDiscovery must be fit() before this operation.")
 
-    def _getChangepointsFromFile(self, csv_path: str = cn.PIECEWISE_PREDICTIONS_MODEL_PATH
-            ) -> Optional[List[int]]:
+    def _parseChangepointsCell(self, raw: object) -> List[int]:
+        """Parse a single ``changepoints`` cell value into a list of ints.
+
+        Returns an empty list when the cell is NaN or an empty string. Raises
+        ``ValueError`` if the cell parses via :func:`ast.literal_eval` but does
+        not yield a ``list``, and returns ``None`` on any other parse failure
+        (used by callers to mean "skip this row").
+        """
+        if pd.isna(raw):
+            return []
+        text = str(raw).strip()
+        if not text:
+            return []
+        try:
+            parsed = ast.literal_eval(text)
+        except (ValueError, SyntaxError):
+            return None  # type: ignore[return-value] -- sentinel for "unparseable"
+
+        if not isinstance(parsed, list):
+            raise ValueError(
+                f"Unexpected changepoints type in CSV for {self.model_name}: "
+                f"{type(parsed).__name__}"
+            )
+        return [int(cp) for cp in parsed]
+
+    def _getChangepointsFromFile(
+            self, csv_path: str = cn.PIECEWISE_PREDICTIONS_MODEL_PATH,
+            accuracy_col: str = cn.COL_P50,
+    ) -> Optional[List[ChangepointLookupResult]]:
         """Look up pre-computed changepoints in ``data/piecewise_predictions_model.csv``.
 
-        Matches the CSV row whose ``(system_id, max_changepoint,
+        Matches every CSV row whose ``(system_id, max_changepoint,
         max_fractional_reduction)`` equals ``(self.model_name,
-        self.max_changepoint, self.max_fractional_reduction)`` and returns its
-        ``changepoints`` column parsed back into a list of ints.
+        self.max_changepoint, self.max_fractional_reduction)`` and returns
+        each matching row's ``changepoints`` column parsed back into a list
+        of ints. When multiple rows match, one inner list is returned per row,
+        in the order they appear in the CSV file.
 
         Arguments
         ---------
         csv_path : str
             Path to the CSV file containing pre-computed changepoints.
+        accuracy_col : str
+            Column name for the accuracy metric.
 
         Returns
         -------
-        list[int] or None
-            The changepoint indices for this configuration, or an empty list
-            when the matching row exists but carries no change points.  Returns
-            ``None`` only when (a) the CSV is missing, (b) no row matches the
-            three-key lookup, or (c) the ``changepoints`` cell on a matching row
-            could not be parsed as a list of ints.
+        list[ChangepointLookupResult] or None
+            A list of changepoint lists -- one per matching row -- when at
+            least one valid match is found.  An empty cell on a matching row
+            contributes an inner ``[]``.  Rows whose cell cannot be parsed via
+            :func:`ast.literal_eval` are silently skipped.  Returns ``None``
+            only when (a) the CSV is missing, (b) no row matches the
+            three-key lookup, or (c) every matching row has an unparseable
+            ``changepoints`` cell.
 
         Notes
         -----
@@ -147,26 +182,28 @@ class PiecewiseSystemDiscovery(object):
         if not mask.any():
             return None
 
-        raw = df.loc[mask, "changepoints"].iloc[0]
+        results: List[ChangepointLookupResult] = []
+        masked_df = df.loc[mask]
+        cp_series = masked_df[cn.COL_CHANGEPOINTS]
+        acc_series = masked_df[accuracy_col]
 
-        # Missing or empty cell on a matching row => no change points to apply.
-        if pd.isna(raw):
-            return []
-        text = str(raw).strip()
-        if not text:
-            return []
+        for i in range(len(masked_df)):
+            raw_cp = cp_series.iloc[i]
+            try:
+                parsed = self._parseChangepointsCell(raw_cp)
+            except (ValueError, TypeError):
+                # A cell that parses to a non-list type is treated the same as
+                # an unparseable row: silently skip it rather than failing the
+                # whole lookup.
+                continue
+            if parsed is None or pd.isna(acc_series.iloc[i]):
+                continue
+            results.append(ChangepointLookupResult(parsed, float(acc_series.iloc[i])))
 
-        try:
-            parsed = ast.literal_eval(text)
-        except (ValueError, SyntaxError):
-            return None
+        # Sort by descending accuracy so callers see the best configuration first.
+        results.sort(key=lambda r: r.accuracy, reverse=True)
 
-        if not isinstance(parsed, list):
-            raise ValueError(
-                f"Unexpected changepoints type in CSV for {self.model_name}: "
-                f"{type(parsed).__name__}"
-            )
-        return [int(cp) for cp in parsed]
+        return results if results else None
 
     def _fitSegments(self, changepoints: List[int]) -> Tuple[List[SystemDiscovery],
             List[Tuple[float, float]], List[int]]:

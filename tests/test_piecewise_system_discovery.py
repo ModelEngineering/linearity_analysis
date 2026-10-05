@@ -3,7 +3,8 @@
 import os  # type: ignore
 import unittest
 from unittest.mock import patch
-from typing import List, cast
+import tempfile  # type: ignore
+from typing import Dict, List, cast
 
 import matplotlib  # noqa: F401 -- non-interactive backend needed before pyplot
 matplotlib.use("Agg")
@@ -779,6 +780,494 @@ class TestIncrementalMergeConsistency(unittest.TestCase):
             trial_models[1], psd._subsequence_models[2],
             "Unchanged segment model must be the same object as in original fit")
 
+
+
+# ---------------------------------------------------------------------------
+# _getChangepointsFromFile tests
+# ---------------------------------------------------------------------------
+class TestGetChangepointsFromFile(unittest.TestCase):
+    """Tests for ``PiecewiseSystemDiscovery._getChangepointsFromFile``.
+
+    The function returns a list of :class:`ChangepointLookupResult` -- one per
+    matching CSV row -- sorted by descending accuracy (the value read from the
+    column named by ``accuracy_col``, defaulting to ``cn.COL_P50``).  Rows whose
+    ``changepoints`` cell cannot be parsed or whose accuracy cell is NaN are
+    silently skipped.
+    """
+
+    def _make_csv(self, path: str,
+                  rows: List[Dict[str, object]],
+                  include_accuracy_col: bool = True) -> None:
+        """Write a piecewise-predictions CSV with the standard columns.
+
+        When ``include_accuracy_col`` is True (the default), every row gets a
+        ``p50`` column set to ``1.0`` unless overridden in the per-row dict.
+        """
+        cols = [cn.COL_SYSTEM_ID, cn.COL_MAX_CHANGEPOINT,
+                cn.COL_MAX_FRACTIONAL_REDUCTION, "changepoints"]
+        if include_accuracy_col:
+            cols.append("p50")
+
+        enriched_rows: List[Dict[str, object]] = []
+        for row in rows:
+            r = dict(row)
+            if include_accuracy_col and "p50" not in r:
+                r["p50"] = 1.0
+            enriched_rows.append(r)
+
+        df = pd.DataFrame(enriched_rows, columns=cols)
+        df.to_csv(path, index=False)
+
+    # -- missing-file / no-match cases (unchanged) ------------------------------------
+
+    def test_returns_none_when_file_missing(self) -> None:
+        if IGNORE_TESTS:
+            return
+        df = _make_linear_df(n_points=100)
+        psd = PiecewiseSystemDiscovery(df, model_name="BIOMD0000009999", max_changepoint=3)
+        result = psd._getChangepointsFromFile("/tmp/definitely_does_not_exist_for_this_test.csv")
+        self.assertIsNone(result)
+
+    def test_returns_none_when_no_matching_row(self) -> None:
+        if IGNORE_TESTS:
+            return
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            path = f.name
+        try:
+            self._make_csv(path, [{
+                cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                cn.COL_MAX_CHANGEPOINT: 2,
+                cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                "changepoints": "[5, 10]",
+            }])
+            df = _make_linear_df(n_points=100)
+            psd = PiecewiseSystemDiscovery(
+                df, model_name="BIOMD0000009999", max_changepoint=2,
+                max_fractional_reduction=0.01,
+            )
+            self.assertIsNone(psd._getChangepointsFromFile(path))
+        finally:
+            os.remove(path)
+
+    def test_returns_none_when_max_changepoint_mismatch(self) -> None:
+        if IGNORE_TESTS:
+            return
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            path = f.name
+        try:
+            self._make_csv(path, [{
+                cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                cn.COL_MAX_CHANGEPOINT: 5,
+                cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                "changepoints": "[5, 10]",
+            }])
+            df = _make_linear_df(n_points=100)
+            psd = PiecewiseSystemDiscovery(
+                df, model_name="BIOMD0000000001", max_changepoint=2,
+                max_fractional_reduction=0.01,
+            )
+            self.assertIsNone(psd._getChangepointsFromFile(path))
+        finally:
+            os.remove(path)
+
+    def test_returns_none_when_max_fractional_reduction_mismatch(self) -> None:
+        if IGNORE_TESTS:
+            return
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            path = f.name
+        try:
+            self._make_csv(path, [{
+                cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                cn.COL_MAX_CHANGEPOINT: 2,
+                cn.COL_MAX_FRACTIONAL_REDUCTION: 0.5,
+                "changepoints": "[5]",
+            }])
+            df = _make_linear_df(n_points=100)
+            psd = PiecewiseSystemDiscovery(
+                df, model_name="BIOMD0000000001", max_changepoint=2,
+                max_fractional_reduction=0.01,
+            )
+            self.assertIsNone(psd._getChangepointsFromFile(path))
+        finally:
+            os.remove(path)
+
+    # -- single matching row (wrapped in outer list) ----------------------------------
+
+    def test_returns_single_valid_row_wrapped_in_outer_list(self) -> None:
+        if IGNORE_TESTS:
+            return
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            path = f.name
+        try:
+            self._make_csv(path, [{
+                cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                cn.COL_MAX_CHANGEPOINT: 2,
+                cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                "changepoints": "[5, 10, 15]",
+            }])
+            df = _make_linear_df(n_points=100)
+            psd = PiecewiseSystemDiscovery(
+                df, model_name="BIOMD0000000001", max_changepoint=2,
+                max_fractional_reduction=0.01,
+            )
+            result = psd._getChangepointsFromFile(path)
+            self.assertIsNotNone(result)
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0].changepoints, [5, 10, 15])
+        finally:
+            os.remove(path)
+
+    def test_returns_single_changepoint_wrapped_in_outer_list(self) -> None:
+        if IGNORE_TESTS:
+            return
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            path = f.name
+        try:
+            self._make_csv(path, [{
+                cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                cn.COL_MAX_CHANGEPOINT: 2,
+                cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                "changepoints": "[42]",
+            }])
+            df = _make_linear_df(n_points=100)
+            psd = PiecewiseSystemDiscovery(
+                df, model_name="BIOMD0000000001", max_changepoint=2,
+                max_fractional_reduction=0.01,
+            )
+            result = psd._getChangepointsFromFile(path)
+            self.assertIsNotNone(result)
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0].changepoints, [42])
+        finally:
+            os.remove(path)
+
+    def test_handles_whitespace_around_changepoint_string(self) -> None:
+        if IGNORE_TESTS:
+            return
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            path = f.name
+        try:
+            self._make_csv(path, [{
+                cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                cn.COL_MAX_CHANGEPOINT: 2,
+                cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                "changepoints": "  [3, 7]  ",
+            }])
+            df = _make_linear_df(n_points=100)
+            psd = PiecewiseSystemDiscovery(
+                df, model_name="BIOMD0000000001", max_changepoint=2,
+                max_fractional_reduction=0.01,
+            )
+            result = psd._getChangepointsFromFile(path)
+            self.assertIsNotNone(result)
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0].changepoints, [3, 7])
+        finally:
+            os.remove(path)
+
+    # -- empty / NaN cells on a matching row ------------------------------------------
+
+    def test_returns_empty_inner_list_when_changepoints_cell_is_nan(self) -> None:
+        if IGNORE_TESTS:
+            return
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            path = f.name
+        try:
+            self._make_csv(path, [{
+                cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                cn.COL_MAX_CHANGEPOINT: 2,
+                cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                "changepoints": float("nan"),
+            }])
+            df = _make_linear_df(n_points=100)
+            psd = PiecewiseSystemDiscovery(
+                df, model_name="BIOMD0000000001", max_changepoint=2,
+                max_fractional_reduction=0.01,
+            )
+            result = psd._getChangepointsFromFile(path)
+            self.assertIsNotNone(result)
+            self.assertEqual(len(result), 1)
+            # NaN changepoints contribute an empty list inside the ChangepointLookupResult.
+            self.assertEqual(result[0].changepoints, [])
+        finally:
+            os.remove(path)
+
+    def test_returns_empty_inner_list_when_changepoints_cell_is_empty_string(self) -> None:
+        if IGNORE_TESTS:
+            return
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            path = f.name
+        try:
+            self._make_csv(path, [{
+                cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                cn.COL_MAX_CHANGEPOINT: 2,
+                cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                "changepoints": "",
+            }])
+            df = _make_linear_df(n_points=100)
+            psd = PiecewiseSystemDiscovery(
+                df, model_name="BIOMD0000000001", max_changepoint=2,
+                max_fractional_reduction=0.01,
+            )
+            result = psd._getChangepointsFromFile(path)
+            self.assertIsNotNone(result)
+            self.assertEqual(len(result), 1)
+            # An empty changepoints cell contributes an empty list inside the
+            # ChangepointLookupResult.
+            self.assertEqual(result[0].changepoints, [])
+        finally:
+            os.remove(path)
+
+    # -- multiple matching rows (sorted by descending accuracy) -----------------------
+
+    def test_results_sorted_by_descending_accuracy(self) -> None:
+        """When several rows match, the returned list is ordered from highest to lowest p50."""
+        if IGNORE_TESTS:
+            return
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            path = f.name
+        try:
+            self._make_csv(path, [
+                {cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                 cn.COL_MAX_CHANGEPOINT: 2,
+                 cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                 "changepoints": "[9]", "p50": 0.3},
+                {cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                 cn.COL_MAX_CHANGEPOINT: 2,
+                 cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                 "changepoints": "[5]", "p50": 0.9},
+                {cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                 cn.COL_MAX_CHANGEPOINT: 2,
+                 cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                 "changepoints": "[7]", "p50": 0.6},
+            ])
+            df = _make_linear_df(n_points=100)
+            psd = PiecewiseSystemDiscovery(
+                df, model_name="BIOMD0000000001", max_changepoint=2,
+                max_fractional_reduction=0.01,
+            )
+            result = psd._getChangepointsFromFile(path)
+            # Each entry is a ChangepointLookupResult; verify order by changepoints.
+            self.assertEqual(len(result), 3)
+            self.assertEqual([r.changepoints for r in result], [[5], [7], [9]])
+            self.assertEqual([r.accuracy for r in result], [0.9, 0.6, 0.3])
+        finally:
+            os.remove(path)
+
+    def test_csv_with_different_accuracy_columns_per_row(self) -> None:
+        """Each matching row's accuracy should come from its own column value."""
+        if IGNORE_TESTS:
+            return
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            path = f.name
+        try:
+            self._make_csv(path, [
+                {cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                 cn.COL_MAX_CHANGEPOINT: 2,
+                 cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                 "changepoints": "[1]", "p50": 0.1},
+                {cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                 cn.COL_MAX_CHANGEPOINT: 2,
+                 cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                 "changepoints": "[2]", "p50": 0.8},
+            ])
+            df = _make_linear_df(n_points=100)
+            psd = PiecewiseSystemDiscovery(
+                df, model_name="BIOMD0000000001", max_changepoint=2,
+                max_fractional_reduction=0.01,
+            )
+            result = psd._getChangepointsFromFile(path)
+            self.assertEqual(len(result), 2)
+            # The row with p50=0.8 must come first (descending sort).
+            self.assertEqual(result[0].changepoints, [2])
+            self.assertAlmostEqual(result[0].accuracy, 0.8, places=4)
+        finally:
+            os.remove(path)
+
+    def test_skips_invalid_row_when_others_are_valid(self) -> None:
+        """A single malformed changepoints cell is silently skipped."""
+        if IGNORE_TESTS:
+            return
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            path = f.name
+        try:
+            self._make_csv(path, [
+                {
+                    cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                    cn.COL_MAX_CHANGEPOINT: 2,
+                    cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                    "changepoints": "{not valid python literal!!!",
+                },
+                {
+                    cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                    cn.COL_MAX_CHANGEPOINT: 2,
+                    cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                    "changepoints": "[7, 8]", "p50": 0.4,
+                },
+            ])
+            df = _make_linear_df(n_points=100)
+            psd = PiecewiseSystemDiscovery(
+                df, model_name="BIOMD0000000001", max_changepoint=2,
+                max_fractional_reduction=0.01,
+            )
+            result = psd._getChangepointsFromFile(path)
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0].changepoints, [7, 8])
+        finally:
+            os.remove(path)
+
+    def test_returns_none_when_all_rows_unparseable(self) -> None:
+        """When every matching row has an unparseable changepoints cell, return None."""
+        if IGNORE_TESTS:
+            return
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            path = f.name
+        try:
+            self._make_csv(path, [
+                {
+                    cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                    cn.COL_MAX_CHANGEPOINT: 2,
+                    cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                    "changepoints": "{broken!!!",
+                },
+                {
+                    cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                    cn.COL_MAX_CHANGEPOINT: 2,
+                    cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                    "changepoints": "{also broken!!!",
+                },
+            ])
+            df = _make_linear_df(n_points=100)
+            psd = PiecewiseSystemDiscovery(
+                df, model_name="BIOMD0000000001", max_changepoint=2,
+                max_fractional_reduction=0.01,
+            )
+            self.assertIsNone(psd._getChangepointsFromFile(path))
+        finally:
+            os.remove(path)
+
+    def test_returns_none_when_all_rows_parse_to_non_list(self) -> None:
+        """Cells that parse but produce a non-list (e.g. dict, string) are skipped."""
+        if IGNORE_TESTS:
+            return
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            path = f.name
+        try:
+            self._make_csv(path, [
+                {cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                 cn.COL_MAX_CHANGEPOINT: 2,
+                 cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                 "changepoints": "{'a': 1}",   # parses to dict
+                },
+                {cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                 cn.COL_MAX_CHANGEPOINT: 2,
+                 cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                 "changepoints": "'just a string'",   # parses to str
+                },
+            ])
+            df = _make_linear_df(n_points=100)
+            psd = PiecewiseSystemDiscovery(
+                df, model_name="BIOMD0000000001", max_changepoint=2,
+                max_fractional_reduction=0.01,
+            )
+            self.assertIsNone(psd._getChangepointsFromFile(path))
+        finally:
+            os.remove(path)
+
+    def test_mixed_nan_and_valid_rows(self) -> None:
+        """NaN changepoints become empty inner lists alongside valid parsed rows."""
+        if IGNORE_TESTS:
+            return
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            path = f.name
+        try:
+            self._make_csv(path, [
+                {
+                    cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                    cn.COL_MAX_CHANGEPOINT: 2,
+                    cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                    "changepoints": float("nan"),
+                },
+                {
+                    cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                    cn.COL_MAX_CHANGEPOINT: 2,
+                    cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                    "changepoints": "[9, 10]", "p50": 0.7,
+                },
+                {
+                    cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                    cn.COL_MAX_CHANGEPOINT: 2,
+                    cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                    "changepoints": "", "p50": 0.4,
+                },
+            ])
+            df = _make_linear_df(n_points=100)
+            psd = PiecewiseSystemDiscovery(
+                df, model_name="BIOMD0000000001", max_changepoint=2,
+                max_fractional_reduction=0.01,
+            )
+            result = psd._getChangepointsFromFile(path)
+            # Two empty changepoints (NaN + "") plus one valid row, all three
+            # rows kept because their p50 is non-NaN.
+            self.assertEqual(len(result), 3)
+            self.assertEqual([r.accuracy for r in result], [1.0, 0.7, 0.4])
+        finally:
+            os.remove(path)
+
+    def test_skips_row_with_nan_accuracy(self) -> None:
+        """A matching row whose accuracy cell is NaN contributes nothing to the result."""
+        if IGNORE_TESTS:
+            return
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            path = f.name
+        try:
+            self._make_csv(path, [
+                {cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                 cn.COL_MAX_CHANGEPOINT: 2,
+                 cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                 "changepoints": "[5]", "p50": float("nan")},
+                {cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                 cn.COL_MAX_CHANGEPOINT: 2,
+                 cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                 "changepoints": "[8]", "p50": 0.6},
+            ])
+            df = _make_linear_df(n_points=100)
+            psd = PiecewiseSystemDiscovery(
+                df, model_name="BIOMD0000000001", max_changepoint=2,
+                max_fractional_reduction=0.01,
+            )
+            result = psd._getChangepointsFromFile(path)
+            # The NaN-accuracy row is dropped; only the p50=0.6 entry remains.
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0].changepoints, [8])
+        finally:
+            os.remove(path)
+
+    def test_returns_none_when_every_matching_row_has_nan_accuracy(self) -> None:
+        """If every matching row has NaN accuracy, the result is None."""
+        if IGNORE_TESTS:
+            return
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            path = f.name
+        try:
+            self._make_csv(path, [
+                {cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                 cn.COL_MAX_CHANGEPOINT: 2,
+                 cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                 "changepoints": "[5]", "p50": float("nan")},
+                {cn.COL_SYSTEM_ID: "BIOMD0000000001",
+                 cn.COL_MAX_CHANGEPOINT: 2,
+                 cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                 "changepoints": "[8]", "p50": float("nan")},
+            ])
+            df = _make_linear_df(n_points=100)
+            psd = PiecewiseSystemDiscovery(
+                df, model_name="BIOMD0000000001", max_changepoint=2,
+                max_fractional_reduction=0.01,
+            )
+            self.assertIsNone(psd._getChangepointsFromFile(path))
+        finally:
+            os.remove(path)
 
 if __name__ == "__main__":
     unittest.main()
