@@ -51,6 +51,7 @@ class PiecewiseSystemDiscovery(object):
         model_name: str = "",
         changepoints: Optional[List[int]] = None,
         is_changepoint_removal: bool = True,
+        is_changepoints_from_file: bool = False,
         **sd_kwargs: Any,
     ) -> None:
         """Construct a piecewise-linear ODE discovery pipeline.
@@ -63,6 +64,7 @@ class PiecewiseSystemDiscovery(object):
             model_name (str, optional): Optional name tag used in plots and error messages. Defaults to "".
             changepoints (List[int], optional): List of pre-determined change points. Defaults to None.
             is_changepoint_removal (bool, optional): Whether to allow removal of detected change points. Defaults to True.
+            is_changepoints_from_file (bool, optional): Whether to load change points from a CSV file. Defaults to False.
             **sd_kwargs: Arguments forwarded to each per-segment ``SystemDiscovery`` constructor.
         """
         self.training_df = training_df
@@ -76,6 +78,7 @@ class PiecewiseSystemDiscovery(object):
         self._sd_kwargs = sd_kwargs
         self.changepoints = changepoints  # if None, will be determined during fit()a
         self._is_changepoint_removal = is_changepoint_removal
+        self._is_changepoints_from_file = is_changepoints_from_file
 
         self._subsequence_models: List[SystemDiscovery] = []
         self._subsequence_boundaries: List[Tuple[float, float]] = []
@@ -614,10 +617,15 @@ class PiecewiseSystemDiscovery(object):
         The baseline whole-timecourse model is built lazily on first access.
         """
         if self.changepoints is None:
-            if self._is_changepoint_removal:
-                self.changepoints = self._makeChangepointsWithElimination()
+            if self._is_changepoints_from_file:
+                changepoint_results = self._getChangepointsFromFile()
+                if len(changepoint_results) > 0:
+                    self.changepoints = changepoint_results[0].changepoints
             else:
-                self.changepoints = self._makeChangepointsWithoutElimination()
+                if self._is_changepoint_removal:
+                    self.changepoints = self._makeChangepointsWithElimination()
+                else:
+                    self.changepoints = self._makeChangepointsWithoutElimination()
         (self._subsequence_models, self._subsequence_boundaries,
         self._subsequence_lengths) = self._fitSegments(self.changepoints)
         self._is_fitted = True
