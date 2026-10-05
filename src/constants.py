@@ -23,6 +23,7 @@ PAPER_DIR = os.path.join(PROJECT_DIR, "paper")
 PLOT_DIR = os.path.join(PAPER_DIR, "plots")
 NOTEBOOK_DIR = os.path.join(PROJECT_DIR, "notebooks")
 CURATION_PATH = os.path.join(DATA_DIR, "curation.csv")
+PIECEWISE_PREDICTIONS_MODEL_PATH = os.path.join(DATA_DIR, "piecewise_predictions_model.csv")
 
 # Types
 TYPE_ROADRUNNER = "tellurium.roadrunner.extended_roadrunner.ExtendedRoadRunner"

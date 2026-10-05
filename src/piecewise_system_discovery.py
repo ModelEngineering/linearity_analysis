@@ -14,8 +14,7 @@ from src.system_discovery import SystemDiscovery, NULL_DF  # type: ignore
 
 import ast
 import collections
-from pathlib import Path
-import concurrent.futures  # noqa: E402 (used by parallel helpers below)
+import os
 from dataclasses import dataclass  # noqa: E402 (dataclass used by PiecewiseSystemDiscovery._ScoreSummary)
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
@@ -108,13 +107,19 @@ class PiecewiseSystemDiscovery(object):
             raise RuntimeError(
                     "PiecewiseSystemDiscovery must be fit() before this operation.")
 
-    def _getChangepointsFromFile(self) -> Optional[List[int]]:
+    def _getChangepointsFromFile(self, csv_path: str = cn.PIECEWISE_PREDICTIONS_MODEL_PATH
+            ) -> Optional[List[int]]:
         """Look up pre-computed changepoints in ``data/piecewise_predictions_model.csv``.
 
         Matches the CSV row whose ``(system_id, max_changepoint,
         max_fractional_reduction)`` equals ``(self.model_name,
         self.max_changepoint, self.max_fractional_reduction)`` and returns its
         ``changepoints`` column parsed back into a list of ints.
+
+        Arguments
+        ---------
+        csv_path : str
+            Path to the CSV file containing pre-computed changepoints.
 
         Returns
         -------
@@ -131,17 +136,13 @@ class PiecewiseSystemDiscovery(object):
         which holds values like ``"BIOMD0000000005"`` and is the only model
         identifier in that file.
         """
-        csv_path = (
-            Path(__file__).resolve().parent.parent / "data"
-            / "piecewise_predictions_model.csv"
-        )
-        if not csv_path.exists():
+        if os.path.exists(csv_path) is False:
             return None
 
         df = pd.read_csv(csv_path)
-        mask = (df["max_changepoint"] == self.max_changepoint) & \
-               (df["max_fractional_reduction"] == self.max_fractional_reduction) & \
-               (df["system_id"] == self.model_name)
+        mask = (df[cn.COL_MAX_CHANGEPOINT] == self.max_changepoint) & \
+                (df[cn.COL_MAX_FRACTIONAL_REDUCTION] == self.max_fractional_reduction) & \
+                (df[cn.COL_SYSTEM_ID] == self.model_name)
 
         if not mask.any():
             return None
