@@ -1086,5 +1086,113 @@ class TestGetChangepointsFromFile(unittest.TestCase):
         finally:
             os.remove(path)
 
+
+# ---------------------------------------------------------------------------
+# End-to-end BioModel 5 test with changepoints from file
+# ---------------------------------------------------------------------------
+
+
+@unittest.skipUnless(HAS_REAL_ZIP, "Real timecourse zip not found")
+class TestEndToEndBioModel5ChangepointsFromFile(unittest.TestCase):
+    """End-to-end test using real BioModel 5 with is_changepoints_from_file=True.
+    
+    Note: BioModel 5's changepoints in the piecewise_predictions_model.csv
+    have max_changepoint=5000, so we use that here.
+    """
+
+    def test_fit_with_changepoints_from_file(self) -> None:
+        """Verify that fit() succeeds when is_changepoints_from_file=True for BioModel 5."""
+        if IGNORE_TESTS or not HAS_REAL_ZIP:
+            return
+        # Get the BioModel 5 timecourse
+        item = next(iter(TimecourseIterator()))
+        if item.model_name != "BIOMD0000000005":
+            # Look for BIOMD0000000005 specifically
+            it = TimecourseIterator()
+            for item in it:
+                if item.model_name == "BIOMD0000000005":
+                    break
+        tc = item.timecourse
+        
+        # Create PiecewiseSystemDiscovery with changepoints from file
+        psd = PiecewiseSystemDiscovery(
+            tc.timecourse_df,
+            model_name="BIOMD0000000005",
+            max_changepoint=5000,
+            max_fractional_reduction=0.01,
+            is_changepoints_from_file=True,
+        )
+        
+        # Fit should succeed and load changepoints from file
+        result = psd.fit()
+        
+        # Verify that changepoints were loaded (more than just the default)
+        self.assertIsNotNone(psd.changepoints)
+        # With BioModel 5 having many timepoints, we expect multiple changepoints
+        self.assertGreater(len(psd.changepoints), 0)  # type: ignore
+        
+        # Verify that subsequence models were created
+        self.assertGreater(len(psd._subsequence_models), 1)
+        
+    def test_predict_with_changepoints_from_file(self) -> None:
+        """Verify that predict() works after fitting with changepoints from file."""
+        if IGNORE_TESTS or not HAS_REAL_ZIP:
+            return
+        # Get the BioModel 5 timecourse
+        item = next(iter(TimecourseIterator()))
+        if item.model_name != "BIOMD0000000005":
+            it = TimecourseIterator()
+            for item in it:
+                if item.model_name == "BIOMD0000000005":
+                    break
+        tc = item.timecourse
+        
+        # Create and fit PiecewiseSystemDiscovery with changepoints from file
+        psd = PiecewiseSystemDiscovery(
+            tc.timecourse_df,
+            model_name="BIOMD0000000005",
+            max_changepoint=5000,
+            max_fractional_reduction=0.01,
+            is_changepoints_from_file=True,
+        )
+        psd.fit()
+        
+        # Predict should work
+        pred_df = psd.predict(tc.timecourse_df)
+        
+        # Verify prediction shape matches input
+        self.assertEqual(pred_df.shape, tc.timecourse_df.shape)
+        
+    def test_score_with_changepoints_from_file(self) -> None:
+        """Verify that score() works after fitting with changepoints from file."""
+        if IGNORE_TESTS or not HAS_REAL_ZIP:
+            return
+        # Get the BioModel 5 timecourse
+        item = next(iter(TimecourseIterator()))
+        if item.model_name != "BIOMD0000000005":
+            it = TimecourseIterator()
+            for item in it:
+                if item.model_name == "BIOMD0000000005":
+                    break
+        tc = item.timecourse
+        
+        # Create and fit PiecewiseSystemDiscovery with changepoints from file
+        psd = PiecewiseSystemDiscovery(
+            tc.timecourse_df,
+            model_name="BIOMD0000000005",
+            max_changepoint=5000,
+            max_fractional_reduction=0.01,
+            is_changepoints_from_file=True,
+        )
+        psd.fit()
+        
+        # Score should work
+        score = psd.score(tc.timecourse_df)
+        
+        # Verify score is a valid float
+        self.assertIsInstance(score, float)
+        self.assertGreater(score, 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()
