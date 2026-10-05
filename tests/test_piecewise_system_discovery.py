@@ -77,7 +77,6 @@ class TestPiecewiseSystemDiscoveryConstructor(unittest.TestCase):
         psd = PiecewiseSystemDiscovery(df)
         self.assertEqual(psd.max_changepoint, 2)
         self.assertAlmostEqual(psd.max_fractional_reduction, 0.01)
-        self.assertEqual(psd.num_trail, 1)
         self.assertIsNone(psd.changepoints)
 
     def test_custom_parameters(self) -> None:
@@ -87,12 +86,11 @@ class TestPiecewiseSystemDiscoveryConstructor(unittest.TestCase):
         psd = PiecewiseSystemDiscovery(
             df, max_changepoint=3, max_fractional_reduction=0.2,
             model_name="my_model",
-            num_trail=5, changepoints=[10, 20],
+            changepoints=[10, 20],
         )
         self.assertEqual(psd.max_changepoint, 3)
         self.assertAlmostEqual(psd.max_fractional_reduction, 0.2)
         self.assertEqual(psd.model_name, "my_model")
-        self.assertEqual(psd.num_trail, 5)
         self.assertEqual(psd.changepoints, [10, 20])
 
     def test_not_fitted_initially(self) -> None:
@@ -126,20 +124,6 @@ class TestPiecewiseSystemDiscoveryConstructor(unittest.TestCase):
         psd = PiecewiseSystemDiscovery(df, poly_degree=2)
         self.assertEqual(psd._sd_kwargs.get("poly_degree"), 2)
 
-    def test_is_random_changepoints_default_false(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=50)
-        psd = PiecewiseSystemDiscovery(df)
-        self.assertFalse(psd.is_random_changepoints)
-
-    def test_is_random_changepoints_explicit_true(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=50)
-        psd = PiecewiseSystemDiscovery(df, is_random_changepoints=True)
-        self.assertTrue(psd._is_random_changepoints)
-
 
 # ---------------------------------------------------------------------------
 # fit() tests
@@ -166,14 +150,6 @@ class TestFit(unittest.TestCase):
         psd.fit()
         self.assertEqual(psd._subsequence_lengths[0], 40)
         self.assertEqual(psd._subsequence_lengths[1], 60)
-
-    def test_fit_with_random_changepoints(self) -> None:
-        if IGNORE_TESTS:
-            return
-        df = _make_linear_df(n_points=200, noise_std=0.05)
-        psd = PiecewiseSystemDiscovery(df, num_trail=1)
-        psd.fit()
-        self.assertTrue(psd._is_fitted)
 
 
 # ---------------------------------------------------------------------------
@@ -331,7 +307,6 @@ class TestEndToEndBioModels548(unittest.TestCase):
             max_changepoint=2,
             poly_degree=1,
             coefficient_threshold=0.01,
-            num_trail=1,
             model_name=BIOMODEL_548,
         )
         defaults.update(overrides)
@@ -525,157 +500,10 @@ class TestEstimateAccuracyRate(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             unfitted._estimateAccuracyRate([cp1, cp2])
 
-    def test_no_candidates_passes_threshold_returns_nan_result(self):
-        """When no changepoint has a small enough Frobenius distance, return EstimatorResult with NaN."""
-        if IGNORE_TESTS:
-            return
-        # Distinct Jacobians → all normalized diffs >> 0.01 → idx_arr empty → early-return guard.
-        result = self.psd._estimateAccuracyRate(
-            self.changepoints, num_random_changepoint=999, max_frac_frob_dist=0.01)
-        self.assertIsInstance(result, PiecewiseSystemDiscovery.EstimatorResult)
-        self.assertEqual(result.accuracy_rate, 0)
-        self.assertTrue(np.isnan(result.total_frob_dist))
-        self.assertTrue(np.isnan(result.delta_accuracy))
-
-    def test_one_changepoint_no_candidates_passes_threshold_returns_nan_result(self):
-        """1-changepoint PSD where the Jacobian transition is large → idx_arr empty."""
-        if IGNORE_TESTS:
-            return
-        df, _, _ = _make_piecewise_df(n_points=60)  # unpack into (df, cp1_idx, cp2_idx)
-        psd_1cp = PiecewiseSystemDiscovery(
-            df, changepoints=[20], is_changepoint_removal=False)
-        psd_1cp.fit()
-        result = psd_1cp._estimateAccuracyRate(
-            [20], num_random_changepoint=1, max_frac_frob_dist=0.01)
-        self.assertIsInstance(result, PiecewiseSystemDiscovery.EstimatorResult)
-        self.assertEqual(result.accuracy_rate, 0)
-        self.assertTrue(np.isnan(result.total_frob_dist))
-        self.assertTrue(np.isnan(result.delta_accuracy))
-
-    def test_zero_frob_diff_no_candidates_passes_threshold_returns_nan_result(self):
-        """Mocked zero Frobenius diffs → normalized to 0.5 each → above threshold → early return."""
-        if IGNORE_TESTS:
-            return
-        with patch.object(self.psd, '_makeFrobeniusDistances', return_value=[0.0, 0.0]):
-            result = self.psd._estimateAccuracyRate(
-                self.changepoints, num_random_changepoint=1, max_frac_frob_dist=0.01)
-        self.assertIsInstance(result, PiecewiseSystemDiscovery.EstimatorResult)
-        self.assertEqual(result.accuracy_rate, 0)
-        self.assertTrue(np.isnan(result.total_frob_dist))
-        self.assertTrue(np.isnan(result.delta_accuracy))
-
-    # ------------------------------------------------------------------
-    # Return-value type and structure
-    # ------------------------------------------------------------------
-
-    def test_num_random_changepoint_zero_raises_value_error(self):
-        """With num_random_changepoint=0 the removed set is empty → total_frob_dist = 0."""
-        if IGNORE_TESTS:
-            return
-        with self.assertRaises(ValueError) as ctx:
-            self.psd._estimateAccuracyRate(
-                self.changepoints, num_random_changepoint=0, max_frac_frob_dist=1.0)
-        self.assertIn("zero", str(ctx.exception).lower())
-
-    def test_returns_estimator_result_namedtuple(self):
-        if IGNORE_TESTS:
-            return
-        np.random.seed(0)
-        result = self.psd._estimateAccuracyRate(
-            self.changepoints, num_random_changepoint=1, max_frac_frob_dist=1.0)
-        self.assertIsInstance(result, PiecewiseSystemDiscovery.EstimatorResult)
-
-    def test_result_fields_are_python_floats(self):
-        if IGNORE_TESTS:
-            return
-        np.random.seed(0)
-        result = self.psd._estimateAccuracyRate(
-            self.changepoints, num_random_changepoint=1, max_frac_frob_dist=1.0)
-        self.assertIsInstance(result.accuracy_rate, (int, float))
-        self.assertIsInstance(result.total_frob_dist, (int, float))
-        self.assertIsInstance(result.delta_accuracy, (int, float))
-
-    def test_result_fields_are_finite(self):
-        if IGNORE_TESTS:
-            return
-        np.random.seed(0)
-        result = self.psd._estimateAccuracyRate(
-            self.changepoints, num_random_changepoint=1, max_frac_frob_dist=1.0)
-        self.assertTrue(np.isfinite(result.accuracy_rate))
-        self.assertTrue(np.isfinite(result.total_frob_dist))
-        self.assertTrue(np.isfinite(result.delta_accuracy))
-
-    def test_total_frob_dist_is_positive(self):
-        if IGNORE_TESTS:
-            return
-        np.random.seed(0)
-        result = self.psd._estimateAccuracyRate(
-            self.changepoints, num_random_changepoint=1, max_frac_frob_dist=1.0)
-        self.assertGreater(result.total_frob_dist, 0.0)
-
-    def test_delta_accuracy_equals_rate_times_frob_diff(self):
-        """accuracy_rate * total_frob_dist == delta_accuracy is an exact arithmetic identity."""
-        if IGNORE_TESTS:
-            return
-        np.random.seed(0)
-        result = self.psd._estimateAccuracyRate(
-            self.changepoints, num_random_changepoint=1, max_frac_frob_dist=1.0)
-        self.assertAlmostEqual(
-            result.delta_accuracy,
-            result.accuracy_rate * result.total_frob_dist,
-            places=10,
-        )
 
     # ------------------------------------------------------------------
     # Algorithmic / behavioral correctness
     # ------------------------------------------------------------------
-
-    def test_num_random_changepoint_one_total_frob_dist_less_than_full_sum(self):
-        """Removing 1 of 2 changepoints → total_frob_dist strictly less than sum of both diffs."""
-        if IGNORE_TESTS:
-            return
-        all_diffs = self.psd._makeFrobeniusDistances()
-        np.random.seed(42)
-        result = self.psd._estimateAccuracyRate(
-            self.changepoints, num_random_changepoint=1, max_frac_frob_dist=1.0)
-        self.assertGreater(result.total_frob_dist, 0.0)
-        self.assertLess(result.total_frob_dist, sum(all_diffs))
-
-    def test_total_frob_dist_equals_one_of_the_two_element_diffs(self):
-        """With 2 changepoints and num_random=1, total equals exactly one element of normalized frob_diff_arr.
-
-        The function normalizes the raw Frobenius differences by their sum before picking a
-        candidate to remove, so ``total_frob_dist`` must match one of the *normalized* diffs.
-        This is also a regression guard for Bug 3 (positional vs time-series indexing).
-        """
-        if IGNORE_TESTS:
-            return
-        raw_diffs = self.psd._makeFrobeniusDistances()
-        total_raw = sum(raw_diffs)
-        norm_diffs = [d / total_raw for d in raw_diffs]
-        np.random.seed(42)
-        result = self.psd._estimateAccuracyRate(
-            self.changepoints, num_random_changepoint=1, max_frac_frob_dist=1.0)
-        matches_first = abs(result.total_frob_dist - norm_diffs[0]) < 1e-10
-        matches_second = abs(result.total_frob_dist - norm_diffs[1]) < 1e-10
-        self.assertTrue(
-            matches_first or matches_second,
-            f"total_frob_dist {result.total_frob_dist} should equal one of {norm_diffs}",
-        )
-
-    def test_self_state_unchanged_after_call(self):
-        """_estimateAccuracyRate must not mutate the fitted PSD's state."""
-        if IGNORE_TESTS:
-            return
-        n_models_before = len(self.psd._subsequence_models)
-        changepoints_before = list(cast(List[int], self.psd.changepoints))
-        is_fitted_before = self.psd._is_fitted
-        np.random.seed(0)
-        self.psd._estimateAccuracyRate(
-            self.changepoints, num_random_changepoint=1, max_frac_frob_dist=1.0)
-        self.assertEqual(len(self.psd._subsequence_models), n_models_before)
-        self.assertEqual(self.psd.changepoints, changepoints_before)
-        self.assertEqual(self.psd._is_fitted, is_fitted_before)
 
 
 class TestIncrementalMergeConsistency(unittest.TestCase):
@@ -826,7 +654,7 @@ class TestGetChangepointsFromFile(unittest.TestCase):
         df = _make_linear_df(n_points=100)
         psd = PiecewiseSystemDiscovery(df, model_name="BIOMD0000009999", max_changepoint=3)
         result = psd._getChangepointsFromFile("/tmp/definitely_does_not_exist_for_this_test.csv")
-        self.assertIsNone(result)
+        self.assertEqual(len(result), 0)
 
     def test_returns_none_when_no_matching_row(self) -> None:
         if IGNORE_TESTS:
@@ -845,7 +673,7 @@ class TestGetChangepointsFromFile(unittest.TestCase):
                 df, model_name="BIOMD0000009999", max_changepoint=2,
                 max_fractional_reduction=0.01,
             )
-            self.assertIsNone(psd._getChangepointsFromFile(path))
+            self.assertEqual(len(psd._getChangepointsFromFile(path)), 0)
         finally:
             os.remove(path)
 
@@ -866,7 +694,7 @@ class TestGetChangepointsFromFile(unittest.TestCase):
                 df, model_name="BIOMD0000000001", max_changepoint=2,
                 max_fractional_reduction=0.01,
             )
-            self.assertIsNone(psd._getChangepointsFromFile(path))
+            self.assertEqual(len(psd._getChangepointsFromFile(path)), 0)
         finally:
             os.remove(path)
 
@@ -887,7 +715,7 @@ class TestGetChangepointsFromFile(unittest.TestCase):
                 df, model_name="BIOMD0000000001", max_changepoint=2,
                 max_fractional_reduction=0.01,
             )
-            self.assertIsNone(psd._getChangepointsFromFile(path))
+            self.assertEqual(len(psd._getChangepointsFromFile(path)), 0)
         finally:
             os.remove(path)
 
@@ -935,7 +763,6 @@ class TestGetChangepointsFromFile(unittest.TestCase):
                 max_fractional_reduction=0.01,
             )
             result = psd._getChangepointsFromFile(path)
-            self.assertIsNotNone(result)
             self.assertEqual(len(result), 1)
             self.assertEqual(result[0].changepoints, [42])
         finally:
@@ -967,7 +794,7 @@ class TestGetChangepointsFromFile(unittest.TestCase):
 
     # -- empty / NaN cells on a matching row ------------------------------------------
 
-    def test_returns_empty_inner_list_when_changepoints_cell_is_nan(self) -> None:
+    def test_exception_when_inner_list_when_changepoints_cell_is_nan(self) -> None:
         if IGNORE_TESTS:
             return
         with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
@@ -984,11 +811,8 @@ class TestGetChangepointsFromFile(unittest.TestCase):
                 df, model_name="BIOMD0000000001", max_changepoint=2,
                 max_fractional_reduction=0.01,
             )
-            result = psd._getChangepointsFromFile(path)
-            self.assertIsNotNone(result)
-            self.assertEqual(len(result), 1)
-            # NaN changepoints contribute an empty list inside the ChangepointLookupResult.
-            self.assertEqual(result[0].changepoints, [])
+            with self.assertRaises(ValueError):
+                _ = psd._getChangepointsFromFile(path)
         finally:
             os.remove(path)
 
@@ -1009,12 +833,8 @@ class TestGetChangepointsFromFile(unittest.TestCase):
                 df, model_name="BIOMD0000000001", max_changepoint=2,
                 max_fractional_reduction=0.01,
             )
-            result = psd._getChangepointsFromFile(path)
-            self.assertIsNotNone(result)
-            self.assertEqual(len(result), 1)
-            # An empty changepoints cell contributes an empty list inside the
-            # ChangepointLookupResult.
-            self.assertEqual(result[0].changepoints, [])
+            with self.assertRaises(ValueError):
+                _ = psd._getChangepointsFromFile(path)
         finally:
             os.remove(path)
 
@@ -1084,7 +904,7 @@ class TestGetChangepointsFromFile(unittest.TestCase):
         finally:
             os.remove(path)
 
-    def test_skips_invalid_row_when_others_are_valid(self) -> None:
+    def test_exception_if_invalid_row(self) -> None:
         """A single malformed changepoints cell is silently skipped."""
         if IGNORE_TESTS:
             return
@@ -1110,13 +930,12 @@ class TestGetChangepointsFromFile(unittest.TestCase):
                 df, model_name="BIOMD0000000001", max_changepoint=2,
                 max_fractional_reduction=0.01,
             )
-            result = psd._getChangepointsFromFile(path)
-            self.assertEqual(len(result), 1)
-            self.assertEqual(result[0].changepoints, [7, 8])
+            with self.assertRaises(ValueError):
+                _ = psd._getChangepointsFromFile(path)
         finally:
             os.remove(path)
 
-    def test_returns_none_when_all_rows_unparseable(self) -> None:
+    def test_returns_exception_when_all_rows_unparseable(self) -> None:
         """When every matching row has an unparseable changepoints cell, return None."""
         if IGNORE_TESTS:
             return
@@ -1142,11 +961,12 @@ class TestGetChangepointsFromFile(unittest.TestCase):
                 df, model_name="BIOMD0000000001", max_changepoint=2,
                 max_fractional_reduction=0.01,
             )
-            self.assertIsNone(psd._getChangepointsFromFile(path))
+            with self.assertRaises(ValueError):
+                _ = psd._getChangepointsFromFile(path)
         finally:
             os.remove(path)
 
-    def test_returns_none_when_all_rows_parse_to_non_list(self) -> None:
+    def test_exception_when_all_rows_parse_to_non_list(self) -> None:
         """Cells that parse but produce a non-list (e.g. dict, string) are skipped."""
         if IGNORE_TESTS:
             return
@@ -1170,7 +990,8 @@ class TestGetChangepointsFromFile(unittest.TestCase):
                 df, model_name="BIOMD0000000001", max_changepoint=2,
                 max_fractional_reduction=0.01,
             )
-            self.assertIsNone(psd._getChangepointsFromFile(path))
+            with self.assertRaises(ValueError):
+                _ = psd._getChangepointsFromFile(path)
         finally:
             os.remove(path)
 
@@ -1206,15 +1027,12 @@ class TestGetChangepointsFromFile(unittest.TestCase):
                 df, model_name="BIOMD0000000001", max_changepoint=2,
                 max_fractional_reduction=0.01,
             )
-            result = psd._getChangepointsFromFile(path)
-            # Two empty changepoints (NaN + "") plus one valid row, all three
-            # rows kept because their p50 is non-NaN.
-            self.assertEqual(len(result), 3)
-            self.assertEqual([r.accuracy for r in result], [1.0, 0.7, 0.4])
+            with self.assertRaises(ValueError):
+                _ = psd._getChangepointsFromFile(path)
         finally:
             os.remove(path)
 
-    def test_skips_row_with_nan_accuracy(self) -> None:
+    def test_exception_if_row_with_nan_accuracy(self) -> None:
         """A matching row whose accuracy cell is NaN contributes nothing to the result."""
         if IGNORE_TESTS:
             return
@@ -1223,27 +1041,25 @@ class TestGetChangepointsFromFile(unittest.TestCase):
         try:
             self._make_csv(path, [
                 {cn.COL_SYSTEM_ID: "BIOMD0000000001",
-                 cn.COL_MAX_CHANGEPOINT: 2,
-                 cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
-                 "changepoints": "[5]", "p50": float("nan")},
+                cn.COL_MAX_CHANGEPOINT: 2,
+                cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                "changepoints": "[5]", "p50": float("nan")},
                 {cn.COL_SYSTEM_ID: "BIOMD0000000001",
-                 cn.COL_MAX_CHANGEPOINT: 2,
-                 cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
-                 "changepoints": "[8]", "p50": 0.6},
+                cn.COL_MAX_CHANGEPOINT: 2,
+                cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                "changepoints": "[8]", "p50": 0.6},
             ])
             df = _make_linear_df(n_points=100)
             psd = PiecewiseSystemDiscovery(
                 df, model_name="BIOMD0000000001", max_changepoint=2,
                 max_fractional_reduction=0.01,
             )
-            result = psd._getChangepointsFromFile(path)
-            # The NaN-accuracy row is dropped; only the p50=0.6 entry remains.
-            self.assertEqual(len(result), 1)
-            self.assertEqual(result[0].changepoints, [8])
+            with self.assertRaises(ValueError):
+                _ = psd._getChangepointsFromFile(path)
         finally:
             os.remove(path)
 
-    def test_returns_none_when_every_matching_row_has_nan_accuracy(self) -> None:
+    def test_exception_when_every_matching_row_has_nan_accuracy(self) -> None:
         """If every matching row has NaN accuracy, the result is None."""
         if IGNORE_TESTS:
             return
@@ -1252,20 +1068,21 @@ class TestGetChangepointsFromFile(unittest.TestCase):
         try:
             self._make_csv(path, [
                 {cn.COL_SYSTEM_ID: "BIOMD0000000001",
-                 cn.COL_MAX_CHANGEPOINT: 2,
-                 cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
-                 "changepoints": "[5]", "p50": float("nan")},
+                cn.COL_MAX_CHANGEPOINT: 2,
+                cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                "changepoints": "[5]", "p50": float("nan")},
                 {cn.COL_SYSTEM_ID: "BIOMD0000000001",
-                 cn.COL_MAX_CHANGEPOINT: 2,
-                 cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
-                 "changepoints": "[8]", "p50": float("nan")},
+                cn.COL_MAX_CHANGEPOINT: 2,
+                cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                "changepoints": "[8]", "p50": float("nan")},
             ])
             df = _make_linear_df(n_points=100)
             psd = PiecewiseSystemDiscovery(
                 df, model_name="BIOMD0000000001", max_changepoint=2,
                 max_fractional_reduction=0.01,
             )
-            self.assertIsNone(psd._getChangepointsFromFile(path))
+            with self.assertRaises(ValueError):
+                _ = psd._getChangepointsFromFile(path)
         finally:
             os.remove(path)
 

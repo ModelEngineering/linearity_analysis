@@ -26,7 +26,7 @@ from typing import cast
 PlotBiomodelsSignalResult = collections.namedtuple('PlotBiomodelsSignalResult',
         ['plot_options', 'piecewise_system_discovery', 'change_point_times'])
 ChangepointLookupResult = collections.namedtuple("ChangepointLookupResult",
-        ["changepoints", "accuracy"])
+        ["changepoints", "accuracy", "csv_path"])
 
 
 class PiecewiseSystemDiscovery(object):
@@ -49,10 +49,8 @@ class PiecewiseSystemDiscovery(object):
         max_changepoint: int = 2,
         max_fractional_reduction: float = 0.01,  
         model_name: str = "",
-        num_trail: int = 1,
         changepoints: Optional[List[int]] = None,
         is_changepoint_removal: bool = True,
-        is_random_changepoints: bool = False,
         **sd_kwargs: Any,
     ) -> None:
         """Construct a piecewise-linear ODE discovery pipeline.
@@ -63,8 +61,6 @@ class PiecewiseSystemDiscovery(object):
                 Can be adjusted so that there is enough data per segment.
             max_fractional_reduction (float, optional): Maximum fractional reduction in the sum of squared errors required to accept a new change point. Defaults to 0.01.
             model_name (str, optional): Optional name tag used in plots and error messages. Defaults to "".
-            num_trail (int, optional): Number of random changepoint trials.
-                Only used if is_random_changepoints is True.
             changepoints (List[int], optional): List of pre-determined change points. Defaults to None.
             is_changepoint_removal (bool, optional): Whether to allow removal of detected change points. Defaults to True.
             **sd_kwargs: Arguments forwarded to each per-segment ``SystemDiscovery`` constructor.
@@ -76,12 +72,9 @@ class PiecewiseSystemDiscovery(object):
         self.model_name = model_name
         self.max_changepoint = max_changepoint
         self.max_fractional_reduction = max_fractional_reduction
-        self.is_random_changepoints = sd_kwargs.pop("is_random_changepoints", False)
-        self.num_trail = num_trail
         sd_kwargs["poly_degree"] = sd_kwargs.get("poly_degree", 1)
         self._sd_kwargs = sd_kwargs
         self.changepoints = changepoints  # if None, will be determined during fit()a
-        self._is_random_changepoints = is_random_changepoints
         self._is_changepoint_removal = is_changepoint_removal
 
         self._subsequence_models: List[SystemDiscovery] = []
@@ -109,7 +102,7 @@ class PiecewiseSystemDiscovery(object):
             raise RuntimeError(
                     "PiecewiseSystemDiscovery must be fit() before this operation.")
 
-    def _parseChangepointsCell(self, raw: object) -> List[int]:
+    def _parseChangepointsCell(self, raw: object) -> Optional[List[int]]:
         """Parse a single ``changepoints`` cell value into a list of ints.
 
         Returns an empty list when the cell is NaN or an empty string. Raises
@@ -117,15 +110,15 @@ class PiecewiseSystemDiscovery(object):
         not yield a ``list``, and returns ``None`` on any other parse failure
         (used by callers to mean "skip this row").
         """
-        if pd.isna(raw):
-            return []
+        if not isinstance(raw, (str, list)):
+            raise ValueError(f"Unexpected changepoints type in CSV for {self.model_name}: {type(raw).__name__}")
         text = str(raw).strip()
         if not text:
-            return []
+            raise ValueError("Changepoints cell is empty; cannot parse.")
         try:
             parsed = ast.literal_eval(text)
         except (ValueError, SyntaxError):
-            return None  # type: ignore[return-value] -- sentinel for "unparseable"
+            raise ValueError(f"Invalid changepoints format in CSV for {self.model_name}: {text}")
 
         if not isinstance(parsed, list):
             raise ValueError(
@@ -137,7 +130,7 @@ class PiecewiseSystemDiscovery(object):
     def _getChangepointsFromFile(
             self, csv_path: str = cn.PIECEWISE_PREDICTIONS_MODEL_PATH,
             accuracy_col: str = cn.COL_P50,
-    ) -> Optional[List[ChangepointLookupResult]]:
+    ) -> List[ChangepointLookupResult]:
         """Look up pre-computed changepoints in ``data/piecewise_predictions_model.csv``.
 
         Matches every CSV row whose ``(system_id, max_changepoint,
@@ -156,11 +149,11 @@ class PiecewiseSystemDiscovery(object):
 
         Returns
         -------
-        list[ChangepointLookupResult] or None
+        list[ChangepointLookupResult]
             A list of changepoint lists -- one per matching row -- when at
             least one valid match is found.  An empty cell on a matching row
             contributes an inner ``[]``.  Rows whose cell cannot be parsed via
-            :func:`ast.literal_eval` are silently skipped.  Returns ``None``
+            :func:`ast.literal_eval` are silently skipped.  Returns []
             only when (a) the CSV is missing, (b) no row matches the
             three-key lookup, or (c) every matching row has an unparseable
             ``changepoints`` cell.
@@ -172,7 +165,7 @@ class PiecewiseSystemDiscovery(object):
         identifier in that file.
         """
         if os.path.exists(csv_path) is False:
-            return None
+            return []
 
         df = pd.read_csv(csv_path)
         mask = (df[cn.COL_MAX_CHANGEPOINT] == self.max_changepoint) & \
@@ -180,7 +173,7 @@ class PiecewiseSystemDiscovery(object):
                 (df[cn.COL_SYSTEM_ID] == self.model_name)
 
         if not mask.any():
-            return None
+            return []
 
         results: List[ChangepointLookupResult] = []
         masked_df = df.loc[mask]
@@ -189,21 +182,16 @@ class PiecewiseSystemDiscovery(object):
 
         for i in range(len(masked_df)):
             raw_cp = cp_series.iloc[i]
-            try:
-                parsed = self._parseChangepointsCell(raw_cp)
-            except (ValueError, TypeError):
-                # A cell that parses to a non-list type is treated the same as
-                # an unparseable row: silently skip it rather than failing the
-                # whole lookup.
-                continue
-            if parsed is None or pd.isna(acc_series.iloc[i]):
-                continue
-            results.append(ChangepointLookupResult(parsed, float(acc_series.iloc[i])))
+            parsed = self._parseChangepointsCell(raw_cp)
+            accuracy = float(acc_series.iloc[i])
+            if np.isnan(accuracy):
+                raise ValueError(f"NaN accuracy in CSV for {self.model_name} at row {i}")
+            results.append(ChangepointLookupResult(parsed, accuracy, csv_path=csv_path))
 
         # Sort by descending accuracy so callers see the best configuration first.
         results.sort(key=lambda r: r.accuracy, reverse=True)
 
-        return results if results else None
+        return results
 
     def _fitSegments(self, changepoints: List[int]) -> Tuple[List[SystemDiscovery],
             List[Tuple[float, float]], List[int]]:
@@ -496,13 +484,13 @@ class PiecewiseSystemDiscovery(object):
             self,
             changepoints: List[int],
             statistic: str = "min", col: str = cn.COL_P10,
-            num_random_changepoint: int =10,
+            num_estimation_changepoint: int =10,
             max_frac_frob_dist: float = 0.1) -> EstimatorResult:
         """Estimate the accuracy_rate, the reduction in accuracy per Frobenius Jacobian difference.
 
         The estimate is constructed as follows:
             1. Compute Frobenius distances D between consecutive segment Jacobians. 
-            2. Create a trial piecewise system discovery by randomly removing num_random_changepoint
+            2. Create a trial piecewise system discovery by randomly removing num_estimation_changepoint
                 that have a small difference in the fractional Frobenius distance.
             3. Calculate the total_frob_dist for the selected changepoints.
             4. Calculate baseline_score and trail_score from the 
@@ -517,7 +505,7 @@ class PiecewiseSystemDiscovery(object):
             Statistic for scoring: ``'min'``, ``'median'`` or ``'mean'``.  Defaults to ``"min"``.
         col : str
             Score column name, e.g., ``cn.COL_P10`` (default).
-        num_random_changepoint: int
+        num_estimation_changepoint: int
             Number of changepoints used to estimate accuracy rate
         max_frac_frob_dist: float
             Maximum fractional Frobenius distance between the Jacobians of
@@ -566,7 +554,7 @@ class PiecewiseSystemDiscovery(object):
         # Compute baseline (piecewise) score across all segments.
         base_score = float(self.score(col=col, statistic=statistic))
 
-        # Randomly select which changepoints to KEEP in the trial (positional indices).
+        # Randomly select which changepoints to use in estimation (positional indices).
         # The removed changepoints are the complement: those present in self but absent in trial_psd.
         all_idx_arr = np.random.permutation(len(changepoint_arr))
         sorted_frob_dist_arr = frob_dist_arr[all_idx_arr]
@@ -581,7 +569,7 @@ class PiecewiseSystemDiscovery(object):
                 num_candidate=-1,
                 remove_idx_arr=[],
                 frob_dist_arr=frob_dist_arr)
-        num_candidate = min(len(all_remove_idx_arr), num_random_changepoint)
+        num_candidate = min(len(all_remove_idx_arr), num_estimation_changepoint)
         remove_idx_arr = all_remove_idx_arr[:num_candidate]
         # Build trial segment list via incremental merge of adjacent segments 
         # around removed changeppoints. Only re-fits merged segments; unchanged 
@@ -626,17 +614,10 @@ class PiecewiseSystemDiscovery(object):
         The baseline whole-timecourse model is built lazily on first access.
         """
         if self.changepoints is None:
-            if self._is_random_changepoints:
-                raise ValueError(
-                    "Random changepoints requested, but no changepoints provided. "
-                    "Set is_random_changepoints=False or provide a list of changepoints."
-                )
+            if self._is_changepoint_removal:
+                self.changepoints = self._makeChangepointsWithElimination()
             else:
-                if self._is_changepoint_removal:
-                    self.changepoints = self._makeChangepointsWithElimination()
-                else:
-                    self.changepoints = self._makeChangepointsWithoutElimination()
-                #self.changepoints = self._makeChangepointsWithEliminationParallel()
+                self.changepoints = self._makeChangepointsWithoutElimination()
         (self._subsequence_models, self._subsequence_boundaries,
         self._subsequence_lengths) = self._fitSegments(self.changepoints)
         self._is_fitted = True

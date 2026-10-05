@@ -48,6 +48,7 @@ COL_AGGREGATION_TYPE_MODEL = "model"
 COL_BOUNDARIES = "boundaries"  # List of segment boundaries calculated from the changepoints.
 COL_CHANGEPOINTS = "changepoints"  # List of detected change points.
 COL_COUNT = "count"  # Number of valid values used in calculating the statistics.
+COL_CSV_FILE = "csv_file"  # Name of the CSV file containing the row of statistics.
 COL_ENDTIME = "endtime"
 COL_FREQUENCIES = "frequencies"  # List of detected oscillation frequencies in Hz.
 COL_IS_CHANGEPONT_REMOVAL = "is_changepoint_removal"  # Whether change points that do not significantly improve the model were removed.
