@@ -627,7 +627,7 @@ class PiecewiseSystemDiscovery(object):
                 else:
                     self.changepoints = self._makeChangepointsWithoutElimination()
         (self._subsequence_models, self._subsequence_boundaries,
-        self._subsequence_lengths) = self._fitSegments(self.changepoints)
+        self._subsequence_lengths) = self._fitSegments(cast(List[int], self.changepoints))
         self._is_fitted = True
         return self
 
