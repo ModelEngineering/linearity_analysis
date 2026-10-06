@@ -1,15 +1,4 @@
-"""Assess PiecewiseSystemDiscovery accuracy across all BioModels.
-
-For each serialized Timecourse, fits a PiecewiseSystemDiscovery with
-NUM_CHANGE_POINT change points and records score() fields in a CSV.
-
-Usage:
-    source activate.sh
-    python scripts/analyze_piecewise_system_discovery.py [--num_change_point N]
-
-Output CSV: data/piecewise_system_discovery_scores-<N>.csv
-Columns: model_name, score_min, score_median, score_max, num_nonzero_term
-"""
+'''Assess PiecewiseSystemDiscovery for consistency of metrics.'''
 
 import argparse
 import os
@@ -21,22 +10,9 @@ import src.constants as cn
 from src.piecewise_system_discovery import PiecewiseSystemDiscovery
 from src.timecourse_iterator import TimecourseIterator
 
-COL_MODEL_NAME = cn.COL_MODEL_NAME
-COL_SCORE_MIN = "score_min"
-COL_SCORE_MEDIAN = "score_median"
-COL_SCORE_MAX = "score_max"
-COL_NUM_NONZERO_TERM = "num_nonzero_term"
+OUTPUT_PATH = os.path.join(cn.DATA_DIR, "analyze_piecewise_system_discovery.csv")
 
-OUTPUT_TEMPLATE = os.path.join(cn.DATA_DIR, "piecewise_system_discovery_scores-{}.csv")
-
-
-def _output_path(num_change_point: int) -> str:
-    return OUTPUT_TEMPLATE.format(num_change_point)
-
-
-def main(num_change_point: int = 2, is_initialize: bool = False,
-        num_trail: int = 1) -> pd.DataFrame:
-    output_path = _output_path(num_change_point)
+def main(max_fractional_reduction: int, output_path: str=OUTPUT_PATH):
 
     if not is_initialize and os.path.isfile(output_path):
         print(f"Loading existing results from {output_path}...")

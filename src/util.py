@@ -53,3 +53,22 @@ def getPSDPredictionDF(max_fractional_reduction: str, repeat: Optional[int] = No
             f"Some rows in the merged DataFrame do not match max_fractional_reduction={max_fractional_reduction}"
         )
     return merged_df
+
+def codedstr2Dict(codedstr: str) -> dict:
+    """Convert a coded string to a dictionary.
+
+    Args:
+        codedstr (str): Coded string in the format "key1_value1__key2_value2"
+
+    Returns:
+        dict: Dictionary with keys and values extracted from the coded string.
+    """
+    result = {}
+    for part in codedstr.split("__"):
+        if "_" in part:
+            key, value = part.split("_", 1)
+            try:
+                result[key] = eval(value)
+            except:
+                result[key] = value
+    return result

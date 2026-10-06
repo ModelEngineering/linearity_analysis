@@ -7,7 +7,7 @@ import unittest
 import pandas as pd  # type: ignore
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from util import getPSDPredictionDF  # type: ignore
+from util import getPSDPredictionDF, codedstr2Dict  # type: ignore
 
 IGNORE_TESTS = False
 
@@ -135,6 +135,62 @@ class TestGetPSDPredictionDFAggregation(unittest.TestCase):
             return
         df = getPSDPredictionDF("0.003")
         self.assertTrue((df["aggregation_type"] == "model").all())
+
+
+
+class TestCodedStr2Dict(unittest.TestCase):
+    """Tests for util.codedstr2Dict."""
+
+    def test_multiple_key_value_pairs(self) -> None:
+        """A string with multiple __-separated key=value pairs is parsed correctly."""
+        result = codedstr2Dict("key1_val1__key2_val2")
+        self.assertEqual(result, {"key1": "val1", "key2": "val2"})
+
+    def test_single_key_value(self) -> None:
+        """A single key=value pair produces a one-entry dict."""
+        result = codedstr2Dict("foo_bar")
+        self.assertEqual(result, {"foo": "bar"})
+
+    def test_empty_string_returns_empty_dict(self) -> None:
+        """An empty string yields an empty dictionary."""
+        self.assertEqual(codedstr2Dict(""), {})
+
+    def test_value_containing_underscore_preserved(self) -> None:
+        """split('_', 1) keeps subsequent underscores in the value intact."""
+        result = codedstr2Dict("key_sub_val")
+        self.assertEqual(result, {"key": "sub_val"})
+
+    def test_part_without_underscore_skipped(self) -> None:
+        """A __-separated segment with no underscore is silently ignored."""
+        result = codedstr2Dict("key1_val1__nounderscore__key2_val2")
+        self.assertEqual(result, {"key1": "val1", "key2": "val2"})
+
+    def test_trailing_separator_ignored(self) -> None:
+        """A trailing __ produces an empty segment that is skipped."""
+        result = codedstr2Dict("a_b__c_d__")
+        self.assertEqual(result, {"a": "b", "c": "d"})
+
+    def test_numeric_values_are_converted_to_float(self) -> None:
+        """Numeric values are converted to float."""
+        result = codedstr2Dict("x_1.23__y_4.56")
+        self.assertEqual(result, {"x": 1.23, "y": 4.56})
+
+    def test_file_string_example(self) -> None:
+        """A realistic example of a coded string from a CSV filename."""
+        coded_str = (
+            "piecewise_predictions__numpoint_100000__threshold_0.001"
+            "__removal_0__maxreduction_3e-3__manycp_0"
+        )
+        expected_dict = {
+            "piecewise": "predictions",
+            "numpoint": 100000.0,
+            "threshold": 0.001,
+            "removal": 0.0,
+            "maxreduction": 0.003,
+            "manycp": 0.0,
+        }
+        result = codedstr2Dict(coded_str)
+        self.assertEqual(result, expected_dict)
 
 
 if __name__ == "__main__":

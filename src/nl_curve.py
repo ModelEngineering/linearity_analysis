@@ -62,7 +62,7 @@ class NLCurve(object):
         return NLCurve(self._boundaries, name=self._name)
 
     def dist(self, other: 'NLCurve') -> float:
-        """Computes the distance between two NLCurves.
+        """Computes the distance between two NLCurves as the of the area between their curves.
 
         Args:
             other: Another NLCurve instance to compare with.
@@ -73,8 +73,10 @@ class NLCurve(object):
         # Get common indices
         a = self.makeMergedIndexCurve(other)
         b = other.makeMergedIndexCurve(self)
-        # Compute the Euclidean distance between the two series
-        return float(np.linalg.norm(a.to_numpy() - b.to_numpy()))
+        distance_ser = (a - b).abs() * a.index
+        import pdb; pdb.set_trace()
+        distance = distance_ser.sum()
+        return distance
 
     def makeMergedIndexCurve(self, other: 'NLCurve') -> pd.Series:
         """Reindexes this NLCurve's series to include the union of its index and the other NLCurve's
