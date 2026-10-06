@@ -4,18 +4,18 @@ from pathlib import Path
 import src.constants as cn
 
 import pandas as pd  # type: ignore
-from typing import Optional
+from typing import Optional, List
 
 
 PATTERN = "piecewise_predictions__numpoint*.csv"
 PSD_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 
-def getPSDPredictionDF(max_fractional_reduction: str, repeat: Optional[int] = None) -> pd.DataFrame:
+def getPSDPredictionDF(max_fractional_reduction: float, repeat: Optional[int] = None) -> pd.DataFrame:
     """Get a DataFrame from piecewise prediction CSVs filtered by max_fractional_reduction and repeat.
 
     Args:
-        max_fractional_reduction (str): _description_
+        max_fractional_reduction (float): _description_
         repeat (int, optional): Which repetition file to use. If None, then all repetitions are used. Defaults to None.
 
     Raises:
@@ -24,9 +24,15 @@ def getPSDPredictionDF(max_fractional_reduction: str, repeat: Optional[int] = No
     Returns:
         pd.DataFrame
     """
-    file_selection1_str = f"__maxreduction_{max_fractional_reduction}"
+    file_selection1_str = dictToCodedstr(
+        {"max_fractional_reduction": max_fractional_reduction},
+        convert_strs=["max_fractional_reduction"],
+    )
     if repeat is not None:
-        file_selection2_str = f"__repeat_{repeat}"
+        file_selection2_str = dictToCodedstr(
+            {"repeat": repeat},
+            convert_strs=["repeat"],
+        )
     else:
         file_selection2_str = None
 
@@ -54,7 +60,7 @@ def getPSDPredictionDF(max_fractional_reduction: str, repeat: Optional[int] = No
         )
     return merged_df
 
-def codedstr2Dict(codedstr: str) -> dict:
+def codedstrToDict(codedstr: str) -> dict:
     """Convert a coded string to a dictionary.
 
     Args:
@@ -72,3 +78,22 @@ def codedstr2Dict(codedstr: str) -> dict:
             except:
                 result[key] = value
     return result
+
+def dictToCodedstr(dct: dict, convert_strs : Optional[List[str]] = None) -> str:
+    """Convert a dictionary to a coded string. Optionally converts specified keys to scientific notation.
+
+    Args:
+        dct (dict): Dictionary to convert.
+        convert_strs (Optional[List[str]]): List of keys to convert to scientific notation.
+
+    Returns:
+        str: Coded string in the format "key1_value1__key2_value2"
+    """
+    dct = dict(dct) # Do not mutate the input dictionary
+    if convert_strs is not None:
+        for key in convert_strs:
+            if key in dct:
+                value = dct[key]
+                dct[key] = f"{value:.1e}"
+    stg = "__".join(f"{k}_{v}" for k, v in dct.items())
+    return stg
