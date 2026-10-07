@@ -11,7 +11,8 @@ import numpy as np  # type: ignore
 import pandas as pd # type: ignore
 
 import src.constants as cn  # type: ignore
-from nl_curve import NLCurve  # type: ignore
+from src.util import makeCSVPaths
+from src.nl_curve import NLCurve  # type: ignore
 
 
 IGNORE_TESTS = False
@@ -152,7 +153,7 @@ class TestMakeMergedCurve(unittest.TestCase):
             return
         a = NLCurve([0, 1, 2])
         b = NLCurve([0, 2, 5])
-        merged = a.makeMergedIndexCurve(b)
+        merged = a.makeMergedCumulativeCurve(b)
         self.assertIsInstance(merged, pd.Series)
 
     def test_index_is_union_of_both(self) -> None:
@@ -161,8 +162,9 @@ class TestMakeMergedCurve(unittest.TestCase):
             return
         a = NLCurve([0, 1, 3])   # lengths {1, 2}
         b = NLCurve([0, 2, 5])   # lengths {2, 3}
-        merged = a.makeMergedIndexCurve(b)
-        expected_index = sorted({1.0 / 3, 2.0 / 3, 3.0/ 3})
+        merged = a.makeMergedCumulativeCurve(b)
+        import pdb; pdb.set_trace()
+        expected_index = sorted({1.0 / 5, 2.0/ 5, 3.0/5})
         self.assertEqual(list(merged.index), expected_index)
 
     def test_cumsum_ends_at_one(self) -> None:
@@ -171,7 +173,7 @@ class TestMakeMergedCurve(unittest.TestCase):
             return
         a = NLCurve([0, 1, 2])
         b = NLCurve([0, 2, 5])
-        merged = a.makeMergedIndexCurve(b)
+        merged = a.makeMergedCumulativeCurve(b)
         self.assertAlmostEqual(float(merged.iloc[-1]), 1.0)
 
     def test_cumsum_monotonic_non_decreasing(self) -> None:
@@ -180,7 +182,7 @@ class TestMakeMergedCurve(unittest.TestCase):
             return
         a = NLCurve([0, 1, 3])
         b = NLCurve([0, 2, 5])
-        merged = a.makeMergedIndexCurve(b)
+        merged = a.makeMergedCumulativeCurve(b)
         diffs = np.diff(merged.to_numpy())
         self.assertTrue((diffs >= -1e-12).all())
 
@@ -452,8 +454,8 @@ class TestEnd2End(unittest.TestCase):
     model_num = 42
     model_num = 10
     model_num = 343
-    model_path = os.path.join(cn.TEST_DIR, "testdata", "piecewise_predictions.csv")
-    nl_curve = NLCurve.fromPSDPredictions(model_path, model_num=model_num)[0]
+    model_path = makeCSVPaths(max_fractional_reduction=0.001, repeat=1)[0]
+    nl_curve = NLCurve.fromPSDPredictions(str(model_path), model_num=model_num)[0]
 
     def test_model_level_creates_curve(self) -> None:
         """Selecting model-level aggregation returns a valid NLCurve."""
@@ -468,6 +470,7 @@ class TestEnd2End(unittest.TestCase):
         if IGNORE_TESTS:
             return
         import matplotlib.pyplot as plt  # noqa: E402  # type: ignore
+        import matplotlib.axes  # noqa: E402  # type: ignore
         nl = self.nl_curve
         fig = plt.figure()
         try:
@@ -475,6 +478,42 @@ class TestEnd2End(unittest.TestCase):
             #plt.show()
         finally:
             plt.close(fig)
+
+    def test_multiple_plots_do_not_raise(self) -> None:
+        """Multiple calls to plotNLCurve do not raise exceptions."""
+        if IGNORE_TESTS:
+            return
+        import matplotlib.pyplot as plt  # noqa: E402  # type: ignore
+        import matplotlib.axes  # noqa: E402  # type: ignore
+        model_path = makeCSVPaths(max_fractional_reduction=0.001, repeat=3)[0]
+        nl_curve = NLCurve.fromPSDPredictions(str(model_path),
+                model_num=self.model_num)[0]
+        nl = self.nl_curve
+        fig = plt.figure()
+        try:
+            ax = nl.plotNLCurve(data_src="test1")
+            assert isinstance(ax, matplotlib.axes.Axes)
+            nl_curve.plotNLCurve(ax=ax, data_src="test2")
+        finally:
+            plt.close(fig)
+
+    def test_distance_between_curves(self) -> None:
+        """The distance between two curves is computed correctly."""
+        if IGNORE_TESTS:
+            return
+        
+    def test_distance(self) -> None:
+        """Multiple calls to plotNLCurve do not raise exceptions."""
+        if IGNORE_TESTS:
+            return
+        model_path = makeCSVPaths(max_fractional_reduction=0.001, repeat=3)[0]
+        nl_curve = NLCurve.fromPSDPredictions(str(model_path),
+                model_num=self.model_num)[0]
+        nl = self.nl_curve
+        self.assertTrue(np.isclose(nl.dist(nl), nl.dist(nl)))
+        distance1 = nl_curve.dist(nl)
+        distance2 = nl.dist(nl_curve)
+        self.assertAlmostEqual(distance1, distance2)
 
 
 if __name__ == "__main__":

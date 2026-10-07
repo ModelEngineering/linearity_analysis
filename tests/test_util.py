@@ -1,7 +1,6 @@
 import os
 import sys
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd  # type: ignore
@@ -9,11 +8,6 @@ import pandas as pd  # type: ignore
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import util  # noqa: E402
 from util import getPSDPredictionDF, codedstrToDict, dictToCodedstr  # noqa: E402
-
-
-def _make_csv_path(name: str) -> Path:
-    """Build a real pathlib.Path for use as a glob return value."""
-    return Path("/fake/data/dir") / name
 
 
 def _model_df(max_fractional_reduction: float = 0.001, n: int = 1) -> pd.DataFrame:
@@ -45,17 +39,13 @@ class TestGetPSDPredictionDFFileNotFound(unittest.TestCase):
 
     def test_unknown_maxreduction_raises(self) -> None:
         """A max_fractional_reduction that produces a file-selection string no filename contains raises."""
-        fake_csv = _make_csv_path("piecewise_predictions__numpoint_10.csv")
-        with patch.object(util, "PSD_DATA_DIR") as mock_dir:
-            mock_dir.glob.return_value = [fake_csv]
+        with patch("util.os.listdir", return_value=["piecewise_predictions__numpoint_10.csv"]):
             with self.assertRaises(FileNotFoundError):
                 getPSDPredictionDF(0.9999)
 
     def test_unknown_repeat_raises(self) -> None:
         """Passing a repeat value that no filename contains raises."""
-        fake_csv = _make_csv_path("piecewise_predictions__numpoint_10.csv")
-        with patch.object(util, "PSD_DATA_DIR") as mock_dir:
-            mock_dir.glob.return_value = [fake_csv]
+        with patch("util.os.listdir", return_value=["piecewise_predictions__numpoint_10.csv"]):
             with self.assertRaises(FileNotFoundError):
                 getPSDPredictionDF(0.001, repeat=99999)
 
@@ -69,12 +59,10 @@ class TestGetPSDPredictionDFSingleFile(unittest.TestCase):
         max_fractional_reduction: float = 0.001,
         payload=None,
     ) -> pd.DataFrame:
-        fake_csv = _make_csv_path(csv_name)
         if payload is None:
             payload = _model_df(max_fractional_reduction, n=3)
-        with patch.object(util, "PSD_DATA_DIR") as mock_dir, \
+        with patch("util.os.listdir", return_value=[csv_name]), \
                 patch("pandas.read_csv", return_value=payload):
-            mock_dir.glob.return_value = [fake_csv]
             return getPSDPredictionDF(max_fractional_reduction)
 
     def test_single_match_returns_df(self) -> None:
@@ -103,11 +91,9 @@ class TestGetPSDPredictionDFSingleFile(unittest.TestCase):
             {"max_fractional_reduction": 0.001}, convert_strs=["max_fractional_reduction"]
         )
         csv_name = f"piecewise_predictions__numpoint_100__{sel}.csv"
-        fake_csv = _make_csv_path(csv_name)
         payload = _mixed_df(0.001)
-        with patch.object(util, "PSD_DATA_DIR") as mock_dir, \
+        with patch("util.os.listdir", return_value=[csv_name]), \
                 patch("pandas.read_csv", return_value=payload):
-            mock_dir.glob.return_value = [fake_csv]
             df = getPSDPredictionDF(0.001)
         self.assertTrue((df["aggregation_type"] == "model").all())
 
@@ -120,16 +106,12 @@ class TestGetPSDPredictionDFAggregation(unittest.TestCase):
         sel = dictToCodedstr(
             {"max_fractional_reduction": 0.003}, convert_strs=["max_fractional_reduction"]
         )
-        csv1 = _make_csv_path(f"piecewise_predictions__numpoint_100_a__{sel}.csv")
-        csv2 = _make_csv_path(f"piecewise_predictions__numpoint_100_b__{sel}.csv")
-
+        name1 = f"piecewise_predictions__numpoint_100_a__{sel}.csv"
+        name2 = f"piecewise_predictions__numpoint_100_b__{sel}.csv"
         df1, df2 = _model_df(0.003, n=5), _model_df(0.003, n=7)
-
-        with patch.object(util, "PSD_DATA_DIR") as mock_dir, \
+        with patch("util.os.listdir", return_value=[name1, name2]), \
                 patch("pandas.read_csv", side_effect=[df1, df2]):
-            mock_dir.glob.return_value = [csv1, csv2]
             result = getPSDPredictionDF(0.003)
-
         self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 12)  # 5 + 7
 
@@ -140,13 +122,9 @@ class TestGetPSDPredictionDFAggregation(unittest.TestCase):
         )
         name1 = f"piecewise_predictions__numpoint_100_a__{sel}.csv"
         name2 = f"piecewise_predictions__numpoint_100_b__{sel}.csv"
-        csv1, csv2 = _make_csv_path(name1), _make_csv_path(name2)
-
-        with patch.object(util, "PSD_DATA_DIR") as mock_dir, \
+        with patch("util.os.listdir", return_value=[name1, name2]), \
                 patch("pandas.read_csv", side_effect=[_model_df(0.003, n=1), _model_df(0.003, n=1)]):
-            mock_dir.glob.return_value = [csv1, csv2]
             df = getPSDPredictionDF(0.003)
-
         self.assertEqual(set(df["csv_file"].tolist()), {name1, name2})
 
     def test_multiple_files_no_species_rows(self) -> None:
@@ -154,14 +132,11 @@ class TestGetPSDPredictionDFAggregation(unittest.TestCase):
         sel = dictToCodedstr(
             {"max_fractional_reduction": 0.003}, convert_strs=["max_fractional_reduction"]
         )
-        csv1 = _make_csv_path(f"piecewise_predictions__numpoint_100_a__{sel}.csv")
+        name1 = f"piecewise_predictions__numpoint_100_a__{sel}.csv"
         payload = _mixed_df(0.003)
-
-        with patch.object(util, "PSD_DATA_DIR") as mock_dir, \
+        with patch("util.os.listdir", return_value=[name1]), \
                 patch("pandas.read_csv", return_value=payload):
-            mock_dir.glob.return_value = [csv1]
             df = getPSDPredictionDF(0.003)
-
         self.assertTrue((df["aggregation_type"] == "model").all())
 
 
@@ -173,16 +148,11 @@ class TestGetPSDPredictionDFRepeatFiltering(unittest.TestCase):
         sel = dictToCodedstr(
             {"max_fractional_reduction": 0.001}, convert_strs=["max_fractional_reduction"]
         )
-        csv_no_repeat = _make_csv_path(f"piecewise_predictions__numpoint_50_a__{sel}.csv")
-        csv_with_repeat = _make_csv_path(
-            f"piecewise_predictions__numpoint_50_b__{sel}__repeat_1.csv"
-        )
-
-        with patch.object(util, "PSD_DATA_DIR") as mock_dir, \
+        name_no_repeat = f"piecewise_predictions__numpoint_50_a__{sel}.csv"
+        name_with_repeat = f"piecewise_predictions__numpoint_50_b__{sel}__repeat_1.csv"
+        with patch("util.os.listdir", return_value=[name_no_repeat, name_with_repeat]), \
                 patch("pandas.read_csv", side_effect=[_model_df(0.001, n=1), _model_df(0.001, n=1)]):
-            mock_dir.glob.return_value = [csv_no_repeat, csv_with_repeat]
             df = getPSDPredictionDF(0.001)
-
         self.assertEqual(len(df), 2)  # Both files matched (no repeat filter applied)
 
     def test_repeat_filters_to_matching_file_only(self) -> None:
@@ -190,18 +160,15 @@ class TestGetPSDPredictionDFRepeatFiltering(unittest.TestCase):
         sel = dictToCodedstr(
             {"max_fractional_reduction": 0.001}, convert_strs=["max_fractional_reduction"]
         )
-        rep_sel = dictToCodedstr({"repeat": 3}, convert_strs=["repeat"])  # "repeat_3:.1e"
-        csv_no_repeat = _make_csv_path(f"piecewise_predictions__numpoint_50_a__{sel}.csv")
-        csv_with_repeat = _make_csv_path(
-            f"piecewise_predictions__numpoint_50_b__{sel}__{rep_sel}.csv"
-        )
-
-        with patch.object(util, "PSD_DATA_DIR") as mock_dir, \
+        rep_sel = dictToCodedstr({"repeat": 3}, convert_strs=["repeat"])
+        name_no_repeat = f"piecewise_predictions__numpoint_50_a__{sel}.csv"
+        name_with_repeat = f"piecewise_predictions__numpoint_50_b__{sel}__{rep_sel}.csv"
+        with patch("util.os.listdir", return_value=[name_no_repeat, name_with_repeat]), \
                 patch("pandas.read_csv", return_value=_model_df(0.001, n=2)):
-            mock_dir.glob.return_value = [csv_no_repeat, csv_with_repeat]
             df = getPSDPredictionDF(0.001, repeat=3)
-
         self.assertEqual(len(df), 2)
+
+
 class TestCodedStr2Dict(unittest.TestCase):
     """Tests for util.codedstr2Dict."""
 
@@ -271,7 +238,6 @@ class TestDictToCodedstr(unittest.TestCase):
         original = {"repeat": 3, "threshold": 0.1}
         coded = dictToCodedstr(original)
         decoded = codedstrToDict(coded)
-        # After round-trip, values become Python ints/floats via eval.
         self.assertEqual(decoded["repeat"], 3)
         self.assertAlmostEqual(decoded["threshold"], 0.1, places=5)
 
@@ -334,6 +300,21 @@ class TestDictToCodedstrConvertStrs(unittest.TestCase):
         )
         self.assertEqual(result, "key_5.0e-01")
         self.assertEqual(original, original_copy)
+
+class TestGetCSVPaths(unittest.TestCase):
+    """Tests for the makeCSVPaths function."""
+
+    def test_makeCSVPaths_returns_list_of_paths(self) -> None:
+        """makeCSVPaths returns a list of Path objects."""
+        paths = util.makeCSVPaths(max_fractional_reduction=0.001, repeat=1)
+        self.assertIsInstance(paths, list)
+        self.assertTrue(all(isinstance(p, os.PathLike) for p in paths))
+
+    def test_makeCSVPaths_empty_list_when_no_files(self) -> None:
+        """If no files match the criteria, an empty list is returned."""
+        with patch("util.os.listdir", return_value=[]):
+            paths = util.makeCSVPaths(max_fractional_reduction=0.9999, repeat=99999)
+            self.assertEqual(paths, [])
 
 
 if __name__ == "__main__":

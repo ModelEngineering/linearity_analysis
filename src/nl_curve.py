@@ -11,7 +11,8 @@ import ast  # type: ignore
 import re  # type: ignore
 import src.constants as cn
 from src.model import Model  # type: ignore
-
+import matplotlib  # type: ignore
+import matplotlib.axes  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import os  # type: ignore
@@ -61,6 +62,7 @@ class NLCurve(object):
         """
         return NLCurve(self._boundaries, name=self._name)
 
+    # FIXME: Doesn't seem right. The indices should correspond to segment lengths, not the cumulative area. Need to re-evaluate how to compute the distance between two NLCurves.
     def dist(self, other: 'NLCurve') -> float:
         """Computes the distance between two NLCurves as the of the area between their curves.
 
@@ -71,14 +73,29 @@ class NLCurve(object):
             A float representing the distance between the two NLCurves.
         """
         # Get common indices
-        a = self.makeMergedIndexCurve(other)
-        b = other.makeMergedIndexCurve(self)
-        distance_ser = (a - b).abs() * a.index
-        import pdb; pdb.set_trace()
+        a = self.makeMergedDensityCurve(other)
+        b = other.makeMergedDensityCurve(self)
+        idx_arr = a.index.to_numpy()
+        frac_arr = np.diff(idx_arr) 
+        weights = np.concatenate([[idx_arr[0]], frac_arr])  # Fraction for each segment
+        distance_ser = (a - b).abs() * weights
         distance = distance_ser.sum()
         return distance
 
-    def makeMergedIndexCurve(self, other: 'NLCurve') -> pd.Series:
+    def makeMergedCumulativeCurve(self, other: 'NLCurve') -> pd.Series:
+        """Reindexes this NLCurve's series to include the union of its index and the other NLCurve's
+
+
+        Args:
+            other: Another NLCurve instance whose index will be merged with this one.
+
+        Returns:
+            A pd.Series with the merged index and values from this NLCurve's series,
+        """
+        this_daf_ser = self._makeNLDensity()
+        return this_daf_ser.cumsum()
+
+    def makeMergedDensityCurve(self, other: 'NLCurve') -> pd.Series:
         """Reindexes this NLCurve's series to include the union of its index and the other NLCurve's
 
 
@@ -96,13 +113,12 @@ class NLCurve(object):
         # Adjust the indicies to reflect the timecourse lengths
         this_daf_ser.index = this_daf_ser.index.to_numpy() * this_range
         other_daf_ser.index = other_daf_ser.index.to_numpy() * other_range
-        # Reindex the desnity
-        max_index = max(this_daf_ser.index.max(), other_daf_ser.index.max())
+        # Reindex the density
+        max_index = max(self._boundaries[-1], other._boundaries[-1])
         indexes = np.array(np.union1d(this_daf_ser.index.to_numpy(), other_daf_ser.index.to_numpy()))
         this_daf_ser = this_daf_ser.reindex(indexes, fill_value=0)
         this_daf_ser.index = this_daf_ser.index.to_numpy() / max_index
-        result = this_daf_ser.cumsum()
-        return result
+        return this_daf_ser
 
     def _makeNLDensity(self) -> pd.Series:
         """
@@ -116,7 +132,6 @@ class NLCurve(object):
         """
         if len(self._segment_arr) == 0:
             return pd.Series(dtype=float)
-
         segment_areas = np.sort(self._segment_arr)
         total_area = float(np.sum(segment_areas))
         # Use segment lengths as both index and data, group duplicates by summing
@@ -146,17 +161,45 @@ class NLCurve(object):
         curve_ser = self._makeNLDensity().cumsum()
         return curve_ser
 
-    def plotNLCurve(self) -> None:
-        """Plots the NLCurve for the segment lengths."""
+    def plotNLCurve(self, data_src: Optional[str] = None, ax=None) -> matplotlib.axes.Axes:
+        """Plots the NLCurve for the segment lengths.
+
+        Args:
+            data_src: Optional string to include in the plot title.
+            ax: Optional matplotlib Axes object to plot on. If None, a new figure and axes are created.
+
+        Returns:
+            matplotlib.axes.Axes: The Axes object containing the plot.
+        """
+        ##
+        def makeLegend() -> str:
+            if data_src is not None:
+                legend_text = f"{data_src}: {self.calculateAUC():.2f}"
+            else:
+                legend_text = f"Model: {self.calculateAUC():.2f}"
+            return legend_text
+        ##
+        if ax is None:
+            ax = plt.gca()
         xv = self.curve_ser.index.to_numpy()
-        plt.step(xv, self.curve_ser.to_numpy(), where='post')
-        plt.xlabel('Normalized Segment Length')
-        plt.ylabel('Cumulative Area')
+        ax.step(xv, self.curve_ser.to_numpy(), where='post')
+        ax.set_xlabel('Normalized Segment Length')
+        ax.set_ylabel('Cumulative Area')
         name = "NLCurve" if self._name is None else f"BioModel {self._name}"
-        plt.title(f"{name}: AUC = {self.calculateAUC():.2f}")
-        plt.grid()
-        plt.xlim(0, 1)
-        plt.ylim(0, 1)
+        #ax.set_title(f"{name}: AUC = {self.calculateAUC():.2f}")
+        ax.set_title(f"{name}")
+        if ax.get_legend() is not None:
+            legend_texts = [text.get_text() for text in ax.get_legend().get_texts()] # type: ignore
+            legend_text = makeLegend()
+            legend_texts.append(legend_text)
+            ax.legend(legend_texts)
+        else:
+            legend_text = makeLegend()
+            ax.legend([legend_text])
+        ax.grid()
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        return ax
 
     @staticmethod
     def _parseChangepoints(value) -> List[Union[int, float]]:
@@ -231,7 +274,7 @@ class NLCurve(object):
         return df[[cn.COL_BOUNDARIES, cn.COL_AGGREGATION_TYPE, cn.COL_SYSTEM_ID]]
 
     @classmethod
-    def fromPSDPredictions(cls, path: str, model_num: int,
+    def fromPSDPredictions(cls, csv_path: str, model_num: int,
                         species_name: Optional[str] = None,
                         df: Optional[pd.DataFrame] = None) -> Tuple['NLCurve', pd.DataFrame]:
         """Creates a NLCurve from data in a PiecewisePredictions CSV file.
@@ -242,7 +285,7 @@ class NLCurve(object):
         a new NLCurve instance.
 
         Args:
-            path: Path to a CSV file with changepoints data.
+            csv_path: Path to a CSV file with changepoints data.
             model_num: The BioModel number (e.g., 1 matches system_id "BIOMD0000000001").
             species_name: If provided, select the species-specific aggregation row;
                 otherwise select the model-level aggregation row.
@@ -256,7 +299,7 @@ class NLCurve(object):
                 or if the changepoints value cannot be parsed into a list of numbers.
         """
         if df is None:
-            df = cls.getDataframeColumns(path)
+            df = cls.getDataframeColumns(csv_path)
         system_id = Model.getBiomodelName(model_num)
         system_df = df[df[cn.COL_SYSTEM_ID] == system_id]
         if species_name is not None:

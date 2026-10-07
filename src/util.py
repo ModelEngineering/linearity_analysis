@@ -3,12 +3,46 @@
 from pathlib import Path
 import src.constants as cn
 
+import os
 import pandas as pd  # type: ignore
 from typing import Optional, List
 
 
 PATTERN = "piecewise_predictions__numpoint*.csv"
 PSD_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+
+def makeCSVPaths(max_fractional_reduction: float, repeat: Optional[int] = None) -> List[Path]:
+    """Provide a list of CSV paths corresponding to the arguments.
+
+    Args:
+        max_fractional_reduction (float): _description_
+        repeat (int, optional): Which repetition file to use. If None, then all repetitions are used. Defaults to None.
+
+    Raises:
+        FileNotFoundError: If no file is found
+
+    Returns:
+        List[Path]
+    """
+    file_selection1_str = dictToCodedstr(
+        {"maxreduction": max_fractional_reduction},
+        convert_strs=["maxreduction"],
+    )
+    if repeat is not None:
+        file_selection2_str = dictToCodedstr(
+            {"repeat": repeat},
+        )
+    else:
+        file_selection2_str = None
+
+    sections = [file_selection1_str]
+    if isinstance(file_selection2_str, str):
+        sections.append(file_selection2_str)
+    csv_files: List[str] = os.listdir(PSD_DATA_DIR)
+    for file_selection_str in sections:
+        csv_files = [f for f in csv_files if file_selection_str in f]
+    return [PSD_DATA_DIR / f for f in csv_files]
 
 
 def getPSDPredictionDF(max_fractional_reduction: float, repeat: Optional[int] = None) -> pd.DataFrame:
@@ -24,26 +58,8 @@ def getPSDPredictionDF(max_fractional_reduction: float, repeat: Optional[int] = 
     Returns:
         pd.DataFrame
     """
-    file_selection1_str = dictToCodedstr(
-        {"max_fractional_reduction": max_fractional_reduction},
-        convert_strs=["max_fractional_reduction"],
-    )
-    if repeat is not None:
-        file_selection2_str = dictToCodedstr(
-            {"repeat": repeat},
-            convert_strs=["repeat"],
-        )
-    else:
-        file_selection2_str = None
-
-    csv_files = sorted(PSD_DATA_DIR.glob(PATTERN))
-    sections = [file_selection1_str]
-    if isinstance(file_selection2_str, str):
-        sections.append(file_selection2_str)
-    for file_selection_str in sections:
-        csv_files = [f for f in csv_files if file_selection_str in f.name]
-    if not csv_files:
-        raise FileNotFoundError(f"No files matching '{PATTERN}' found in {PSD_DATA_DIR}")
+    csv_files = makeCSVPaths(max_fractional_reduction=max_fractional_reduction,
+            repeat=repeat)
     # Get the data
     frames: list[pd.DataFrame] = []
     for path in csv_files:
@@ -94,6 +110,8 @@ def dictToCodedstr(dct: dict, convert_strs : Optional[List[str]] = None) -> str:
         for key in convert_strs:
             if key in dct:
                 value = dct[key]
-                dct[key] = f"{value:.1e}"
+                if key in convert_strs:
+                    new_value = f"{value:.1e}".replace(".0e-0", "e-")  # Convert to scientific notation and remove unnecessary .0
+                    dct[key] = new_value
     stg = "__".join(f"{k}_{v}" for k, v in dct.items())
     return stg
