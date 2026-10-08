@@ -11,6 +11,7 @@ import src.constants as cn
 from src.model import Model  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
 from src.system_discovery import SystemDiscovery, NULL_DF  # type: ignore
+import src.util as util     # type: ignore
 
 import ast
 import collections
@@ -616,16 +617,21 @@ class PiecewiseSystemDiscovery(object):
         and :attr:`_subsequence_lengths` are populated; :meth:`predict` is available.
         The baseline whole-timecourse model is built lazily on first access.
         """
+        if (self.changepoints is None) and self._is_changepoints_from_file:
+            df = util.getPSDPredictionDF(max_fractional_reduction=self.max_fractional_reduction)
+            mask = df[cn.COL_SYSTEM_ID] == self.model_name
+            mask &= df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL
+            if mask.any():
+                dff = df[mask]
+                changepoints = dff.loc[0, cn.COL_CHANGEPOINTS] 
+                if isinstance(changepoints, str):
+                    changepoints = eval(changepoints)  # type: ignore
+                self.changepoints = changepoints
         if self.changepoints is None:
-            if self._is_changepoints_from_file:
-                changepoint_results = self._getChangepointsFromFile()
-                if len(changepoint_results) > 0:
-                    self.changepoints = changepoint_results[0].changepoints
+            if self._is_changepoint_removal:
+                self.changepoints = self._makeChangepointsWithElimination()
             else:
-                if self._is_changepoint_removal:
-                    self.changepoints = self._makeChangepointsWithElimination()
-                else:
-                    self.changepoints = self._makeChangepointsWithoutElimination()
+                self.changepoints = self._makeChangepointsWithoutElimination()
         (self._subsequence_models, self._subsequence_boundaries,
         self._subsequence_lengths) = self._fitSegments(cast(List[int], self.changepoints))
         self._is_fitted = True

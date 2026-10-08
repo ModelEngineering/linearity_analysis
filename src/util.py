@@ -95,8 +95,10 @@ def getPSDPredictionDF(
                 df = pickle.load(f)
         else:
             df = pd.read_csv(path)
-            df[cn.COL_BOUNDARIES] = df.apply(lambda row: [0] + 
-                _parseChangepoints(row[cn.COL_CHANGEPOINTS]) + [row[cn.COL_COUNT] -1], axis=1)
+            df[cn.COL_CHANGEPOINTS] = df.apply(lambda row: 
+                    _parseChangepoints(row[cn.COL_CHANGEPOINTS]), axis=1)
+            df[cn.COL_BOUNDARIES] = df.apply(lambda row: [0]
+                    + row[cn.COL_CHANGEPOINTS] + [row[cn.COL_COUNT]-1], axis=1)
             with open(pkl_path, "wb") as f:
                 pickle.dump(df, f)
         df[cn.COL_CSV_FILE] = str(path)
@@ -154,7 +156,7 @@ def dictToCodedstr(dct: dict, convert_strs : Optional[List[str]] = None) -> str:
     stg = "__".join(f"{k}_{v}" for k, v in dct.items())
     return stg
 
-def _parseChangepoints(value) -> List[Union[int, float]]:
+def _parseChangepoints(value) -> List[int]:
     """Parse a changepoints cell value into a list of numbers.
 
     Handles both Python lists (already parsed from pickle/JSON) and string
@@ -177,14 +179,14 @@ def _parseChangepoints(value) -> List[Union[int, float]]:
         last_err: Optional[Exception] = None
         for s in candidates:
             try:
-                return cast(List[Union[int, float]], ast.literal_eval(s))
+                return cast(List[int], ast.literal_eval(s))
             except (ValueError, SyntaxError) as e:  # noqa: PERF203
                 last_err = e
         raise ValueError(
             f"Cannot parse changepoints string '{value}': {last_err!r}"
         ) from last_err
     if isinstance(value, list):
-        if all(isinstance(x, (int, float)) for x in value):
+        if all(isinstance(x, int) for x in value):
             return value
     raise ValueError(
         f"Expected changepoints to be a list or string, got "
