@@ -153,9 +153,9 @@ class TestMakeMergedCurve(unittest.TestCase):
         """makeMergedCurve returns a pd.Series."""
         if IGNORE_TESTS:
             return
-        a = NLCurve([0, 1, 2])
+        a = NLCurve([0, 1, 2, 4, 5])
         b = NLCurve([0, 2, 5])
-        merged = a.makeMergedCumulativeCurve(b)
+        merged = a.mergeIndex(b)
         self.assertIsInstance(merged, pd.Series)
 
     def test_index_is_union_of_both(self) -> None:
@@ -164,7 +164,7 @@ class TestMakeMergedCurve(unittest.TestCase):
             return
         a = NLCurve([0, 1, 3, 5])   # lengths {1, 2}
         b = NLCurve([0, 2, 5])   # lengths {2, 3}
-        merged = a.makeMergedCumulativeCurve(b)
+        merged = a.mergeIndex(b)
         expected_index = sorted({1.0 / 5, 2.0/ 5, 3.0/5})
         self.assertEqual(list(merged.index), expected_index)
 
@@ -174,16 +174,25 @@ class TestMakeMergedCurve(unittest.TestCase):
             return
         a = NLCurve([0, 1, 2, 5])
         b = NLCurve([0, 2, 5])
-        merged = a.makeMergedCumulativeCurve(b)
+        merged = a.mergeIndex(b)
         self.assertAlmostEqual(float(merged.iloc[-1]), 1.0)
+    
+    def test_cumsum_value_error_if_incompatible(self) -> None:
+        """The returned series cumulates to 1.0."""
+        if IGNORE_TESTS:
+            return
+        a = NLCurve([0, 1, 2, 7])
+        b = NLCurve([0, 2, 5])
+        with self.assertRaises(ValueError):
+            _ = a.mergeIndex(b)
 
     def test_cumsum_monotonic_non_decreasing(self) -> None:
         """The returned series is monotonic non-decreasing."""
         if IGNORE_TESTS:
             return
-        a = NLCurve([0, 1, 3])
+        a = NLCurve([0, 1, 3, 5])
         b = NLCurve([0, 2, 5])
-        merged = a.makeMergedCumulativeCurve(b)
+        merged = a.mergeIndex(b)
         diffs = np.diff(merged.to_numpy())
         self.assertTrue((diffs >= -1e-12).all())
 

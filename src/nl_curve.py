@@ -6,6 +6,8 @@ The segment frequency is a frequency of count of each segment.
 The segment density is a fraction of the total timecourse length that is
     contained in segments of each length.
 The cumulative area function (CAF) is a cumulative sum of the segment density, and is the NLCurve.
+Two CAF curves are compatible if there last boundary is the same.
+The distance between two CAF curves is the area between them.
 """
 
 import ast  # type: ignore
@@ -63,18 +65,39 @@ class NLCurve(object):
         """
         return NLCurve(self._boundaries, name=self._name)
 
-    def _isCompatible(self, other: 'NLCurve') -> bool:
+    def _isCompatible(self, other: 'NLCurve') -> None:
         """Checks if two NLCurves are compatible for distance computation.
+
+        Args:
+            other: Another NLCurve instance to compare with.:w
+
+
+        Returns:
+            None
+        """
+        if self._boundaries[-1] != other._boundaries[-1]:
+            raise ValueError("Both NLCurves must have the same final boundary to compute distance.")
+
+    def dist(self, other: 'NLCurve') -> float:
+        """Computes the distance between two NLCurves as the of the area between their curves.
 
         Args:
             other: Another NLCurve instance to compare with.
 
         Returns:
-            A boolean indicating whether the two NLCurves are compatible.
+            A float representing the distance between the two NLCurves.
         """
-        return self._boundaries[-1] == other._boundaries[-1]
+        # Curves must have the same findal boundary to compute distance
+        self._isCompatible(other)
+        # Get common indices
+        a = self.mergeIndex(other)
+        b = other.mergeIndex(self)
+        diff_ser = (a - b).abs()
+        distance_ser = diff_ser * diff_ser.index.to_numpy()  # Multiply by the normalized segment lengths to get area   
+        distance = distance_ser.sum()
+        return distance
 
-    def dist(self, other: 'NLCurve') -> float:
+    def deprecatedDist(self, other: 'NLCurve') -> float:
         """Computes the distance between two NLCurves as the of the area between their curves.
 
         Args:
@@ -113,8 +136,7 @@ class NLCurve(object):
         freq_ser = pd.Series(counts, index=unique_lengths, dtype=float)
         return freq_ser
 
-    @staticmethod
-    def _makeSegmentDensitySer(segment_frequency_ser: pd.Series) -> pd.Series:
+    def _makeSegmentDensitySer(self, segment_frequency_ser: pd.Series) -> pd.Series:
         """Creates a pd.Series that indicates the fraction of the total segment length
         that is attributed to each unique segment length. Segment lengths are normalized by the
         boundary size (last boundary value).
@@ -128,14 +150,13 @@ class NLCurve(object):
         """
         if segment_frequency_ser.empty:
             return pd.Series(dtype=float)
-        end_boundary = (segment_frequency_ser.to_numpy()*segment_frequency_ser.index.to_numpy()).sum()
         density_ser = segment_frequency_ser.copy()
-        density_ser.index = density_ser.index / end_boundary  # Normalize segment lengths by the boundary
+        density_ser.index = density_ser.index.to_numpy() / self._boundaries[-1]  # Normalize by the last boundary
         density_ser = density_ser*density_ser.index.to_numpy()  # Multiply by the normalized segment lengths to get density
         density_ser = density_ser.sort_index()
         return density_ser
 
-    def makeMergedCumulativeCurve(self, other: 'NLCurve') -> pd.Series:
+    def mergeIndex(self, other: 'NLCurve') -> pd.Series:
         """Reindexes this NLCurve's series to include the union of its index and the other NLCurve's
 
 
@@ -146,12 +167,12 @@ class NLCurve(object):
             A pd.Series with the merged index and values from this NLCurve's series,
         """
         self._isCompatible(other)
-        segment_frequency_ser = self.makeMergedSegmentFrequencySer(other)
-        end_boundary = self._boundaries[-1]
-        daf_ser = segment_frequency_ser.copy()
-        daf_ser.index = segment_frequency_ser.index / end_boundary  # Normalize by the boundary
-        daf_ser = daf_ser*daf_ser.index.to_numpy()  # Multiply by the normalized segment lengths to get density
-        return daf_ser.cumsum()
+        daf_ser = self.curve_ser.diff()
+        index0 = self.curve_ser.index.to_numpy()[0]
+        daf_ser[index0] = self.curve_ser.iloc[0]  # Set the first value to the original curve's first value
+        new_indexes = np.array(np.union1d(daf_ser.index.to_numpy(), other.curve_ser.index.to_numpy()))
+        reindexed_daf_ser = daf_ser.reindex(new_indexes, fill_value=0)
+        return reindexed_daf_ser.cumsum()
 
     def makeMergedSegmentFrequencySer(self, other: 'NLCurve') -> pd.Series:
         """Merges the boundaries of the two NLCurves, preserving the segment frequencies
