@@ -14,6 +14,7 @@ import ast  # type: ignore
 import re  # type: ignore
 import src.constants as cn
 from src.model import Model  # type: ignore
+import src.util as util  # type: ignore
 import matplotlib  # type: ignore
 import matplotlib.axes  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
@@ -53,8 +54,7 @@ class NLCurve(object):
         """
         # Differences in x
         dx = np.diff(self.curve_ser.index.to_numpy()) 
-        total_integral = np.sum(self.curve_ser.iloc[:-1].values * dx)
-        total_integral += self.curve_ser.iloc[-1] * (1 - self.curve_ser.index[-1])  # Add the last segment to reach x=1
+        total_integral = np.sum(self.curve_ser.iloc[1:].values * dx) + self.curve_ser.iloc[0] * (self.curve_ser.index[0])  # Add the first segment to reach x=0
         return total_integral
 
     def copy(self) -> 'NLCurve':
@@ -65,7 +65,7 @@ class NLCurve(object):
         """
         return NLCurve(self._boundaries, name=self._name)
 
-    def _isCompatible(self, other: 'NLCurve') -> None:
+    def _checkCompatible(self, other: 'NLCurve') -> None:
         """Checks if two NLCurves are compatible for distance computation.
 
         Args:
@@ -88,32 +88,11 @@ class NLCurve(object):
             A float representing the distance between the two NLCurves.
         """
         # Curves must have the same findal boundary to compute distance
-        self._isCompatible(other)
+        self._checkCompatible(other)
         # Get common indices
         a = self.mergeIndex(other)
         b = other.mergeIndex(self)
         diff_ser = (a - b).abs()
-        distance_ser = diff_ser * diff_ser.index.to_numpy()  # Multiply by the normalized segment lengths to get area   
-        distance = distance_ser.sum()
-        return distance
-
-    def deprecatedDist(self, other: 'NLCurve') -> float:
-        """Computes the distance between two NLCurves as the of the area between their curves.
-
-        Args:
-            other: Another NLCurve instance to compare with.
-
-        Returns:
-            A float representing the distance between the two NLCurves.
-        """
-        # Curves must have the same findal boundary to compute distance
-        self._isCompatible(other)
-        end_boundary = self._boundaries[-1]
-        # Get common indices
-        a = self.makeMergedSegmentFrequencySer(other)
-        b = other.makeMergedSegmentFrequencySer(self)
-        diff_ser = (a - b).abs()
-        diff_ser.index = diff_ser.index.to_numpy() / end_boundary  # Normalize by the boundary
         distance_ser = diff_ser * diff_ser.index.to_numpy()  # Multiply by the normalized segment lengths to get area   
         distance = distance_ser.sum()
         return distance
@@ -166,83 +145,13 @@ class NLCurve(object):
         Returns:
             A pd.Series with the merged index and values from this NLCurve's series,
         """
-        self._isCompatible(other)
+        self._checkCompatible(other)
         daf_ser = self.curve_ser.diff()
         index0 = self.curve_ser.index.to_numpy()[0]
         daf_ser[index0] = self.curve_ser.iloc[0]  # Set the first value to the original curve's first value
         new_indexes = np.array(np.union1d(daf_ser.index.to_numpy(), other.curve_ser.index.to_numpy()))
         reindexed_daf_ser = daf_ser.reindex(new_indexes, fill_value=0)
         return reindexed_daf_ser.cumsum()
-
-    def makeMergedSegmentFrequencySer(self, other: 'NLCurve') -> pd.Series:
-        """Merges the boundaries of the two NLCurves, preserving the segment frequencies
-        of the original NLCurve
-
-
-        Args:
-            other: Another NLCurve instance whose index will be merged with this one.
-
-        Returns:
-            A pd.Series - Segment frequencies of this NLCurve reindexed to include the union of its index and the other NLCurve's index.
-        """
-        # Calculate density
-        other_segment_frequency_ser = other._makeSegmentFrequencySer(other._boundaries)
-        this_segment_frequency_ser = self._makeSegmentFrequencySer(self._boundaries)
-        new_indexes = np.array(np.union1d(this_segment_frequency_ser.index.to_numpy(),
-                other_segment_frequency_ser.index.to_numpy()))
-        reindexed_this_segment_frequency_ser = this_segment_frequency_ser.reindex(new_indexes,
-                fill_value=0)
-        return reindexed_this_segment_frequency_ser
-
-    def deprecatedMakeMergedDensityCurve(self, other: 'NLCurve') -> pd.Series:
-        """Reindexes this NLCurve's series to include the union of its index and the other NLCurve's
-
-
-        Args:
-            other: Another NLCurve instance whose index will be merged with this one.
-
-        Returns:
-            A pd.Series with the merged index and values from this NLCurve's series,
-        """
-        # Calculate density
-        other_range = other._boundaries[-1]
-        this_range = self._boundaries[-1]
-        this_daf_ser = self._makeNLDensity()
-        other_daf_ser = other._makeNLDensity()
-        # Adjust the indicies to reflect the timecourse lengths
-        this_daf_ser.index = this_daf_ser.index.to_numpy() * this_range
-        other_daf_ser.index = other_daf_ser.index.to_numpy() * other_range
-        # Reindex the density
-        max_index = max(self._boundaries[-1], other._boundaries[-1])
-        indexes = np.array(np.union1d(this_daf_ser.index.to_numpy(), other_daf_ser.index.to_numpy()))
-        this_daf_ser = this_daf_ser.reindex(indexes, fill_value=0)
-        this_daf_ser.index = this_daf_ser.index.to_numpy() / max_index
-        return this_daf_ser
-
-    def _makeNLDensity(self) -> pd.Series:
-        """
-        Computes the NLDensity, the density function of segment lengths.
-
-        Returns:
-            pd.Series:
-                index: unique segment lengths (sorted ascending)
-                values: fraction of total time contained in segments with length
-                        equal to the corresponding index value
-        """
-        if len(self._segment_arr) == 0:
-            return pd.Series(dtype=float)
-        segment_areas = np.sort(self._segment_arr)
-        total_area = float(np.sum(segment_areas))
-        # Use segment lengths as both index and data, group duplicates by summing
-        # their areas, then sort ascending by length.
-        grouped = (
-            pd.Series(segment_areas, index=segment_areas / total_area, dtype=float)
-            .groupby(level=0)
-            .sum()
-            .sort_index()
-        )
-        density_ser = grouped / total_area
-        return density_ser
 
     def _makeNLCurve(self) -> pd.Series:
         """
@@ -299,82 +208,10 @@ class NLCurve(object):
         ax.set_ylim(0, 1)
         return ax
 
-    @staticmethod
-    def _parseChangepoints(value) -> List[Union[int, float]]:
-        """Parse a changepoints cell value into a list of numbers.
-
-        Handles both Python lists (already parsed from pickle/JSON) and string
-        representations like "[0.0, 2.5]" that come from CSV round-trips via pandas.
-
-        Args:
-            value: A Python list or a string representation of one.
-
-        Returns:
-            List of int/float values suitable for SegmentAnalyzer.__init__.
-
-        Raises:
-            ValueError: If the value cannot be converted to a list of numbers.
-        """
-        if isinstance(value, str):
-            candidates = [value]
-            normalized = _NP_INT64_PATTERN.sub(r'\1', value)
-            if normalized != value:
-                candidates.append(normalized)
-            last_err: Optional[Exception] = None
-            for s in candidates:
-                try:
-                    return cast(List[Union[int, float]], ast.literal_eval(s))
-                except (ValueError, SyntaxError) as e:  # noqa: PERF203
-                    last_err = e
-            raise ValueError(
-                f"Cannot parse changepoints string '{value}': {last_err!r}"
-            ) from last_err
-        if isinstance(value, list):
-            if all(isinstance(x, (int, float)) for x in value):
-                return value
-        raise ValueError(
-            f"Expected changepoints to be a list or string, got "
-            f"{type(value).__name__}: {value!r}"
-        )
-
-    @staticmethod
-    def getDataframeColumns(path: str) -> pd.DataFrame:
-        """Reads a PiecewisePredictions CSV file and construct the columns needed for NLCurve analysis.
-
-        The changepoints column may contain either Python lists (e.g., from pickle)
-        or string representations like "[0.0, 2.5]" (from CSV). Both are preserved
-        as-is; downstream consumers should call _parseChangepoints if needed.
-
-        Args:
-            path: Path to a CSV file with changepoints data.
-
-        Returns:
-            pd.DataFrame with columns: boundaries, aggregation_type, system_id.
-
-        Raises:
-            ValueError: If the path does not exist or required columns are missing.
-        """
-        if not os.path.exists(path):
-            raise ValueError(f"Path {path} does not exist.")
-        df = pd.read_csv(path)
-        missing_cols = [c for c in (
-            cn.COL_CHANGEPOINTS, cn.COL_AGGREGATION_TYPE, cn.COL_SYSTEM_ID, cn.COL_COUNT
-        ) if c not in df.columns]
-        if missing_cols:
-            raise ValueError(
-                f"CSV file {path} is missing required columns: {missing_cols}"
-            )
-        df[cn.COL_BOUNDARIES] = df.apply(
-            lambda row: [0.0] + NLCurve._parseChangepoints(row[cn.COL_CHANGEPOINTS]) 
-                    + [row[cn.COL_COUNT] -1],
-            axis=1
-        )
-        return df[[cn.COL_BOUNDARIES, cn.COL_AGGREGATION_TYPE, cn.COL_SYSTEM_ID]]
-
     @classmethod
     def fromPSDPredictions(cls, csv_path: str, model_num: int,
                         species_name: Optional[str] = None,
-                        df: Optional[pd.DataFrame] = None) -> Tuple['NLCurve', pd.DataFrame]:
+                        df: Optional[pd.DataFrame] = None) -> 'NLCurve':
         """Creates a NLCurve from data in a PiecewisePredictions CSV file.
 
         Filters the CSV rows to match the given ``model_num`` and aggregation type
@@ -390,14 +227,14 @@ class NLCurve(object):
             df: Optional pre-loaded DataFrame to use instead of reading from CSV.
 
         Returns:
-            A tuple containing the new NLCurve initialized with the parsed changepoints list and the DataFrame used.
+            NLCurve instance constructed from the changepoints of the specified model and species.
 
         Raises:
             ValueError: If no single matching row is found for the given filters,
                 or if the changepoints value cannot be parsed into a list of numbers.
         """
         if df is None:
-            df = cls.getDataframeColumns(csv_path)
+            df = util.getPSDPredictionDF(csv_files=[csv_path], is_model=False)  # type: ignore
         system_id = Model.getBiomodelName(model_num)
         system_df = df[df[cn.COL_SYSTEM_ID] == system_id]
         if species_name is not None:
@@ -410,4 +247,4 @@ class NLCurve(object):
                 f"species_name={species_name}, found {len(ser)}."
             )
         boundaries = ser.iloc[0]
-        return (cls(boundaries, name=str(model_num)), df)
+        return cls(boundaries)

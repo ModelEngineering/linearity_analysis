@@ -1,6 +1,7 @@
 """Tests for NLCurve."""
 
 import os
+import numpy as np
 import tempfile
 import unittest
 
@@ -197,48 +198,6 @@ class TestMakeMergedCurve(unittest.TestCase):
         self.assertTrue((diffs >= -1e-12).all())
 
 
-
-class TestMakeNLDensity(unittest.TestCase):
-    """Tests for NLCurve._makeNLDensity()."""
-
-    def test_single_segment_density(self) -> None:
-        """A single segment produces a density with one entry at value 1.0."""
-        if IGNORE_TESTS:
-            return
-        nl = NLCurve([0, 5])
-        density = nl._makeNLDensity()
-        self.assertEqual(len(density), 1)
-        self.assertIn(5.0/5.0, density.index)
-        self.assertAlmostEqual(float(density[1.0]), 1.0)
-
-    def test_duplicate_lengths_grouped(self) -> None:
-        """Equal-length segments are grouped into a single index entry."""
-        if IGNORE_TESTS:
-            return
-        nl = NLCurve([0, 1, 2, 3])   # three segments of length 1
-        density = nl._makeNLDensity()
-        self.assertEqual(len(density), 1)
-        self.assertIn(1.0/3.0, density.index)
-
-    def test_density_values_sum_to_one(self) -> None:
-        """Density values sum to 1.0 (within floating-point tolerance)."""
-        if IGNORE_TESTS:
-            return
-        for bounds in [[0, 1, 2], [0, 1, 3], [0, 2, 5, 7]]:
-            nl = NLCurve(bounds)  # type: ignore
-            density = nl._makeNLDensity()
-            self.assertAlmostEqual(float(density.sum()), 1.0)
-
-    def test_density_index_sorted_ascending(self) -> None:
-        """Density index is sorted in ascending order."""
-        if IGNORE_TESTS:
-            return
-        nl = NLCurve([0, 3, 1, 5])
-        density = nl._makeNLDensity()
-        idx = list(density.index.to_numpy())
-        self.assertEqual(idx, sorted(idx))
-
-
 class TestMakeNLCurve(unittest.TestCase):
     """Tests for NLCurve._makeNLCurve()."""
 
@@ -268,117 +227,12 @@ class TestMakeNLCurve(unittest.TestCase):
 
 
 
-class TestParseChangepoints(unittest.TestCase):
-    """Tests for NLCurve._parseChangepoints()."""
-
-    def test_string_list_parsed_to_numbers(self) -> None:
-        """A string representation of a list is parsed into a Python list."""
-        if IGNORE_TESTS:
-            return
-        result = NLCurve._parseChangepoints("[0.0, 2.5, 4]")
-        self.assertEqual(result, [0.0, 2.5, 4])
-
-    def test_int_list_preserved(self) -> None:
-        """A list of ints is returned unchanged."""
-        if IGNORE_TESTS:
-            return
-        result = NLCurve._parseChangepoints([1, 2, 3])
-        self.assertEqual(result, [1, 2, 3])
-
-    def test_mixed_int_float_list_accepted(self) -> None:
-        """Lists containing both ints and floats are accepted."""
-        if IGNORE_TESTS:
-            return
-        result = NLCurve._parseChangepoints([0, 1.5, 2])
-        self.assertEqual(result, [0, 1.5, 2])
-
-    def test_invalid_string_raises(self) -> None:
-        """A string that is not a valid literal raises ValueError."""
-        if IGNORE_TESTS:
-            return
-        with self.assertRaises(ValueError):
-            NLCurve._parseChangepoints("not a list")
-
-    def test_non_list_type_raises(self) -> None:
-        """Passing a non-string, non-list value raises ValueError."""
-        if IGNORE_TESTS:
-            return
-        for value in [123, 4.5, None]:
-            with self.assertRaises(ValueError):
-                NLCurve._parseChangepoints(value)  # type: ignore
-
-    def test_list_with_non_numeric_element_rejected(self) -> None:
-        """A list containing a string element raises ValueError."""
-        if IGNORE_TESTS:
-            return
-        with self.assertRaises(ValueError):
-            NLCurve._parseChangepoints([1, "two"])
-
-
-
-class TestDataframeColumns(unittest.TestCase):
-    """Tests for NLCurve.getDataframeColumns()."""
-
-    def test_returns_dataframe_with_expected_columns(self) -> None:
-        """The returned DataFrame has boundaries, aggregation_type, system_id."""
-        if IGNORE_TESTS:
-            return
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = _write_csv(
-                tmpdir,
-                [{
-                    cn.COL_CHANGEPOINTS: [2.0, 5.0],
-                    cn.COL_AGGREGATION_TYPE: "model",
-                    cn.COL_SYSTEM_ID: _biomd_name(1),
-                    cn.COL_COUNT: 10,
-                }],
-            )
-            df = NLCurve.getDataframeColumns(path)
-            self.assertEqual(list(df.columns), [
-                cn.COL_BOUNDARIES, cn.COL_AGGREGATION_TYPE, cn.COL_SYSTEM_ID,
-            ])
-
-    def test_boundaries_prepend_zero_and_append_endtime_minus_one(self) -> None:
-        """Boundaries are constructed as [0.0] + changepoints + [num_timepoint - 1]."""
-        if IGNORE_TESTS:
-            return
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = _write_csv(
-                tmpdir,
-                [{
-                    cn.COL_CHANGEPOINTS: [2.0, 5.0],
-                    cn.COL_AGGREGATION_TYPE: "model",
-                    cn.COL_SYSTEM_ID: _biomd_name(1),
-                    cn.COL_COUNT: 10,
-                }],
-            )
-            df = NLCurve.getDataframeColumns(path)
-            self.assertEqual(df[cn.COL_BOUNDARIES].iloc[0], [0.0, 2.0, 5.0, 9])
-
-    def test_missing_path_raises_valueerror(self) -> None:
-        """Passing a non-existent path raises ValueError."""
-        if IGNORE_TESTS:
-            return
-        with self.assertRaises(ValueError):
-            NLCurve.getDataframeColumns("/tmp/does_not_exist.csv")
-
-    def test_missing_columns_raises_valueerror(self) -> None:
-        """A CSV missing one of the required columns raises ValueError."""
-        if IGNORE_TESTS:
-            return
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = os.path.join(tmpdir, "predictions.csv")
-            pd.DataFrame([{"foo": 1}]).to_csv(path, index=False)
-            with self.assertRaises(ValueError):
-                NLCurve.getDataframeColumns(path)
-
-
-
 class TestFromPSDPredictions(unittest.TestCase):
     """Tests for NLCurve.fromPSDPredictions()."""
 
     def _make_csv(self, tmpdir: str, rows: list) -> str:
-        path = os.path.join(tmpdir, "predictions.csv")
+        filename = f"dummy{np.random.randint(1, 100000)}_predictions.csv"
+        path = os.path.join(tmpdir, filename)
         pd.DataFrame(rows).to_csv(path, index=False)
         return path
 
@@ -396,7 +250,7 @@ class TestFromPSDPredictions(unittest.TestCase):
                     cn.COL_COUNT: 10,
                 }],
             )
-            nl, _ = NLCurve.fromPSDPredictions(path, model_num=1)
+            nl = NLCurve.fromPSDPredictions(path, model_num=1)
             self.assertIsInstance(nl, NLCurve)
 
     def test_species_level_filters_by_name(self) -> None:
@@ -408,20 +262,20 @@ class TestFromPSDPredictions(unittest.TestCase):
                 tmpdir,
                 [
                     {
-                        cn.COL_CHANGEPOINTS: [2.0],
+                        cn.COL_CHANGEPOINTS: [2],
                         cn.COL_AGGREGATION_TYPE: "S1",
                         cn.COL_SYSTEM_ID: _biomd_name(1),
                         cn.COL_COUNT: 5,
                     },
                     {
-                        cn.COL_CHANGEPOINTS: [3.0, 4.0],
+                        cn.COL_CHANGEPOINTS: [3, 4],
                         cn.COL_AGGREGATION_TYPE: cn.COL_AGGREGATION_TYPE_MODEL,
                         cn.COL_SYSTEM_ID: _biomd_name(1),
                         cn.COL_COUNT: 5,
                     },
                 ],
             )
-            nl, _ = NLCurve.fromPSDPredictions(path, model_num=1, species_name="S1")
+            nl = NLCurve.fromPSDPredictions(path, model_num=1, species_name="S1")
             self.assertIn(2.0, nl._boundaries)
 
     def test_no_matching_rows_raises(self) -> None:
@@ -458,7 +312,6 @@ class TestPlotNLCurve(unittest.TestCase):
         finally:
             plt.close(fig)
 
-@unittest.skipUnless(False, "Skipping end-to-end tests for now.")
 class TestEnd2End(unittest.TestCase):
     """Tests for NLCurve.fromPSDPredictions()."""
 
@@ -466,8 +319,8 @@ class TestEnd2End(unittest.TestCase):
     model_num = 42
     model_num = 10
     model_num = 343
-    model_path = makeCSVPaths(max_fractional_reduction=0.001, repeat=1)[0]
-    nl_curve = NLCurve.fromPSDPredictions(str(model_path), model_num=model_num)[0]
+    model_path = makeCSVPaths(max_fractional_reduction=0.001, repeat=3)[0]
+    nl_curve = NLCurve.fromPSDPredictions(str(model_path), model_num=model_num)
 
     def test_model_level_creates_curve(self) -> None:
         """Selecting model-level aggregation returns a valid NLCurve."""
@@ -499,7 +352,7 @@ class TestEnd2End(unittest.TestCase):
         import matplotlib.axes  # noqa: E402  # type: ignore
         model_path = makeCSVPaths(max_fractional_reduction=0.001, repeat=3)[0]
         nl_curve = NLCurve.fromPSDPredictions(str(model_path),
-                model_num=self.model_num)[0]
+                model_num=self.model_num)
         nl = self.nl_curve
         fig = plt.figure()
         try:
@@ -508,11 +361,6 @@ class TestEnd2End(unittest.TestCase):
             nl_curve.plotNLCurve(ax=ax, data_src="test2")
         finally:
             plt.close(fig)
-
-    def test_distance_between_curves(self) -> None:
-        """The distance between two curves is computed correctly."""
-        if IGNORE_TESTS:
-            return
         
     def test_distance(self) -> None:
         """Multiple calls to plotNLCurve do not raise exceptions."""
@@ -520,7 +368,7 @@ class TestEnd2End(unittest.TestCase):
             return
         model_path = makeCSVPaths(max_fractional_reduction=0.001, repeat=3)[0]
         nl_curve = NLCurve.fromPSDPredictions(str(model_path),
-                model_num=self.model_num)[0]
+                model_num=self.model_num)
         nl = self.nl_curve
         self.assertTrue(np.isclose(nl.dist(nl), nl.dist(nl)))
         distance1 = nl_curve.dist(nl)

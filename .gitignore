@@ -13,6 +13,8 @@ score.csv
 data/*.zip
 data/_*.py
 tests/_*.py
+*.pkl
+archive/
 
 # C extensions
 *.so

@@ -1,18 +1,22 @@
 '''Utilities'''
 
-from pathlib import Path
 import src.constants as cn
 
+import ast  # type: ignore
 import os
+import pickle
 import pandas as pd  # type: ignore
-from typing import Optional, List
+from pathlib import Path
+from typing import Optional, List, Union, cast
+import re
 
 
 PATTERN = "piecewise_predictions__numpoint*.csv"
 PSD_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+_NP_INT64_PATTERN = re.compile(r'np\.int64\(([^)]*)\)')
 
 
-def makeCSVPaths(max_fractional_reduction: float, repeat: Optional[int] = None) -> List[Path]:
+def makeCSVPaths(max_fractional_reduction: float, repeat: Optional[int] = None) -> List[str]:
     """Provide a list of CSV paths corresponding to the arguments.
 
     Args:
@@ -35,22 +39,33 @@ def makeCSVPaths(max_fractional_reduction: float, repeat: Optional[int] = None) 
         )
     else:
         file_selection2_str = None
-
     sections = [file_selection1_str]
     if isinstance(file_selection2_str, str):
         sections.append(file_selection2_str)
-    csv_files: List[str] = os.listdir(PSD_DATA_DIR)
+    csv_files: List[str] = [f for f in os.listdir(cn.DATA_DIR) if f.endswith(".csv")]
     for file_selection_str in sections:
         csv_files = [f for f in csv_files if file_selection_str in f]
-    return [PSD_DATA_DIR / f for f in csv_files]
+    results = [os.path.join(cn.DATA_DIR, f) for f in csv_files]
+    return results
 
 
-def getPSDPredictionDF(max_fractional_reduction: float, repeat: Optional[int] = None) -> pd.DataFrame:
-    """Get a DataFrame from piecewise prediction CSVs filtered by max_fractional_reduction and repeat.
+def getPSDPredictionDF(
+            max_fractional_reduction: Optional[float] = None,
+            repeat: Optional[int] = None,
+            csv_files: Optional[List[Union[Path, str]]] = None,
+            is_model: bool = True,
+            ) -> pd.DataFrame:
+    """Get a DataFrame from piecewise prediction CSVs.
+    This can be done in two ways: either by providing a list of CSV files,
+        or by filtering by max_fractional_reduction and repeat. One of the arguments
+        csv_files or max_fractional_reduction must be provided.
 
     Args:
         max_fractional_reduction (float): _description_
+        csv_files (Optional[List[Union[Path, str]]], optional): List of CSV files to read. If None, then max_fractional_reduction and repeat are used to filter the files.
+            Defaults to None.
         repeat (int, optional): Which repetition file to use. If None, then all repetitions are used. Defaults to None.
+        is_model (bool, optional): Whether to filter for model-level aggregations. Defaults to True.
 
     Raises:
         FileNotFoundError: If no file is found
@@ -58,22 +73,45 @@ def getPSDPredictionDF(max_fractional_reduction: float, repeat: Optional[int] = 
     Returns:
         pd.DataFrame
     """
-    csv_files = makeCSVPaths(max_fractional_reduction=max_fractional_reduction,
-            repeat=repeat)
+    if (csv_files is None) and (max_fractional_reduction is None):
+        raise ValueError("Either csv_files or max_fractional_reduction must be provided.")
+    if (csv_files is not None) and (max_fractional_reduction is not None):
+        raise ValueError("Ambiguous: both csv_files and max_fractional_reduction are provided. Please provide only one.")
+    #
+    if csv_files is None:
+        csv_files = []
+        csv_files = makeCSVPaths(max_fractional_reduction=max_fractional_reduction,  # type: ignore
+                repeat=repeat)
+    if len(csv_files) == 0: # type: ignore
+        raise FileNotFoundError(f"No CSV files found for max_fractional_reduction={max_fractional_reduction} and repeat={repeat}.") 
     # Get the data
     frames: list[pd.DataFrame] = []
-    for path in csv_files:
-        df = pd.read_csv(path)
-        df[cn.COL_CSV_FILE] = path.name
+    for path in cast(List[Union[Path, str]], csv_files):
+        splits = str(path).split("/")
+        filename = splits[-1].split(".csv")[0]
+        pkl_path = os.path.join(cn.DATA_DIR,  f"{filename}.pkl")
+        if os.path.exists(pkl_path):
+            with open(pkl_path, "rb") as f:
+                df = pickle.load(f)
+        else:
+            df = pd.read_csv(path)
+            df[cn.COL_BOUNDARIES] = df.apply(lambda row: [0] + 
+                _parseChangepoints(row[cn.COL_CHANGEPOINTS]) + [row[cn.COL_COUNT] -1], axis=1)
+            with open(pkl_path, "wb") as f:
+                pickle.dump(df, f)
+        df[cn.COL_CSV_FILE] = str(path)
         frames.append(df)
     merged_df = pd.concat(frames, ignore_index=True)
-    merged_df = merged_df[merged_df["aggregation_type"] == "model"].reset_index(drop=True)
+    if is_model:
+        merged_df = merged_df[merged_df["aggregation_type"] == "model"].reset_index(drop=True)
     # Check result
-    sel = merged_df["max_fractional_reduction"] == float(max_fractional_reduction)
-    if not sel.all():
-        raise ValueError(
-            f"Some rows in the merged DataFrame do not match max_fractional_reduction={max_fractional_reduction}"
-        )
+    if max_fractional_reduction is not None:
+        sel = merged_df["max_fractional_reduction"] == float(max_fractional_reduction)
+        if not sel.all():
+            raise ValueError(
+                f"Some rows in the merged DataFrame do not match max_fractional_reduction={max_fractional_reduction}"
+            )
+    #
     return merged_df
 
 def codedstrToDict(codedstr: str) -> dict:
@@ -115,3 +153,39 @@ def dictToCodedstr(dct: dict, convert_strs : Optional[List[str]] = None) -> str:
                     dct[key] = new_value
     stg = "__".join(f"{k}_{v}" for k, v in dct.items())
     return stg
+
+def _parseChangepoints(value) -> List[Union[int, float]]:
+    """Parse a changepoints cell value into a list of numbers.
+
+    Handles both Python lists (already parsed from pickle/JSON) and string
+    representations like "[0.0, 2.5]" that come from CSV round-trips via pandas.
+
+    Args:
+        value: A Python list or a string representation of one.
+
+    Returns:
+        List of int/float values suitable for SegmentAnalyzer.__init__.
+
+    Raises:
+        ValueError: If the value cannot be converted to a list of numbers.
+    """
+    if isinstance(value, str):
+        candidates = [value]
+        normalized = _NP_INT64_PATTERN.sub(r'\1', value)
+        if normalized != value:
+            candidates.append(normalized)
+        last_err: Optional[Exception] = None
+        for s in candidates:
+            try:
+                return cast(List[Union[int, float]], ast.literal_eval(s))
+            except (ValueError, SyntaxError) as e:  # noqa: PERF203
+                last_err = e
+        raise ValueError(
+            f"Cannot parse changepoints string '{value}': {last_err!r}"
+        ) from last_err
+    if isinstance(value, list):
+        if all(isinstance(x, (int, float)) for x in value):
+            return value
+    raise ValueError(
+        f"Expected changepoints to be a list or string, got "
+        f"{type(value).__name__}: {value!r}")
