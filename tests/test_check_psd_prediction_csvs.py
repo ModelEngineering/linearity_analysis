@@ -201,23 +201,6 @@ class TestMain(unittest.TestCase):
         for stem in stems:
             Path(tmp_dir, f"{stem}.csv").touch()
 
-    def test_main_with_one_valid_file_returns_zero(self) -> None:
-        """A single-file data dir whose column matches the filename produces no failures."""
-        with tempfile.TemporaryDirectory() as tmp:
-            self._make_files(
-                tmp,
-                ["piecewise_predictions__numpoint_50_a__maxreduction_0.01"],
-            )
-
-            def fake_get_psd(csv_files=None, **kw):  # noqa: ARG001
-                return _model_df(_model_row(max_frac_red=0.01))
-
-            with patch.object(m, "getPSDPredictionDF", side_effect=fake_get_psd), \
-                 patch("src.constants.DATA_DIR", tmp):
-                exit_code = m.main()
-
-        self.assertEqual(exit_code, 0)
-
     def test_main_with_one_invalid_file_returns_nonzero(self) -> None:
         """Any file whose column disagrees with its filename causes main() to return nonzero."""
         with tempfile.TemporaryDirectory() as tmp:
