@@ -77,7 +77,7 @@ class PiecewiseSystemDiscovery(object):
         self.max_fractional_reduction = max_fractional_reduction
         sd_kwargs["poly_degree"] = sd_kwargs.get("poly_degree", 1)
         self._sd_kwargs = sd_kwargs
-        self.changepoints = changepoints  # if None, will be determined during fit()a
+        self.changepoints : Optional[List[int]] = changepoints  # if None, will be determined during fit()a
         self._is_changepoint_removal = is_changepoint_removal
         self._is_changepoints_from_file = is_changepoints_from_file
 
@@ -626,7 +626,7 @@ class PiecewiseSystemDiscovery(object):
                 changepoints = dff.loc[0, cn.COL_CHANGEPOINTS] 
                 if isinstance(changepoints, str):
                     changepoints = eval(changepoints)  # type: ignore
-                self.changepoints = changepoints
+                self.changepoints = cast(List[int], changepoints)
         if self.changepoints is None:
             if self._is_changepoint_removal:
                 self.changepoints = self._makeChangepointsWithElimination()

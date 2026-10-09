@@ -89,12 +89,12 @@ class TestGetPSDPredictionDFSingleFile(unittest.TestCase):
         self.assertIn("csv_file", df.columns.tolist())
         self.assertTrue(all(expected_name in v for v in df["csv_file"].tolist()))
 
+    FILENAME = "piecewise_predictions__numpoint_100000__threshold_0.001__removal_1__maxreduction_1e-2__manycp_0__repeat_1.pkl"
+    PKL_PATH = os.path.join(cn.DATA_DIR, FILENAME)
+    @unittest.skipUnless(os.path.exists(PKL_PATH), f"{FILENAME} not found")
     def test_single_match_aggregation_type_model(self) -> None:
         """All returned rows have aggregation_type == 'model' (species rows are filtered out)."""
-        #payload = _mixed_df(0.001)
-        #with patch("util.os.listdir", return_value=[csv_name]), \
-        #        patch("pandas.read_csv", return_value=payload):
-        df = getPSDPredictionDF(0.01)
+        df = getPSDPredictionDF(max_fractional_reduction=0.01, repeat=1)
         self.assertTrue((df["aggregation_type"] == "model").all())
 
 
