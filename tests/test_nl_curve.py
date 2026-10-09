@@ -324,7 +324,7 @@ class TestEnd2End(unittest.TestCase):
         model_path = None
     else:
         model_path = model_paths[0]
-    nl_curve = NLCurve.fromPSDPredictions(str(model_path), model_num=model_num)
+        nl_curve = NLCurve.fromPSDPredictions(str(model_path), model_num=model_num)
 
     @unittest.skipUnless(model_path is not None, "No model CSV file found for testing.")
     def test_model_level_creates_curve(self) -> None:
@@ -335,6 +335,7 @@ class TestEnd2End(unittest.TestCase):
             self.assertIsInstance(self.nl_curve, NLCurve)
             self.assertGreater(len(self.nl_curve.curve_ser), 0)
 
+    @unittest.skipUnless(model_path is not None, "No model CSV file found for testing.")
     def test_plot_does_not_raise(self) -> None:
         """plotNLCurve executes without raising an exception."""
         if IGNORE_TESTS:
@@ -349,6 +350,7 @@ class TestEnd2End(unittest.TestCase):
         finally:
             plt.close(fig)
 
+    @unittest.skipUnless(model_path is not None, "No model CSV file found for testing.")
     def test_multiple_plots_do_not_raise(self) -> None:
         """Multiple calls to plotNLCurve do not raise exceptions."""
         if IGNORE_TESTS:
@@ -367,6 +369,7 @@ class TestEnd2End(unittest.TestCase):
         finally:
             plt.close(fig)
         
+    @unittest.skipUnless(model_path is not None, "No model CSV file found for testing.")
     def test_distance(self) -> None:
         """Multiple calls to plotNLCurve do not raise exceptions."""
         if IGNORE_TESTS:
