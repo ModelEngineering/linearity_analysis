@@ -29,7 +29,7 @@ _NP_INT64_PATTERN = re.compile(r'np\.int64\(([^)]*)\)')
 
 class NLCurve(object):
 
-    def __init__(self, boundaries: List[Union[int, float]], name: Optional[str] = None) -> None:
+    def __init__(self, boundaries: List[int], name: Optional[str] = None) -> None:
         """
 
         Args:

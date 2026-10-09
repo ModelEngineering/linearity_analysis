@@ -85,6 +85,7 @@ class PiecewiseSystemDiscovery(object):
         self._subsequence_boundaries: List[Tuple[float, float]] = []
         self._subsequence_lengths: List[int] = []
         self._is_fitted: bool = False
+        self.boundaries : Optional[List[int]] = None  # start/end row indices for each segment, including 0 and n_rows
         # Baseline (whole-timecourse) SystemDiscovery model, fit lazily so construction stays cheap
         # when ``fit()`` is never invoked.  Accessed via :meth:`_getBaselineSystemDiscovery`.
         self._sys_disc: Optional[SystemDiscovery] = None
@@ -610,23 +611,58 @@ class PiecewiseSystemDiscovery(object):
         else:
             return self.max_changepoint
 
-    def fit(self) -> 'PiecewiseSystemDiscovery':
+#    def fit(self) -> 'PiecewiseSystemDiscovery':
+#        """Detect change points and fit a ``SystemDiscovery`` model to each segment.
+#
+#        After this call, :attr:`_subsequence_models`, :attr:`_subsequence_boundaries`,
+#        and :attr:`_subsequence_lengths` are populated; :meth:`predict` is available.
+#        The baseline whole-timecourse model is built lazily on first access.
+#        """
+#        if self._is_fitted:
+#            return self
+#        #
+#        if (self.changepoints is None) and self._is_changepoints_from_file:
+#            df = util.getPSDPredictionDF(max_fractional_reduction=self.max_fractional_reduction)
+#            mask = df[cn.COL_SYSTEM_ID] == self.model_name
+#            mask &= df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL
+#            if mask.any():
+#                dff = df[mask]
+#                changepoints = dff.loc[0, cn.COL_CHANGEPOINTS] 
+#                if isinstance(changepoints, str):
+#                    changepoints = eval(changepoints)  # type: ignore
+#                self.changepoints = cast(List[int], changepoints)
+
+    def fit(self, col_accuracy: str = "p50", min_accuracy: float = 0.0) -> 'PiecewiseSystemDiscovery':
         """Detect change points and fit a ``SystemDiscovery`` model to each segment.
 
         After this call, :attr:`_subsequence_models`, :attr:`_subsequence_boundaries`,
         and :attr:`_subsequence_lengths` are populated; :meth:`predict` is available.
         The baseline whole-timecourse model is built lazily on first access.
+
+        Parameters
+        ----------
+        col_accuracy : str, optional
+            Column name for the accuracy metric used to select changepoints from a CSV file. Defaults  
+        min_accuracy : float, optional
+            Minimum accuracy required for a changepoint to be considered valid. Defaults to 0.80.
         """
         if (self.changepoints is None) and self._is_changepoints_from_file:
             df = util.getPSDPredictionDF(max_fractional_reduction=self.max_fractional_reduction)
             mask = df[cn.COL_SYSTEM_ID] == self.model_name
             mask &= df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL
+            mask &= df[col_accuracy] >= min_accuracy
             if mask.any():
+                # FIXME: Min AUC
                 dff = df[mask]
-                changepoints = dff.loc[0, cn.COL_CHANGEPOINTS] 
+                num_changepoint_ser = dff[cn.COL_NUM_CHANGEPOINT]
+                min_changepoint_idx = num_changepoint_ser.idxmin()
+                changepoints = dff.loc[[min_changepoint_idx]][cn.COL_CHANGEPOINTS].values[0]
                 if isinstance(changepoints, str):
                     changepoints = eval(changepoints)  # type: ignore
                 self.changepoints = cast(List[int], changepoints)
+            else:
+                self._is_fitted = False
+                return self
         if self.changepoints is None:
             if self._is_changepoint_removal:
                 self.changepoints = self._makeChangepointsWithElimination()
@@ -634,6 +670,7 @@ class PiecewiseSystemDiscovery(object):
                 self.changepoints = self._makeChangepointsWithoutElimination()
         (self._subsequence_models, self._subsequence_boundaries,
         self._subsequence_lengths) = self._fitSegments(cast(List[int], self.changepoints))
+        self.boundaries = [0] + cast(List[int], self.changepoints) + [self.num_point - 1]
         self._is_fitted = True
         return self
 
