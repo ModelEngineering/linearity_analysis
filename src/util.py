@@ -48,7 +48,6 @@ def makeCSVPaths(max_fractional_reduction: float, repeat: Optional[int] = None) 
     results = [os.path.join(cn.DATA_DIR, f) for f in csv_files]
     return results
 
-
 def getPSDPredictionDF(
             max_fractional_reduction: Optional[float] = None,
             repeat: Optional[int] = None,
