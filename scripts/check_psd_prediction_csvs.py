@@ -50,7 +50,7 @@ def _parse_encoded_metadata(filename_without_ext: str) -> dict | None:
 
     Returns a dict of parsed key/value pairs, or None if no known encoded keys are present.
     """
-    idx = filename_without_ext.find("__maxreduction_")
+    idx = filename_without_ext.find("__numpoint_")
     if idx < 0:
         return None
     # ``idx + 2`` skips the leading "__" so we keep "maxreduction" attached to its value, which is
