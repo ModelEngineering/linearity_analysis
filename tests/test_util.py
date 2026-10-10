@@ -7,7 +7,7 @@ import pandas as pd  # type: ignore
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import util  # noqa: E402
-from util import getPSDPredictionDF, codedstrToDict, dictToCodedstr  # noqa: E402
+from util import getPSDPredictionDF, codedstrToDict, dictToCodedstr, parseFilename, _parseChangepoints  # noqa: E402
 import src.constants as cn  # noqa: E402
 
 
@@ -106,8 +106,8 @@ class TestGetPSDPredictionDFAggregation(unittest.TestCase):
         sel = dictToCodedstr(
             {"maxreduction": 0.003}, convert_strs=["maxreduction"]
         )
-        name1 = f"piecewise_predictions__numpoint_100_a__{sel}.csv"
-        name2 = f"piecewise_predictions__numpoint_100_b__{sel}.csv"
+        name1 = f"piecewise_predictions__numpoint_101__{sel}.csv"
+        name2 = f"piecewise_predictions__numpoint_102__{sel}.csv"
         df1, df2 = _model_df(0.003, n=5), _model_df(0.003, n=7)
         with patch("util.os.listdir", return_value=[name1, name2]), \
                 patch("util.os.path.exists", return_value=False), \
@@ -121,8 +121,8 @@ class TestGetPSDPredictionDFAggregation(unittest.TestCase):
         sel = dictToCodedstr(
             {"maxreduction": 0.003}, convert_strs=["maxreduction"]
         )
-        name1 = f"piecewise_predictions__numpoint_100_a__{sel}.csv"
-        name2 = f"piecewise_predictions__numpoint_100_b__{sel}.csv"
+        name1 = f"piecewise_predictions__numpoint_101__{sel}.csv"
+        name2 = f"piecewise_predictions__numpoint_102__{sel}.csv"
         with patch("util.os.listdir", return_value=[name1, name2]), \
                 patch("util.os.path.exists", return_value=False), \
                 patch("pandas.read_csv", side_effect=[_model_df(0.003, n=1), _model_df(0.003, n=1)]):
@@ -134,7 +134,7 @@ class TestGetPSDPredictionDFAggregation(unittest.TestCase):
         sel = dictToCodedstr(
             {"maxreduction": 0.003}, convert_strs=["maxreduction"]
         )
-        name1 = f"piecewise_predictions__numpoint_100_a__{sel}.csv"
+        name1 = f"piecewise_predictions__numpoint_101__{sel}.csv"
         payload = _mixed_df(0.003)
         with patch("util.os.listdir", return_value=[name1]), \
                 patch("util.os.path.exists", return_value=False), \
@@ -151,8 +151,8 @@ class TestGetPSDPredictionDFRepeatFiltering(unittest.TestCase):
         sel = dictToCodedstr(
             {"maxreduction": 0.001}, convert_strs=["maxreduction"]
         )
-        name_no_repeat = f"piecewise_predictions__numpoint_50_a__{sel}.csv"
-        name_with_repeat = f"piecewise_predictions__numpoint_50_b__{sel}__repeat_1.csv"
+        name_no_repeat = f"piecewise_predictions__numpoint_51__{sel}.csv"
+        name_with_repeat = f"piecewise_predictions__numpoint_52__{sel}__repeat_1.csv"
         with patch("util.os.listdir", return_value=[name_no_repeat, name_with_repeat]), \
                 patch("util.os.path.exists", return_value=False), \
                 patch("pandas.read_csv", side_effect=[_model_df(0.001, n=1), _model_df(0.001, n=1)]):
@@ -165,8 +165,8 @@ class TestGetPSDPredictionDFRepeatFiltering(unittest.TestCase):
             {"maxreduction": 0.001}, convert_strs=["maxreduction"]
         )
         rep_sel = dictToCodedstr({"repeat": 3})
-        name_no_repeat = f"piecewise_predictions__numpoint_50_a__{sel}.csv"
-        name_with_repeat = f"piecewise_predictions__numpoint_50_b__{sel}__{rep_sel}.csv"
+        name_no_repeat = f"piecewise_predictions__numpoint_51__{sel}.csv"
+        name_with_repeat = f"piecewise_predictions__numpoint_52__{sel}__{rep_sel}.csv"
         with patch("util.os.listdir", return_value=[name_no_repeat, name_with_repeat]), \
                 patch("util.os.path.exists", return_value=False), \
                 patch("pandas.read_csv", return_value=_model_df(0.001, n=2)):
@@ -320,6 +320,225 @@ class TestGetCSVPaths(unittest.TestCase):
         with patch("util.os.listdir", return_value=[]):
             paths = util.makeCSVPaths(max_fractional_reduction=0.9999, repeat=99999)
             self.assertEqual(paths, [])
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class TestMakeCSVPathsAdditional(unittest.TestCase):
+    """Additional tests for makeCSVPaths function."""
+
+    def test_makeCSVPaths_with_repeat(self) -> None:
+        """makeCSVPaths includes repeat in the filename when provided."""
+        # The function reads from cn.DATA_DIR directly
+        with patch("os.listdir", return_value=["piecewise_predictions__numpoint_10__maxreduction_1e-3__repeat_5.csv"]),                 patch("os.path.join", side_effect=lambda d, f: d + "/" + f):
+            with patch("src.constants.DATA_DIR", "/fake/path"):
+                paths = util.makeCSVPaths(max_fractional_reduction=0.001, repeat=5)
+                self.assertEqual(len(paths), 1)
+
+    def test_makeCSVPaths_without_repeat(self) -> None:
+        """makeCSVPaths returns paths without requiring repeat in filename."""
+        with patch("os.listdir", return_value=["piecewise_predictions__numpoint_10__maxreduction_1e-3.csv"]),                 patch("os.path.join", side_effect=lambda d, f: d + "/" + f):
+            with patch("src.constants.DATA_DIR", "/fake/path"):
+                paths = util.makeCSVPaths(max_fractional_reduction=0.001, repeat=None)
+                self.assertEqual(len(paths), 1)
+
+
+class TestParseFilename(unittest.TestCase):
+    """Tests for the parseFilename function."""
+
+    def test_parseFilename_basic(self) -> None:
+        """A basic filename is parsed correctly."""
+        filename = "piecewise_predictions__numpoint_100.csv"
+        result = parseFilename(filename)
+        self.assertEqual(result, {"numpoint": "100.csv"})
+
+    def test_parseFilename_with_maxreduction(self) -> None:
+        """A filename with maxreduction is parsed correctly."""
+        filename = "piecewise_predictions__numpoint_100__maxreduction_1e-3.csv"
+        result = parseFilename(filename)
+        self.assertEqual(result, {"numpoint": 100, "maxreduction": "1e-3.csv"})
+
+    def test_parseFilename_with_multiple_params(self) -> None:
+        """A filename with multiple parameters is parsed correctly."""
+        sel = dictToCodedstr({"maxreduction": 0.001, "removal": 1}, convert_strs=["maxreduction"])
+        filename = f"piecewise_predictions__numpoint_100__{sel}.csv"
+        result = parseFilename(filename)
+        self.assertIn("numpoint", result)
+        self.assertEqual(result["maxreduction"], 0.001)
+        # Note: parseFilename keeps ".csv" in the value string
+        self.assertEqual(result["removal"], "1.csv")
+
+    def test_parseFilename_with_repeat(self) -> None:
+        """A filename with repeat parameter is parsed correctly."""
+        sel = dictToCodedstr({"maxreduction": 0.001}, convert_strs=["maxreduction"])
+        rep_sel = dictToCodedstr({"repeat": 3})
+        filename = f"piecewise_predictions__numpoint_100__{sel}__{rep_sel}.csv"
+        result = parseFilename(filename)
+        # Note: parseFilename keeps ".csv" in the value string
+        self.assertEqual(result["repeat"], "3.csv")
+
+    def test_parseFilename_invalid_prefix_raises(self) -> None:
+        """A filename without the expected prefix raises ValueError."""
+        filename = "other_predictions__numpoint_100.csv"
+        with self.assertRaises(ValueError):
+            parseFilename(filename)
+
+    def test_parseFilename_empty_string_raises(self) -> None:
+        """An empty string raises ValueError."""
+        with self.assertRaises(ValueError):
+            parseFilename("")
+
+
+class TestParseChangepoints(unittest.TestCase):
+    """Tests for the _parseChangepoints function."""
+
+    def test_parseChangepoints_list_of_ints(self) -> None:
+        """A list of ints is returned as-is."""
+        result = _parseChangepoints([0, 5, 10])
+        self.assertEqual(result, [0, 5, 10])
+
+    def test_parseChangepoints_list_of_floats_raises(self) -> None:
+        """A list of floats raises ValueError."""
+        with self.assertRaises(ValueError):
+            _parseChangepoints([0.0, 2.5])
+
+    def test_parseChangepoints_string_representation(self) -> None:
+        """A string representation of a list is parsed correctly."""
+        result = _parseChangepoints("[0, 5, 10]")
+        self.assertEqual(result, [0, 5, 10])
+
+    def test_parseChangepoints_string_with_spaces(self) -> None:
+        """A string with spaces is parsed correctly."""
+        result = _parseChangepoints("[0, 5, 10]")
+        self.assertEqual(result, [0, 5, 10])
+
+    def test_parseChangepoints_np_int64_string(self) -> None:
+        """A numpy.int64 string representation is parsed correctly."""
+        result = _parseChangepoints("np.int64(5)")
+        self.assertEqual(result, 5)
+
+    def test_parseChangepoints_np_int64_with_value(self) -> None:
+        """A numpy.int64 string with actual value is parsed correctly."""
+        result = _parseChangepoints("np.int64(10)")
+        self.assertEqual(result, 10)
+
+    def test_parseChangepoints_empty_list(self) -> None:
+        """An empty list is returned as-is."""
+        result = _parseChangepoints([])
+        self.assertEqual(result, [])
+
+    def test_parseChangepoints_invalid_string_raises(self) -> None:
+        """An invalid string raises ValueError."""
+        with self.assertRaises(ValueError):
+            _parseChangepoints("not_a_list")
+
+    def test_parseChangepoints_none_raises(self) -> None:
+        """None raises ValueError."""
+        with self.assertRaises(ValueError):
+            _parseChangepoints(None)
+
+    def test_parseChangepoints_int_raises(self) -> None:
+        """An integer raises ValueError."""
+        with self.assertRaises(ValueError):
+            _parseChangepoints(42)
+
+    def test_parseChangepoints_dict_raises(self) -> None:
+        """A dict raises ValueError."""
+        with self.assertRaises(ValueError):
+            _parseChangepoints({"key": "value"})
+
+
+class TestGetPSDPredictionDFEdgeCases(unittest.TestCase):
+    """Additional edge case tests for getPSDPredictionDF."""
+
+    def test_csv_files_provided_no_max_fractional_reduction(self) -> None:
+        """When csv_files is provided, max_fractional_reduction need not be given."""
+        sel = dictToCodedstr(
+            {"maxreduction": 0.001}, convert_strs=["maxreduction"]
+        )
+        csv_name = f"piecewise_predictions__numpoint_100__{sel}.csv"
+        payload = _model_df(0.001, n=2)
+        with patch("util.os.path.exists", return_value=False),                 patch("pandas.read_csv", return_value=payload):
+            df = getPSDPredictionDF(csv_files=[csv_name])
+        self.assertIsInstance(df, pd.DataFrame)
+        self.assertEqual(len(df), 2)
+
+    def test_both_csv_files_and_max_fractional_reduction_raises(self) -> None:
+        """Providing both csv_files and max_fractional_reduction raises ValueError."""
+        sel = dictToCodedstr(
+            {"maxreduction": 0.001}, convert_strs=["maxreduction"]
+        )
+        csv_name = f"piecewise_predictions__numpoint_100__{sel}.csv"
+        with self.assertRaises(ValueError):
+            getPSDPredictionDF(csv_files=[csv_name], max_fractional_reduction=0.001)
+
+    def test_neither_csv_files_nor_max_fractional_reduction_raises(self) -> None:
+        """Providing neither csv_files nor max_fractional_reduction raises ValueError."""
+        with self.assertRaises(ValueError):
+            getPSDPredictionDF()
+
+    def test_is_model_false_preserves_species_rows(self) -> None:
+        """is_model=False allows species rows to be included."""
+        payload = _mixed_df(0.001)
+        sel = dictToCodedstr(
+            {"maxreduction": 0.001}, convert_strs=["maxreduction"]
+        )
+        csv_name = f"piecewise_predictions__numpoint_100__{sel}.csv"
+        with patch("util.os.path.exists", return_value=False),                 patch("pandas.read_csv", return_value=payload):
+            df = getPSDPredictionDF(csv_files=[csv_name], is_model=False)
+        self.assertEqual(len(df), 2)
+        self.assertEqual(sum(df["aggregation_type"] == "species"), 1)
+        self.assertEqual(sum(df["aggregation_type"] == "model"), 1)
+
+
+class TestCodedstrToDictEdgeCases(unittest.TestCase):
+    """Additional edge case tests for codedstrToDict."""
+
+    def test_value_is_boolean_true(self) -> None:
+        """A boolean 'True' value is evaluated correctly."""
+        result = codedstrToDict("key_True")
+        self.assertEqual(result, {"key": True})
+
+    def test_value_is_boolean_false(self) -> None:
+        """A boolean 'False' value is evaluated correctly."""
+        result = codedstrToDict("key_False")
+        self.assertEqual(result, {"key": False})
+
+    def test_value_is_none(self) -> None:
+        """A 'None' value is evaluated correctly."""
+        result = codedstrToDict("key_None")
+        self.assertEqual(result, {"key": None})
+
+    def test_value_is_float(self) -> None:
+        """A float value is evaluated correctly."""
+        result = codedstrToDict("key_3.14")
+        self.assertAlmostEqual(result["key"], 3.14)
+
+    def test_empty_value_after_underscore(self) -> None:
+        """An empty value after underscore is handled."""
+        result = codedstrToDict("key_")
+        self.assertEqual(result, {"key": ""})
+
+    def test_multiple_empty_parts(self) -> None:
+        """Multiple trailing separators are handled."""
+        result = codedstrToDict("key1_val1______")
+        self.assertEqual(result, {"key1": "val1"})
+
+
+class TestDictToCodedstrEdgeCases(unittest.TestCase):
+    """Additional edge case tests for dictToCodedstr."""
+
+    def test_convert_strs_empty_list(self) -> None:
+        """An empty convert_strs list works like the original function."""
+        result = dictToCodedstr({"a": 1}, convert_strs=[])
+        self.assertEqual(result, "a_1")
+
+    def test_value_with_multiple_underscores(self) -> None:
+        """Values with multiple underscores are preserved (but break round-trip)."""
+        result = dictToCodedstr({"key": "a_b_c"})
+        self.assertEqual(result, "key_a_b_c")
 
 
 if __name__ == "__main__":

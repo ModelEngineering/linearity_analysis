@@ -48,6 +48,21 @@ def makeCSVPaths(max_fractional_reduction: float, repeat: Optional[int] = None) 
     results = [os.path.join(cn.DATA_DIR, f) for f in csv_files]
     return results
 
+def parseFilename(filename: str) -> dict:
+    """Parse a piecewise predictions filename into its metadata components.
+
+    Args:
+        filename (str): Filename to parse.
+
+    Returns:
+        dict: Dictionary containing the parsed metadata.
+    """
+    KEWORD = "piecewise_predictions__"
+    if not filename.startswith(KEWORD):
+        raise ValueError(f"Filename {filename} does not start with expected prefix '{KEWORD}'.")
+    codedstr = filename.split("piecewise_predictions__")[-1]
+    return codedstrToDict(codedstr)
+
 def getPSDPredictionDF(
             max_fractional_reduction: Optional[float] = None,
             repeat: Optional[int] = None,
@@ -89,6 +104,7 @@ def getPSDPredictionDF(
         splits = str(path).split("/")
         filename = splits[-1].split(".csv")[0]
         pkl_path = os.path.join(cn.DATA_DIR,  f"{filename}.pkl")
+        dct = parseFilename(filename)
         if os.path.exists(pkl_path):
             with open(pkl_path, "rb") as f:
                 df = pickle.load(f)
@@ -96,8 +112,11 @@ def getPSDPredictionDF(
             df = pd.read_csv(path)
             df[cn.COL_CHANGEPOINTS] = df.apply(lambda row: 
                     _parseChangepoints(row[cn.COL_CHANGEPOINTS]), axis=1)
-            df[cn.COL_BOUNDARIES] = df.apply(lambda row: [0]
-                    + row[cn.COL_CHANGEPOINTS] + [row[cn.COL_COUNT]-1], axis=1)
+            try:
+                df[cn.COL_BOUNDARIES] = df.apply(lambda row: [0]
+                    + row[cn.COL_CHANGEPOINTS] + [dct["numpoint"]-1], axis=1)
+            except Exception as e:
+                import pdb; pdb.set_trace()
             with open(pkl_path, "wb") as f:
                 pickle.dump(df, f)
         df[cn.COL_CSV_FILE] = str(path)

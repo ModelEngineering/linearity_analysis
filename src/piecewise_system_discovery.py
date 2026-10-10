@@ -652,11 +652,15 @@ class PiecewiseSystemDiscovery(object):
             mask &= df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL
             mask &= df[col_accuracy] >= min_accuracy
             if mask.any():
-                # FIXME: Min AUC
                 dff = df[mask]
-                num_changepoint_ser = dff[cn.COL_NUM_CHANGEPOINT]
-                min_changepoint_idx = num_changepoint_ser.idxmin()
-                changepoints = dff.loc[[min_changepoint_idx]][cn.COL_CHANGEPOINTS].values[0]
+                # Try to use auc column if it exists, otherwise fall back to num_changepoint
+                if cn.COL_AUC in dff.columns:
+                    auc_ser = dff[cn.COL_AUC]
+                    best_idx = auc_ser.idxmin()
+                else:
+                    # Fall back to minimizing num_changepoint if auc not available
+                    best_idx = dff[cn.COL_NUM_CHANGEPOINT].idxmin()
+                changepoints = dff.loc[[best_idx]][cn.COL_CHANGEPOINTS].values[0]
                 if isinstance(changepoints, str):
                     changepoints = eval(changepoints)  # type: ignore
                 self.changepoints = cast(List[int], changepoints)

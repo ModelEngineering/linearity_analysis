@@ -10,8 +10,6 @@ Two CAF curves are compatible if there last boundary is the same.
 The distance between two CAF curves is the area between them.
 """
 
-import ast  # type: ignore
-import re  # type: ignore
 import src.constants as cn
 from src.model import Model  # type: ignore
 import src.util as util  # type: ignore
@@ -19,12 +17,10 @@ import matplotlib  # type: ignore
 import matplotlib.axes  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
-import os  # type: ignore
 import pandas as pd # type: ignore
 from typing import List, Union, Optional, cast, Tuple # type: ignore
 
 
-_NP_INT64_PATTERN = re.compile(r'np\.int64\(([^)]*)\)')
 
 
 class NLCurve(object):
@@ -42,11 +38,12 @@ class NLCurve(object):
         self._boundaries = list(np.sort(boundaries))
         self._segment_arr = np.diff(self._boundaries)  # lengths of segments between boundaries
         self.curve_ser = self._makeNLCurve()
+        self.auc = self._calculateAUC()
 
     def __repr__(self) -> str:
         return f"NLCurve(NLCurve={self.curve_ser})"
 
-    def calculateAUC(self) -> float:
+    def _calculateAUC(self) -> float:
         """Calculates the area under the NLCurve.
 
         Returns:
@@ -130,6 +127,8 @@ class NLCurve(object):
         if segment_frequency_ser.empty:
             return pd.Series(dtype=float)
         density_ser = segment_frequency_ser.copy()
+        if self._boundaries[-1] == 0:
+            import pdb; pdb.set_trace()
         density_ser.index = density_ser.index.to_numpy() / self._boundaries[-1]  # Normalize by the last boundary
         density_ser = density_ser*density_ser.index.to_numpy()  # Multiply by the normalized segment lengths to get density
         density_ser = density_ser.sort_index()
@@ -181,9 +180,9 @@ class NLCurve(object):
         ##
         def makeLegend() -> str:
             if data_src is not None:
-                legend_text = f"{data_src}: {self.calculateAUC():.2f}"
+                legend_text = f"{data_src}: {self._calculateAUC():.2f}"
             else:
-                legend_text = f"Model: {self.calculateAUC():.2f}"
+                legend_text = f"Model: {self._calculateAUC():.2f}"
             return legend_text
         ##
         if ax is None:
