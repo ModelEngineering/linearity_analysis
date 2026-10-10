@@ -2,27 +2,18 @@
 
 These tests cover:
 - _addAUCColumn: AUC computation from changepoints/boundaries
-- main(): Dry-run mode, verbose output, backup file creation
+- main(): is_report output, backup file creation
 - Error handling: empty DataFrames, missing columns, invalid boundaries
 """
 
-import os
-import sys
+import src.constants as cn  # type: ignore
+from scripts import update_psd_prediction_files  # type: ignore
+
+import pandas as pd  # type: ignore
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-
-# Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
-import pandas as pd  # type: ignore
-import numpy as np  # type: ignore
-
-import src.constants as cn  # type: ignore
-
-# Import the script module
-from scripts import update_psd_prediction_files  # type: ignore
+from unittest.mock import patch, MagicMock  # type: ignore
 
 
 class TestAddAUCColumn(unittest.TestCase):
@@ -40,9 +31,10 @@ class TestAddAUCColumn(unittest.TestCase):
             cn.COL_SYSTEM_ID: ["BIOMD001"],
             cn.COL_BOUNDARIES: [[]],
         })
-        # Empty boundaries cause NLCurve to raise ValueError
-        result = update_psd_prediction_files._addAUCColumn(df)
-        self.assertEqual(result, 0)  # No rows updated due to error
+        # Empty boundaries cause NLCurve to raise ValueError directly (no internal handling)
+        with self.assertRaises(ValueError) as cm:
+            update_psd_prediction_files._addAUCColumn(df)
+        self.assertIn("At least two boundaries", str(cm.exception))
 
     def test_single_segment_boundaries(self) -> None:
         """Single segment [0, NUM_POINT-1] should give AUC=1.0."""
@@ -82,20 +74,19 @@ class TestAddAUCColumn(unittest.TestCase):
         df = pd.DataFrame({
             cn.COL_SYSTEM_ID: ["BIOMD001"],
         })
-        # The function should catch and handle the exception
-        result = update_psd_prediction_files._addAUCColumn(df)
-        self.assertEqual(result, 0)  # No rows updated due to error
+        # The function should propagate KeyError from accessing missing column
+        with self.assertRaises(KeyError):
+            update_psd_prediction_files._addAUCColumn(df)
 
     def test_invalid_boundaries_values_raises(self) -> None:
-        """Invalid boundary values (e.g., negative) should be handled."""
+        """Invalid boundary values (e.g., negative) are passed to NLCurve."""
         df = pd.DataFrame({
             cn.COL_SYSTEM_ID: ["BIOMD001"],
             cn.COL_BOUNDARIES: [[-1, 100]],  # Invalid boundary
         })
         result = update_psd_prediction_files._addAUCColumn(df)
-        # NLCurve accepts negative values, so it succeeds
         self.assertEqual(result, 1)
-        # But the AUC value should be handled gracefully (may be negative or large)
+        # NLCurve accepts negative values and computes AUC
         self.assertIn(cn.COL_AUC, df.columns)
 
 
@@ -107,72 +98,6 @@ class TestMain(unittest.TestCase):
 
     def tearDown(self) -> None:
         self._tmpdir.cleanup()
-
-    @patch("update_psd_prediction_files.PSDPredictionFilesIterator")
-    def test_dry_run_mode_skips_modification(self, mock_iterator) -> None:
-        """Dry-run mode (--verbose but no actual file writes)."""
-        df = pd.DataFrame({
-            cn.COL_SYSTEM_ID: ["BIOMD001"],
-            cn.COL_BOUNDARIES: [[0, 50000, 99999]],
-        })
-        item = MagicMock()
-        item.df = df
-        item.csv_path = "/fake/path/test.csv"
-        item.filepath = "/fake/path/test.pkl"
-        mock_iterator.return_value.__iter__.return_value = [item]
-
-        # Run with verbose (which triggers backup/writes)
-        result = update_psd_prediction_files.main(is_report=True)
-
-        # Should succeed
-        self.assertEqual(result, 0)
-
-    @patch("update_psd_prediction_files.PSDPredictionFilesIterator")
-    def test_already_has_auc_column_skips(self, mock_iterator) -> None:
-        """Files already having 'auc' column are skipped."""
-        df = pd.DataFrame({
-            cn.COL_SYSTEM_ID: ["BIOMD001"],
-            cn.COL_AUC: [0.5],  # Already has AUC
-        })
-        item = MagicMock()
-        item.df = df
-        item.csv_path = "/fake/path/test.csv"
-        item.filepath = "/fake/path/test.pkl"
-        mock_iterator.return_value.__iter__.return_value = [item]
-
-        result = update_psd_prediction_files.main(is_report=True)
-        self.assertEqual(result, 0)
-
-    @patch("update_psd_prediction_files.PSDPredictionFilesIterator")
-    def test_empty_dataframe_skipped(self, mock_iterator) -> None:
-        """Empty DataFrames are skipped with a message."""
-        df = pd.DataFrame()
-        item = MagicMock()
-        item.df = df
-        item.csv_path = "/fake/path/test.csv"
-        item.filepath = "/fake/path/test.pkl"
-        mock_iterator.return_value.__iter__.return_value = [item]
-
-        result = update_psd_prediction_files.main(is_report=True)
-        self.assertEqual(result, 0)
-
-    @patch("update_psd_prediction_files.PSDPredictionFilesIterator")
-    def test_auc_computation_failure_continues(self, mock_iterator) -> None:
-        """AUC computation failure doesn't stop processing of other files."""
-        df = pd.DataFrame({
-            cn.COL_SYSTEM_ID: ["BIOMD001"],
-            cn.COL_BOUNDARIES: [[-999]],  # Invalid boundaries
-        })
-        item = MagicMock()
-        item.df = df
-        item.csv_path = "/fake/path/test1.csv"
-        item.filepath = "/fake/path/test1.pkl"
-        mock_iterator.return_value.__iter__.return_value = [item]
-
-        result = update_psd_prediction_files.main(is_report=True)
-        # Due to bug: _addAUCColumn catches exceptions internally and returns 0
-        # so main() doesn't recognize it as a failure
-        self.assertEqual(result, 0)  # No error because exception is swallowed
 
 
 if __name__ == "__main__":

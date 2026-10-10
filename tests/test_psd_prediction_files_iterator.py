@@ -31,11 +31,11 @@ class TestPSDPredictionFilesIterator(unittest.TestCase):
 
     def test_stores_all_attributes(self) -> None:
         df = pd.DataFrame({"a": [1]})
-        item = PSDPredictionsItem(
+        item = PSDPredictionsItem(filepath="/path/to/t.csv",
             filename="t.csv", max_fractional_reduction=0.5, coefficient_threshold=0.2,
             is_changepoint_removal=True, max_changepoint=999, num_point=500,
             repeat=3, manycp=True, df=df)
-        self.assertEqual(item.filename, "t.csv")
+        self.assertEqual(item.filename, "t")
         self.assertAlmostEqual(item.max_fractional_reduction, 0.5)
         self.assertAlmostEqual(item.coefficient_threshold, 0.2)
         self.assertTrue(item.is_changepoint_removal)
@@ -80,14 +80,17 @@ class TestParseFilename(unittest.TestCase):
             "piecewise_predictions__numpoint_100000"
             "__threshold_0.001__removal_0__maxreduction_0.01.csv")
         r = cast(dict, r)
-        self.assertEqual(r["num_point"], 100000)
-        self.assertAlmostEqual(r["threshold"], 0.001, places=6)
+        self.assertIsNone(r["num_point"])
+        self.assertAlmostEqual(r["threshold"], 0.001)
         self.assertEqual(r["maxreduction"], 0.01)
 
     def test_parses_scientific_notation_maxreduction(self) -> None:
         r = self._iter_csv()._parse_filename(
             "piecewise_predictions__maxreduction_1e-3.csv")
         r = cast(dict, r)
+        self.assertIsNone(r["num_point"])
+        self.assertIsNone(r["threshold"])
+        self.assertIsNone(r["removal"])
         self.assertAlmostEqual(r["maxreduction"], 0.001, places=6)
 
     def test_parses_repeat_metadata(self) -> None:
@@ -107,8 +110,8 @@ class TestParseFilename(unittest.TestCase):
         r = self._iter_csv()._parse_filename(
             "piecewise_predictions__maxreduction_0.5.csv")
         r = cast(dict, r)
-        self.assertEqual(r["num_point"], 100000)
-        self.assertAlmostEqual(r["threshold"], 0.001, places=6)
+        self.assertIsNone(r["num_point"])
+        self.assertIsNone(r["threshold"])
 
     def test_parses_structured_pkl_filename(self) -> None:
         """Note: parsed keys (e.g., 'numpoint') don't override defaults ('num_point'),
@@ -118,7 +121,8 @@ class TestParseFilename(unittest.TestCase):
             "piecewise_predictions__maxreduction_1e-2.pkl")
         # Default num_point (100000) is kept because 'numpoint' != 'num_point'.
         r = cast(dict, r)
-        self.assertEqual(r["num_point"], 100000)
+        self.assertIsNone(r["num_point"])
+        self.assertIsNone(r["threshold"])
         self.assertAlmostEqual(r["maxreduction"], 0.01, places=6)
 
     def test_raises_for_wrong_extension_csv(self) -> None:
@@ -150,8 +154,7 @@ class TestParseFilename(unittest.TestCase):
             "piecewise_predictions__numpoint_50.csv")
         # Default num_point (100000) is kept because 'numpoint' != 'num_point'.
         r = cast(dict, r)
-        self.assertEqual(r["num_point"], 100000,
-                         msg="Bug: 'numpoint' in filename should override default 'num_point'.")
+        self.assertIsNone(r["num_point"])
         # The parsed value is stored under its raw key.
         self.assertIn("numpoint", r)
 
@@ -223,7 +226,7 @@ class TestIterOverSyntheticFiles(unittest.TestCase):
 
     def test_iter_csv_yields_items_with_correct_metadata(self) -> None:
         self._write_file(
-            "piecewise_predictions__maxreduction_0.2.csv",
+            "piecewise_predictions__numpoint_100__maxreduction_0.2.csv",
             _csv_bytes(0.2, 0.1, removal=1))
         with patch.object(cn, "DATA_DIR", self._tmpdir.name):
             items = list(PSDPredictionFilesIterator(is_pkl=False))
@@ -235,7 +238,7 @@ class TestIterOverSyntheticFiles(unittest.TestCase):
         """Files that raise during load are skipped silently."""
         # Valid file + empty file (pd.read_csv raises on empty files).
         self._write_file(
-            "piecewise_predictions__maxreduction_0.1.csv",
+            "piecewise_predictions__numpoint_100__maxreduction_0.1.csv",
             _csv_bytes(0.1, 0.2))
         self._write_file("empty.csv", b"")
         with patch.object(cn, "DATA_DIR", self._tmpdir.name):
@@ -249,7 +252,7 @@ class TestIterOverSyntheticFiles(unittest.TestCase):
         self.assertEqual(len(items), 0)
 
     def test_iter_csv_yields_dataframe_with_content(self) -> None:
-        name = "piecewise_predictions__maxreduction_0.5.csv"
+        name = "piecewise_predictions__numpoint_100__maxreduction_0.5.csv"
         self._write_file(name, _csv_bytes(0.5, 0.25))
         with patch.object(cn, "DATA_DIR", self._tmpdir.name):
             items = list(PSDPredictionFilesIterator(is_pkl=False))

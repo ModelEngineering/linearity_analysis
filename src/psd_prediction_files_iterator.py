@@ -109,10 +109,10 @@ class PSDPredictionFilesIterator:
         # Initialize metadata with defaults
         metadata: dict = {
             "num_point": None,
-            "threshold": 0.001,
-            "removal": False,
-            "maxreduction": 0.01,
-            "manycp": False,
+            "threshold": None,
+            "removal": None,
+            "maxreduction": None,
+            "manycp": None,
             "repeat": None,
         }
         # Parse the filename for metadata
@@ -186,12 +186,12 @@ class PSDPredictionFilesIterator:
             yield PSDPredictionsItem(
                 filename=filename,
                 filepath=filepath,
-                max_fractional_reduction=metadata.get("maxreduction", 0.01),
-                coefficient_threshold=metadata.get("threshold", 0.001),
-                is_changepoint_removal=bool(metadata.get("removal", False)),
-                max_changepoint=metadata.get("max_changepoint", -1),
-                num_point=metadata.get("num_point", 100000),
-                repeat=metadata.get("repeat"),
-                manycp=bool(metadata.get("manycp", False)),
+                max_fractional_reduction=metadata.get("maxreduction", None),  # type: ignore
+                coefficient_threshold=metadata.get("threshold", None),  # type: ignore
+                is_changepoint_removal=bool(metadata.get("removal", None)),  # type: ignore
+                max_changepoint=metadata.get("max_changepoint", None),  # type: ignore
+                num_point=metadata.get("num_point", None),  # type: ignore
+                repeat=metadata.get("repeat", None),  # type: ignore
+                manycp=bool(metadata.get("manycp", None)),  # type: ignore
                 df=df,
             )

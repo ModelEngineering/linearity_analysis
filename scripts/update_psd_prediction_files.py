@@ -16,19 +16,20 @@ Usage::
 
     python scripts/update_psd_prediction_files.py [--dry-run] [--verbose]
 '''
-
-import argparse
-import sys
-from pathlib import Path
-import shutil
-
-
 import src.constants as cn  # noqa: E402
 import src.util as util  # type: ignore
 from src.nl_curve import NLCurve # type: ignore
 from src.psd_prediction_files_iterator import PSDPredictionFilesIterator  # type: ignore
 
+import argparse
+import sys
+from pathlib import Path
 import pandas as pd  # type: ignore
+import shutil
+from collections import namedtuple
+
+
+UpdateTask = namedtuple("UpdateTask", ["column", "func"])
 
 
 #############################
@@ -42,19 +43,26 @@ def _addAUCColumn(df) -> int:
         df (pd.DataFrame): DataFrame to update
     Returns:
         int: Number of rows updated
+
+    Note that this function may fail if the changepoints list is empty or invalid, in which case the caller should handle the exception.
     """
-    try:
-        df[cn.COL_AUC] = df.apply(lambda row: NLCurve(row[cn.COL_BOUNDARIES], name=row[cn.COL_SYSTEM_ID]).auc, axis=1)
-    except Exception as exc:
-        print(f"  FAIL: could not compute AUC for {len(df)} rows: {exc}")
-        return 0
+    df[cn.COL_AUC] = df.apply(lambda row: NLCurve(row[cn.COL_BOUNDARIES], name=row[cn.COL_SYSTEM_ID]).auc, axis=1)
     return len(df)
+
+UPDATE_TASKS = [
+    UpdateTask(column=cn.COL_AUC, func=_addAUCColumn),
+]
 
 ############################
 # Main script
 ############################
 
 def main(is_report: bool = False):
+
+    ##
+    def message(msg: str) -> None:
+        if is_report:
+            print(msg)
 
     psd_iterator = PSDPredictionFilesIterator(is_pkl=True)
 
@@ -66,34 +74,35 @@ def main(is_report: bool = False):
         # Save the file
         df = item.df
         if df.empty:
-            print("  SKIP: empty DataFrame after reading.")
+            message("  SKIP: empty DataFrame after reading.")
             continue
         else:
             success_count += 1
-
         # Process the updates
-        if cn.COL_AUC in df.columns:
-            print(f"    SKIP: already has 'auc' column ({len(df)} rows).")
-            ok_count += 1
-            continue
-        try:
-            n_rows = _addAUCColumn(df)
-        except Exception as exc:
-            print(f"  FAIL: AUC computation failed for {item.filepath}: {exc}; keeping backup.")
-            fail_count += 1
-            continue
-
+        n_rows = 0
+        for task in UPDATE_TASKS:
+            if task.column in df.columns:
+                message(f"    SKIP: already has '{task.column}' column ({len(df)} rows).")
+                ok_count += 1
+                continue
+            try:
+                n_rows = task.func(df)
+                message(f"  SUCCESS: {task.column} computation succeeded for {item.filepath} ({n_rows} rows).")
+            except Exception as exc:
+                message(f"  FAIL: {task.column} computation failed for {item.filepath}: {exc}; keeping backup.")
+                fail_count += 1
+                continue
         # Back up the original file before mutating it.
         filepath = Path(item.csv_path)
         backup_path = Path(filepath.with_suffix(filepath.suffix + ".bak"))
         shutil.copy2(filepath, backup_path)
         if is_report:
-            print(f"    backed up -> {backup_path.name}")
+            message(f"    backed up -> {backup_path.name}")
         # Write the updated DataFrame back to the original file.
         df.to_csv(filepath, index=False)
         #
         if is_report:
-            print(f"Updated {filepath.name} ({n_rows} rows)")
+            message(f"Updated {filepath.name} ({n_rows} rows)")
 
     if is_report:
         print(f"Successfully processed {success_count} files: {ok_count} OK, {fail_count} FAIL.")   

@@ -231,7 +231,7 @@ class TestFromPSDPredictions(unittest.TestCase):
     """Tests for NLCurve.fromPSDPredictions()."""
 
     def _make_csv(self, tmpdir: str, rows: list) -> str:
-        filename = f"dummy{np.random.randint(1, 100000)}_predictions.csv"
+        filename = f"piecewise_predictions__dummy_{np.random.randint(1, 100000)}__numpoint_50.csv"
         path = os.path.join(tmpdir, filename)
         pd.DataFrame(rows).to_csv(path, index=False)
         return path

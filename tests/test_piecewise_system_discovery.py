@@ -1129,10 +1129,10 @@ class TestEndToEndBioModel5ChangepointsFromFile(unittest.TestCase):
         # Verify that changepoints were loaded (more than just the default)
         self.assertIsNotNone(psd.changepoints)
         # With BioModel 5 having many timepoints, we expect multiple changepoints
-        self.assertEqual(len(psd.changepoints), 0)  # type: ignore
+        self.assertGreater(len(psd.changepoints), 0)  # type: ignore
         
         # Verify that subsequence models were created
-        self.assertEqual(len(psd._subsequence_models), 1)
+        self.assertGreater(len(psd._subsequence_models), 1)
         
     def test_predict_with_changepoints_from_file(self) -> None:
         """Verify that predict() works after fitting with changepoints from file."""

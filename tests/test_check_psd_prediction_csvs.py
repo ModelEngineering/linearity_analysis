@@ -16,6 +16,7 @@ import tempfile
 from pathlib import Path
 import unittest
 from unittest.mock import patch
+from typing import cast
 
 import pandas as pd  # type: ignore
 
@@ -55,26 +56,26 @@ class TestParseEncodedMetadata(unittest.TestCase):
     def test_scientific_notation_maxreduction(self) -> None:
         """A filename with ``maxreduction_1e-3`` parses to 0.001 (matches dictToCodedstr output)."""
         result = m._parse_encoded_metadata(
-            "piecewise_predictions__numpoint_100_a__maxreduction_1e-3"
+            "piecewise_predictions__numpoint_100__maxreduction_1e-3"
         )
-        self.assertEqual(result, {"maxreduction": 0.001})
+        self.assertEqual(cast(dict, result)["maxreduction"], 0.001)
 
     def test_decimal_maxreduction(self) -> None:
         """A filename with decimal ``maxreduction`` parses to the corresponding float."""
         result = m._parse_encoded_metadata(
-            "piecewise_predictions__numpoint_50_b__maxreduction_0.01"
+            "piecewise_predictions__numpoint_50__maxreduction_0.01"
         )
-        self.assertEqual(result, {"maxreduction": 0.01})
+        self.assertEqual(cast(dict, result)["maxreduction"], 0.01)
 
     def test_multiple_keys_parsed(self) -> None:
         """A filename with maxreduction followed by threshold and removal parses all three."""
         result = m._parse_encoded_metadata(
-            "piecewise_predictions__numpoint_50_b"
+            "piecewise_predictions__numpoint_50"
             "__maxreduction_0.01__threshold_0.001__removal_0"
         )
         self.assertEqual(
             result,
-            {"maxreduction": 0.01, "threshold": 0.001, "removal": 0},
+            {"numpoint": 50, "maxreduction": 0.01, "threshold": 0.001, "removal": 0},
         )
 
     def test_no_known_key_returns_none(self) -> None:
@@ -113,7 +114,7 @@ class TestCheckFile(unittest.TestCase):
     def test_consistent_maxreduction_passes(self) -> None:
         """When every row's max_fractional_reduction matches the filename, no error is reported."""
         df = _model_df(_model_row(max_frac_red=0.01))
-        stem = "piecewise_predictions__numpoint_50_a__maxreduction_0.01"
+        stem = "piecewise_predictions__numpoint_50__maxreduction_0.01"
 
         errors = self._run_with_df(df, stem)
         self.assertEqual(errors, [])
@@ -121,7 +122,7 @@ class TestCheckFile(unittest.TestCase):
     def test_maxreduction_mismatch_reports_error(self) -> None:
         """A column value that disagrees with the filename produces a FAIL line."""
         df = _model_df(_model_row(max_frac_red=0.99))  # filename says 0.01
-        stem = "piecewise_predictions__numpoint_50_a__maxreduction_0.01"
+        stem = "piecewise_predictions__numpoint_50__maxreduction_0.01"
 
         errors = self._run_with_df(df, stem)
         self.assertEqual(len(errors), 1)
@@ -136,7 +137,7 @@ class TestCheckFile(unittest.TestCase):
             _model_row(max_frac_red=0.01),
             _model_row(max_frac_red=0.01),
         )
-        stem = "piecewise_predictions__numpoint_50_a__maxreduction_0.01"
+        stem = "piecewise_predictions__numpoint_50__maxreduction_0.01"
 
         errors = self._run_with_df(df, stem)
         self.assertEqual(errors, [])
@@ -147,7 +148,7 @@ class TestCheckFile(unittest.TestCase):
             _model_row(max_frac_red=0.01),
             _model_row(max_frac_red=99.0),  # mismatch!
         )
-        stem = "piecewise_predictions__numpoint_50_a__maxreduction_0.01"
+        stem = "piecewise_predictions__numpoint_50__maxreduction_0.01"
 
         errors = self._run_with_df(df, stem)
         self.assertEqual(len(errors), 1)
@@ -155,7 +156,7 @@ class TestCheckFile(unittest.TestCase):
     def test_missing_column_reported(self) -> None:
         """A CSV missing the column expected by a filename key is reported as an error."""
         df = pd.DataFrame([{"aggregation_type": "model"}])  # no max_fractional_reduction
-        stem = "piecewise_predictions__numpoint_50_a__maxreduction_0.01"
+        stem = "piecewise_predictions__numpoint_50__maxreduction_0.01"
 
         errors = self._run_with_df(df, stem)
         self.assertEqual(len(errors), 1)
@@ -179,7 +180,7 @@ class TestCheckFile(unittest.TestCase):
 
     def test_getPSDPredictionDF_exception_is_reported(self) -> None:
         """If getPSDPredictionDF raises, the error is captured and returned."""
-        stem = "piecewise_predictions__numpoint_50_a__maxreduction_0.01"
+        stem = "piecewise_predictions__numpoint_50__maxreduction_0.01"
 
         with patch.object(
             m, "getPSDPredictionDF", side_effect=IOError("boom")
@@ -204,8 +205,8 @@ class TestMain(unittest.TestCase):
     def test_main_with_one_invalid_file_returns_nonzero(self) -> None:
         """Any file whose column disagrees with its filename causes main() to return nonzero."""
         with tempfile.TemporaryDirectory() as tmp:
-            valid_stem = "piecewise_predictions__numpoint_50_a__maxreduction_0.01"
-            invalid_stem = "piecewise_predictions__numpoint_50_b__maxreduction_0.01"
+            valid_stem = "piecewise_predictions__numpoint_50__maxreduction_0.01"
+            invalid_stem = "piecewise_predictions__numpoint_51__maxreduction_0.01"
             self._make_files(tmp, [valid_stem, invalid_stem])
 
             def fake_get_psd(csv_files=None, **kw):  # noqa: ARG001
