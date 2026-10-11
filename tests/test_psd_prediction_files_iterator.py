@@ -273,3 +273,146 @@ class TestIterOverSyntheticFiles(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPSDPredictionFilesIteratorQuery(unittest.TestCase):
+    """Tests for PSDPredictionFilesIterator.query classmethod."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+
+    def _write_pkl(self, name: str, df: pd.DataFrame) -> str:
+        path = os.path.join(self._tmpdir.name, name)
+        with open(path, "wb") as f:
+            pickle.dump(df, f)
+        return path
+
+    def _write_bytes(self, name: str, data: bytes) -> str:
+        """Write raw bytes to a file in the temp dir (used for CSV fixtures)."""
+        path = os.path.join(self._tmpdir.name, name)
+        with open(path, "wb") as f:
+            f.write(data)
+        return path
+
+    def test_query_default_returns_concatenated_results(self) -> None:
+        """With no filters, query returns all data concatenated plus a filename column."""
+        df1 = pd.DataFrame({"species": ["A", "B"], "value": [1.0, 2.0]})
+        df2 = pd.DataFrame({"species": ["C"], "value": [3.0]})
+        self._write_pkl(
+            "piecewise_predictions__numpoint_100__maxreduction_0.5.pkl", df1)
+        self._write_pkl(
+            "piecewise_predictions__numpoint_200__maxreduction_0.1.pkl", df2)
+        with patch.object(cn, "DATA_DIR", self._tmpdir.name):
+            result = PSDPredictionFilesIterator.query()
+        self.assertEqual(len(result), 3)
+        self.assertIn(cn.COL_FILENAME, result.columns)
+        fnames = set(result[cn.COL_FILENAME])
+        for f in fnames:
+            self.assertIn("piecewise_predictions__numpoint_", f)
+
+    def test_query_file_filter_reduces_results(self) -> None:
+        """file_filter receives parsed metadata dict and can exclude files by it."""
+        df1 = pd.DataFrame({"species": ["A"], "value": [1.0]})
+        df2 = pd.DataFrame({"species": ["B"], "value": [2.0]})
+        self._write_pkl(
+            "piecewise_predictions__numpoint_100__maxreduction_0.5.pkl", df1)
+        self._write_pkl(
+            "piecewise_predictions__numpoint_200__maxreduction_0.1.pkl", df2)
+        with patch.object(cn, "DATA_DIR", self._tmpdir.name):
+            result = PSDPredictionFilesIterator.query(
+                file_filter=lambda dct: dct.get("numpoint") == 200)
+        # Only the second file should pass; its df has one row.
+        self.assertEqual(len(result), 1)
+
+    def test_query_data_frame_filter_modifies_rows(self) -> None:
+        """data_frame_filter result is applied to the output (not discarded)."""
+        df = pd.DataFrame({"species": ["A", "B"], "value": [0.5, 2.0]})
+        self._write_pkl(
+            "piecewise_predictions__numpoint_100__maxreduction_0.5.pkl", df)
+        with patch.object(cn, "DATA_DIR", self._tmpdir.name):
+            result = PSDPredictionFilesIterator.query(
+                data_frame_filter=lambda d: d[d["value"] > 1])
+        # Only the row with value=2.0 should remain after filtering.
+        self.assertEqual(len(result), 1)
+        self.assertAlmostEqual(result.iloc[0]["value"], 2.0)
+
+    def test_query_both_filters_combined(self) -> None:
+        """Both filters compose correctly — file filter then data frame filter."""
+        df1 = pd.DataFrame({"species": ["A", "B"], "value": [0.5, 2.0]})
+        df2 = pd.DataFrame({"species": ["C"], "value": [3.0]})
+        self._write_pkl(
+            "piecewise_predictions__numpoint_100__maxreduction_0.5.pkl", df1)
+        self._write_pkl(
+            "piecewise_predictions__numpoint_200__maxreduction_0.1.pkl", df2)
+        with patch.object(cn, "DATA_DIR", self._tmpdir.name):
+            result = PSDPredictionFilesIterator.query(
+                file_filter=lambda dct: dct.get("numpoint") == 100,
+                data_frame_filter=lambda d: d[d["value"] > 1])
+        # File filter keeps df1 only; data frame filter then drops value=0.5 row.
+        self.assertEqual(len(result), 1)
+
+    def test_query_uses_pickle_files_by_default(self) -> None:
+        """With default is_pkl=True, csv files in the same dir are ignored."""
+        self._write_bytes(
+            "piecewise_predictions__numpoint_50__maxreduction_0.3.csv",
+            _csv_bytes(0.3, 0.2))
+        pkl_df = pd.DataFrame({"species": ["Y"], "value": [1.0]})
+        self._write_pkl(
+            "piecewise_predictions__numpoint_100__maxreduction_0.5.pkl", pkl_df)
+        with patch.object(cn, "DATA_DIR", self._tmpdir.name):
+            result = PSDPredictionFilesIterator.query()
+        # Only the pickle file should contribute rows; CSV is ignored.
+        self.assertEqual(len(result), 1)
+
+    def test_query_csv_mode_with_is_pkl_false(self) -> None:
+        """With is_pkl=False, only CSV files are read."""
+        self._write_bytes(
+            "piecewise_predictions__numpoint_50__maxreduction_0.3.csv",
+            _csv_bytes(0.3, 0.2))
+        pkl_df = pd.DataFrame({"species": ["W"], "value": [7.0]})
+        self._write_pkl(
+            "piecewise_predictions__numpoint_100__maxreduction_0.5.pkl", pkl_df)
+        with patch.object(cn, "DATA_DIR", self._tmpdir.name):
+            result = PSDPredictionFilesIterator.query(is_pkl=False)
+        # Only the CSV file should contribute rows; pickle is ignored.
+        self.assertEqual(len(result), 1)
+
+    def test_query_empty_dir_returns_empty_dataframe(self) -> None:
+        """With no matching files, query returns an empty DataFrame."""
+        with patch.object(cn, "DATA_DIR", self._tmpdir.name):
+            result = PSDPredictionFilesIterator.query()
+        self.assertIsInstance(result, pd.DataFrame)
+        self.assertEqual(len(result), 0)
+
+    def test_query_adds_filename_column_to_each_row(self) -> None:
+        """Each row in the output carries back its source filename."""
+        df1 = pd.DataFrame({"species": ["A", "B"], "value": [1.0, 2.0]})
+        self._write_pkl(
+            "piecewise_predictions__numpoint_100__maxreduction_0.5.pkl", df1)
+        with patch.object(cn, "DATA_DIR", self._tmpdir.name):
+            result = PSDPredictionFilesIterator.query()
+        expected_name = "piecewise_predictions__numpoint_100__maxreduction_0.5"
+        # item.filename strips the file extension per PSDPredictionsItem.__init__.
+        self.assertTrue((result[cn.COL_FILENAME] == expected_name).all())
+
+    def test_query_with_default_filter_is_identity(self) -> None:
+        """Passing default (identity) filters gives the same rows as no filter."""
+        df = pd.DataFrame({"species": ["A"], "value": [1.0]})
+        self._write_pkl(
+            "piecewise_predictions__numpoint_100__maxreduction_0.5.pkl", df)
+        with patch.object(cn, "DATA_DIR", self._tmpdir.name):
+            default_result = PSDPredictionFilesIterator.query()
+            explicit_result = PSDPredictionFilesIterator.query(
+                file_filter=lambda dct: True,
+                data_frame_filter=lambda d: d)
+        self.assertEqual(len(default_result), len(explicit_result))
+        for col in default_result.columns:
+            pd.testing.assert_series_equal(
+                default_result[col], explicit_result[col])
+
+
+if __name__ == "__main__":
+    unittest.main()

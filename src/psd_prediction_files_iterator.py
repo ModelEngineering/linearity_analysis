@@ -198,18 +198,21 @@ class PSDPredictionFilesIterator:
 
     @classmethod
     def query(cls,
-            file_filter: Optional[Callable[[str], bool]] = None,
+            file_filter: Optional[Callable[[dict], bool]] = None,
             data_frame_filter: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
+            is_pkl: bool = True,
             ) -> pd.DataFrame:
         """
         Query the piecewise predictions files based on filters for the files and their DataFrames.
         Adds a column to the result for the filename of the source file for each row.
 
         Args:
-            file_filter (Callable[[str], bool]): Filer files processed
-                signature:  args: file path; returns: True if it should be included in the query.
+            file_filter (Callable[[dict], bool]): Filter files processed
+                signature:  args: filename ; returns: True if it should be included in the query.
+                The dictionary contains the parsed metadata from the filename.
             data_frame_filter (Callable[[pd.DataFrame], pd.DataFrame]): filter of file
                 signature: args: A DataFrame; returns: A filtered DataFrame.
+            is_pkl (bool): If True, query pickle files; if False, query CSV files.
 
         Returns:
             pd.DataFrame: A DataFrame containing the concatenated results of the filtered results
@@ -223,11 +226,14 @@ class PSDPredictionFilesIterator:
             data_frame_filter = lambda df: df
         # Iterate across files
         dfs = []
-        psd_iterator = PSDPredictionFilesIterator(is_pkl=True)
+        psd_iterator = PSDPredictionFilesIterator(is_pkl=is_pkl)
         for item in psd_iterator:
-            if not file_filter(item.filename):
+            dct = util.codedstrToDict(item.filename)
+            if not file_filter(dct):
                 continue
-            data_frame_filter(item.df)
-            item.df[cn.COL_FILENAME] = item.filename  # Add a column for the source filename
-            dfs.append(item.df)
+            filtered_df = data_frame_filter(item.df)
+            filtered_df[cn.COL_FILENAME] = item.filename  # Add the source filename
+            dfs.append(filtered_df)
+        if not dfs:
+            return pd.DataFrame()
         return pd.concat(dfs)
