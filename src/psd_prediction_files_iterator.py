@@ -5,7 +5,7 @@ import pickle
 
 import src.constants as cn  # type: ignore
 from src import util  # type: ignore
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Callable
 
 import pandas as pd  # type: ignore
 
@@ -195,3 +195,39 @@ class PSDPredictionFilesIterator:
                 manycp=bool(metadata.get("manycp", None)),  # type: ignore
                 df=df,
             )
+
+    @classmethod
+    def query(cls,
+            file_filter: Optional[Callable[[str], bool]] = None,
+            data_frame_filter: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
+            ) -> pd.DataFrame:
+        """
+        Query the piecewise predictions files based on filters for the files and their DataFrames.
+        Adds a column to the result for the filename of the source file for each row.
+
+        Args:
+            file_filter (Callable[[str], bool]): Filer files processed
+                signature:  args: file path; returns: True if it should be included in the query.
+            data_frame_filter (Callable[[pd.DataFrame], pd.DataFrame]): filter of file
+                signature: args: A DataFrame; returns: A filtered DataFrame.
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the concatenated results of the filtered results
+        """
+        # Initializations
+        if file_filter is None:
+            # Default filter includes all files
+            file_filter = lambda filename: True
+        if data_frame_filter is None:
+            # Default filter includes all DataFrames
+            data_frame_filter = lambda df: df
+        # Iterate across files
+        dfs = []
+        psd_iterator = PSDPredictionFilesIterator(is_pkl=True)
+        for item in psd_iterator:
+            if not file_filter(item.filename):
+                continue
+            data_frame_filter(item.df)
+            item.df[cn.COL_FILENAME] = item.filename  # Add a column for the source filename
+            dfs.append(item.df)
+        return pd.concat(dfs)
