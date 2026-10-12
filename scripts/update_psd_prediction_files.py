@@ -19,7 +19,7 @@ Usage::
 import src.constants as cn  # noqa: E402
 import src.util as util  # type: ignore
 from src.nl_curve import NLCurve # type: ignore
-from src.psd_prediction_files_iterator import PSDPredictionFilesIterator  # type: ignore
+from psd_prediction_file_iterator import PSDPredictionFileIterator  # type: ignore
 
 import argparse
 import sys
@@ -64,7 +64,7 @@ def main(is_report: bool = False):
         if is_report:
             print(msg)
 
-    psd_iterator = PSDPredictionFilesIterator(is_pkl=True)
+    psd_iterator = PSDPredictionFileIterator(is_pkl=True)
 
     ok_count = 0
     fail_count = 0

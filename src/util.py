@@ -144,7 +144,8 @@ def codedstrToDict(codedstr: str) -> dict:
         dict: Dictionary with keys and values extracted from the coded string.
     """
     result = {}
-    for part in codedstr.split("__"):
+    new_codedstr = codedstr.replace("piecewise_predictions__", "")
+    for part in new_codedstr.split("__"):
         if "_" in part:
             key, value = part.split("_", 1)
             try:
