@@ -199,7 +199,7 @@ class PSDPredictionFilesIterator:
     @classmethod
     def query(cls,
             file_filter: Optional[Callable[[dict], bool]] = None,
-            data_frame_filter: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
+            data_frame_filter: Optional[Callable[[pd.DataFrame, dict], pd.DataFrame]] = None,
             is_pkl: bool = True,
             ) -> pd.DataFrame:
         """
@@ -223,7 +223,7 @@ class PSDPredictionFilesIterator:
             file_filter = lambda filename: True
         if data_frame_filter is None:
             # Default filter includes all DataFrames
-            data_frame_filter = lambda df: df
+            data_frame_filter = lambda df, dct: df
         # Iterate across files
         dfs = []
         psd_iterator = PSDPredictionFilesIterator(is_pkl=is_pkl)
@@ -231,7 +231,7 @@ class PSDPredictionFilesIterator:
             dct = util.codedstrToDict(item.filename)
             if not file_filter(dct):
                 continue
-            filtered_df = data_frame_filter(item.df)
+            filtered_df = data_frame_filter(item.df, dct)
             filtered_df[cn.COL_FILENAME] = item.filename  # Add the source filename
             dfs.append(filtered_df)
         if not dfs:
