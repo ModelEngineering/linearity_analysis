@@ -32,8 +32,8 @@ class PSDPredictionAnalyzer:
         def _filter_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             filtered_columns = [cn.COL_SYSTEM_ID, cn.COL_AUC, cn.COL_P50, cn.COL_NUM_CHANGEPOINT,
                     cn.COL_MAX_CHANGEPOINT, cn.COL_MAX_FRACTIONAL_REDUCTION,
-                    cn.COL_SYSTEM_ID,
-            ]
+                    cn.COL_SYSTEM_ID
+                ]
             mask = df[cn.COL_SYSTEM_ID] == system_id
             mask &= df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL
             mask &= df[cn.COL_MAX_CHANGEPOINT] == DEFAULT_MAX_CHANGEPOINT
@@ -42,7 +42,8 @@ class PSDPredictionAnalyzer:
         filtered_df = self.psd_iterator.query(data_frame_filter=_filter_dataframe)
 
         grouped_df = filtered_df.groupby(cn.COL_MAX_FRACTIONAL_REDUCTION).agg({
-            cn.COL_AUC: ['mean', 'std']
+            cn.COL_AUC: [cn.COL_MEAN, cn.COL_STD, cn.COL_COUNT],
         })
+        grouped_df = grouped_df.fillna(0)
 
         return grouped_df

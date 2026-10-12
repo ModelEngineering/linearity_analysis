@@ -125,7 +125,7 @@ class TestAnalyzeAUCConsistency(unittest.TestCase):
     def test_auc_mean_single_row(self) -> None:
         self._write_default_pkl(auc=0.75, max_fractional_reduction=0.01)
         result = self._run()
-        self.assertAlmostEqual(result.loc[0.01, (cn.COL_AUC, "mean")], 0.75, places=10)
+        self.assertAlmostEqual(result.loc[0.01, (cn.COL_AUC, "mean")], 0.75, places=10) # type: ignore
 
     def test_auc_mean_two_rows_same_group(self) -> None:
         self._write_pkl(
@@ -148,8 +148,8 @@ class TestAnalyzeAUCConsistency(unittest.TestCase):
         )
         result = self._run()
         self.assertEqual(len(result), 2)
-        self.assertAlmostEqual(result.loc[0.01,  (cn.COL_AUC, "mean")], 0.8, places=10)
-        self.assertAlmostEqual(result.loc[0.001, (cn.COL_AUC, "mean")], 0.9, places=10)
+        self.assertAlmostEqual(result.loc[0.01,  (cn.COL_AUC, "mean")], 0.8, places=10)  # type: ignore
+        self.assertAlmostEqual(result.loc[0.001, (cn.COL_AUC, "mean")], 0.9, places=10)  # type: ignore
 
     def test_rows_from_multiple_files_merged_into_same_group(self) -> None:
         """Rows from two separate files that share max_fractional_reduction are averaged."""
@@ -163,7 +163,7 @@ class TestAnalyzeAUCConsistency(unittest.TestCase):
         )
         result = self._run()
         self.assertEqual(len(result), 1)
-        self.assertAlmostEqual(result.loc[0.01, (cn.COL_AUC, "mean")], 0.7, places=10)
+        self.assertAlmostEqual(result.loc[0.01, (cn.COL_AUC, "mean")], 0.7, places=10) # type: ignore
 
     # ------------------------------------------------------------------
     # Filter: system_id
@@ -178,7 +178,7 @@ class TestAnalyzeAUCConsistency(unittest.TestCase):
             ]),
         )
         result = self._run(system_id="KEEP")
-        self.assertAlmostEqual(result.loc[0.01, (cn.COL_AUC, "mean")], 0.9, places=10)
+        self.assertAlmostEqual(result.loc[0.01, (cn.COL_AUC, "mean")], 0.9, places=10)  # type: ignore
 
     # ------------------------------------------------------------------
     # Filter: aggregation_type
@@ -193,7 +193,7 @@ class TestAnalyzeAUCConsistency(unittest.TestCase):
             ]),
         )
         result = self._run()
-        self.assertAlmostEqual(result.loc[0.01, (cn.COL_AUC, "mean")], 0.9, places=10)
+        self.assertAlmostEqual(result.loc[0.01, (cn.COL_AUC, "mean")], 0.9, places=10) # type: ignore
 
     # ------------------------------------------------------------------
     # Filter: max_changepoint
@@ -208,7 +208,7 @@ class TestAnalyzeAUCConsistency(unittest.TestCase):
             ]),
         )
         result = self._run()
-        self.assertAlmostEqual(result.loc[0.01, (cn.COL_AUC, "mean")], 0.9, places=10)
+        self.assertAlmostEqual(result.loc[0.01, (cn.COL_AUC, "mean")], 0.9, places=10)  # type: ignore
 
     # ------------------------------------------------------------------
     # Empty-result handling
@@ -247,15 +247,15 @@ class TestAnalyzeAUCConsistencyEndToEnd(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls._tmpdir = tempfile.TemporaryDirectory()
-        os.symlink(_E2E_DATA_PATH, os.path.join(cls._tmpdir.name, _E2E_PKL))
+        cls._tmpdir = tempfile.TemporaryDirectory() # type: ignore
+        os.symlink(_E2E_DATA_PATH, os.path.join(cls._tmpdir.name, _E2E_PKL)) # type: ignore
 
     @classmethod
     def tearDownClass(cls) -> None:
-        cls._tmpdir.cleanup()
+        cls._tmpdir.cleanup()  # type: ignore
 
     def _run(self, system_id: str) -> pd.DataFrame:
-        with patch.object(cn, "DATA_DIR", self._tmpdir.name):
+        with patch.object(cn, "DATA_DIR", self._tmpdir.name): # type: ignore
             return PSDPredictionAnalyzer(is_pkl=True).analyzeAUCConsistency(system_id)
 
     # --- structural checks ---
@@ -289,20 +289,17 @@ class TestAnalyzeAUCConsistencyEndToEnd(unittest.TestCase):
     def test_auc_mean_matches_known_value_for_biomd_5(self) -> None:
         """BIOMD0000000005 has a single qualifying row; known AUC is 0.89999598."""
         result = self._run("BIOMD0000000005")
-        self.assertAlmostEqual(
-            result.loc[0.05, (cn.COL_AUC, "mean")],
-            0.8999959790295811,
-            places=6,
-        )
+        self.assertAlmostEqual(result.loc[0.05, (cn.COL_AUC, cn.COL_MEAN)],
+            0.8999959790295811, places=6)  # type: ignore
 
     def test_auc_mean_matches_known_value_for_biomd_10(self) -> None:
         """BIOMD0000000010 has a single qualifying row; known AUC is 0.90000699."""
         result = self._run("BIOMD0000000010")
         self.assertAlmostEqual(
             result.loc[0.05, (cn.COL_AUC, "mean")],
-            0.9000069937498743,
+            0.9000069937498743, # type: ignore
             places=6,
-        )
+        )  # type: ignore
 
     # --- boundary / filter checks ---
 
