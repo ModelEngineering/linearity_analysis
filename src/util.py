@@ -12,7 +12,6 @@ import re
 
 
 PATTERN = "piecewise_predictions__numpoint*.csv"
-PSD_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 _NP_INT64_PATTERN = re.compile(r'np\.int64\(([^)]*)\)')
 
 
@@ -42,10 +41,10 @@ def makeCSVPaths(max_fractional_reduction: float, repeat: Optional[int] = None) 
     sections = [file_selection1_str]
     if isinstance(file_selection2_str, str):
         sections.append(file_selection2_str)
-    csv_files: List[str] = [f for f in os.listdir(cn.DATA_DIR) if f.endswith(".csv")]
+    csv_files: List[str] = [f for f in os.listdir(cn.PSD_DATA_DIR) if f.endswith(".csv")]
     for file_selection_str in sections:
         csv_files = [f for f in csv_files if file_selection_str in f]
-    results = [os.path.join(cn.DATA_DIR, f) for f in csv_files]
+    results = [os.path.join(cn.PSD_DATA_DIR, f) for f in csv_files]
     return results
 
 def parseFilename(filename: str) -> dict:
@@ -103,7 +102,7 @@ def getPSDPredictionDF(
     for path in cast(List[Union[Path, str]], csv_files):
         splits = str(path).split("/")
         filename = splits[-1].split(".csv")[0]
-        pkl_path = os.path.join(cn.DATA_DIR,  f"{filename}.pkl")
+        pkl_path = os.path.join(cn.PSD_DATA_DIR,  f"{filename}.pkl")
         dct = parseFilename(filename)
         if os.path.exists(pkl_path):
             with open(pkl_path, "rb") as f:

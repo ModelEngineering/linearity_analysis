@@ -127,7 +127,7 @@ class TestGetPSDPredictionDFAggregation(unittest.TestCase):
                 patch("util.os.path.exists", return_value=False), \
                 patch("pandas.read_csv", side_effect=[_model_df(0.003, n=1), _model_df(0.003, n=1)]):
             df = getPSDPredictionDF(0.003)
-        self.assertEqual(set(df["csv_file"].tolist()), {str(util.PSD_DATA_DIR / name) for name in [name1, name2]})
+        self.assertEqual(set(df["csv_file"].tolist()), {str(os.path.join(cn.PSD_DATA_DIR, name)) for name in [name1, name2]})
 
     def test_multiple_files_no_species_rows(self) -> None:
         """The result contains no species-level rows even when inputs do."""
