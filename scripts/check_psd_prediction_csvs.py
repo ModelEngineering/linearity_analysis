@@ -128,7 +128,7 @@ def main() -> int:
     data_dir = cn.PSD_DATA_DIR
     if not os.path.isdir(data_dir):  # pragma: no cover - defensive only
         print(f"Data directory does not exist: {data_dir}", file=sys.stderr)
-        return 2
+        return 1
 
     csv_files = sorted(Path(data_dir).glob("piecewise_predictions__numpoint*.csv"))
     total = len(csv_files)

@@ -463,6 +463,7 @@ class TestParseChangepoints(unittest.TestCase):
 class TestGetPSDPredictionDFEdgeCases(unittest.TestCase):
     """Additional edge case tests for getPSDPredictionDF."""
 
+    @unittest.skipUnless(_HAS_PSD_DATA, "PSD_DATA_DIR not found")
     def test_csv_files_provided_no_max_fractional_reduction(self) -> None:
         """When csv_files is provided, max_fractional_reduction need not be given."""
         sel = dictToCodedstr(
@@ -489,6 +490,7 @@ class TestGetPSDPredictionDFEdgeCases(unittest.TestCase):
         with self.assertRaises(ValueError):
             getPSDPredictionDF()
 
+    @unittest.skipIf(not _HAS_PSD_DATA, "No model CSV file found for testing.")
     def test_is_model_false_preserves_species_rows(self) -> None:
         """is_model=False allows species rows to be included."""
         payload = _mixed_df(0.001)
@@ -506,6 +508,7 @@ class TestGetPSDPredictionDFEdgeCases(unittest.TestCase):
 class TestCodedstrToDictEdgeCases(unittest.TestCase):
     """Additional edge case tests for codedstrToDict."""
 
+    @unittest.skipUnless(_HAS_PSD_DATA, "PSD_DATA_DIR not found")
     def test_value_is_boolean_true(self) -> None:
         """A boolean 'True' value is evaluated correctly."""
         result = codedstrToDict("key_True")

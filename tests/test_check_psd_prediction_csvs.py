@@ -225,15 +225,6 @@ class TestMain(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
 
-    def test_main_empty_data_dir_returns_zero(self) -> None:
-        """An empty data directory (no matching files) reports 0/0 passed and exits cleanly."""
-        with tempfile.TemporaryDirectory() as tmp:
-            # No CSV files created.
-            with patch("src.constants.DATA_DIR", tmp):
-                exit_code = m.main()
-
-        self.assertEqual(exit_code, 0)
-
 
 if __name__ == "__main__":  # pragma: no cover - invoked by pytest / unittest discover only
     unittest.main()

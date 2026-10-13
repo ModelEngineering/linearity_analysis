@@ -21,6 +21,8 @@ from src.piecewise_system_discovery import (  # type: ignore
     PiecewiseSystemDiscovery,
 )
 
+_HAS_PSD_DATA = os.path.isdir(cn.PSD_DATA_DIR)
+
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -1100,6 +1102,7 @@ class TestEndToEndBioModel5ChangepointsFromFile(unittest.TestCase):
     have max_changepoint=5000, so we use that here.
     """
 
+    @unittest.skipUnless(_HAS_PSD_DATA, "PSD_DATA_DIR not found")
     def test_fit_with_changepoints_from_file(self) -> None:
         """Verify that fit() succeeds when is_changepoints_from_file=True for BioModel 5."""
         if IGNORE_TESTS or not HAS_REAL_ZIP:
@@ -1134,6 +1137,7 @@ class TestEndToEndBioModel5ChangepointsFromFile(unittest.TestCase):
         # Verify that subsequence models were created
         self.assertGreater(len(psd._subsequence_models), 1)
         
+    @unittest.skipUnless(_HAS_PSD_DATA, "PSD_DATA_DIR not found")
     def test_predict_with_changepoints_from_file(self) -> None:
         """Verify that predict() works after fitting with changepoints from file."""
         if IGNORE_TESTS or not HAS_REAL_ZIP:
@@ -1163,6 +1167,7 @@ class TestEndToEndBioModel5ChangepointsFromFile(unittest.TestCase):
         # Verify prediction shape matches input
         self.assertEqual(pred_df.shape, tc.timecourse_df.shape)
         
+    @unittest.skipUnless(_HAS_PSD_DATA, "PSD_DATA_DIR not found")
     def test_score_with_changepoints_from_file(self) -> None:
         """Verify that score() works after fitting with changepoints from file."""
         if IGNORE_TESTS or not HAS_REAL_ZIP:

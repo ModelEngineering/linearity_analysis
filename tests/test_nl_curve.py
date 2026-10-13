@@ -18,6 +18,7 @@ from src.nl_curve import NLCurve  # type: ignore
 
 
 IGNORE_TESTS = False
+_HAS_PSD_DATA = os.path.isdir(cn.PSD_DATA_DIR)
 
 
 def _biomd_name(model_num: int) -> str:
@@ -239,6 +240,7 @@ class TestFromPSDPredictions(unittest.TestCase):
         pd.DataFrame(rows).to_csv(path, index=False)
         return path
 
+    @unittest.skipIf(not _HAS_PSD_DATA, "No model CSV file found for testing.")
     def test_model_level_creates_curve(self) -> None:
         """Selecting model-level aggregation returns a valid NLCurve."""
         if IGNORE_TESTS:
@@ -282,6 +284,7 @@ class TestFromPSDPredictions(unittest.TestCase):
                 nl = NLCurve.fromPSDPredictions(path, model_num=1, species_name="S1")
                 self.assertIn(2.0, nl._boundaries)
 
+    @unittest.skipIf(not _HAS_PSD_DATA, "No model CSV file found for testing.")
     def test_no_matching_rows_raises(self) -> None:
         """When no rows match the filter, ValueError is raised."""
         if IGNORE_TESTS:
@@ -323,14 +326,25 @@ class TestEnd2End(unittest.TestCase):
     model_num = 42
     model_num = 10
     model_num = 343
-    model_paths = makeCSVPaths(max_fractional_reduction=0.001, repeat=3)
+    if _HAS_PSD_DATA:
+        model_paths = makeCSVPaths(max_fractional_reduction=0.001, repeat=3)
+    else:
+        model_paths = []
     if len(model_paths) == 0:
         model_path = None
     else:
         model_path = model_paths[0]
         nl_curve = NLCurve.fromPSDPredictions(str(model_path), model_num=model_num)
 
-    @unittest.skipUnless(model_path is not None, "No model CSV file found for testing.")
+    def setUp(self) -> None:
+        if IGNORE_TESTS:
+            return
+        if self.model_path is None:
+            self.skipTest("No model CSV file found for testing.")
+        self.nl_curve = NLCurve.fromPSDPredictions(str(self.model_path),
+                model_num=self.model_num)
+
+    @unittest.skipIf(model_path is None, "No model CSV file found for testing.")
     def test_model_level_creates_curve(self) -> None:
         """Selecting model-level aggregation returns a valid NLCurve."""
         if IGNORE_TESTS:
@@ -339,7 +353,7 @@ class TestEnd2End(unittest.TestCase):
             self.assertIsInstance(self.nl_curve, NLCurve)
             self.assertGreater(len(self.nl_curve.curve_ser), 0)
 
-    @unittest.skipUnless(model_path is not None, "No model CSV file found for testing.")
+    @unittest.skipIf(model_path is None, "No model CSV file found for testing.")
     def test_plot_does_not_raise(self) -> None:
         """plotNLCurve executes without raising an exception."""
         if IGNORE_TESTS:
