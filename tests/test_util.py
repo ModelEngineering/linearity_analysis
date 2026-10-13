@@ -10,6 +10,8 @@ import util  # noqa: E402
 from util import getPSDPredictionDF, codedstrToDict, dictToCodedstr, parseFilename, _parseChangepoints  # noqa: E402
 import src.constants as cn  # noqa: E402
 
+_HAS_PSD_DATA = os.path.exists(cn.PSD_DATA_DIR)
+
 
 def _model_df(max_fractional_reduction: float = 0.001, n: int = 1) -> pd.DataFrame:
     """Return a minimal valid model-level DataFrame."""
@@ -69,6 +71,7 @@ class TestGetPSDPredictionDFSingleFile(unittest.TestCase):
                 patch("pandas.read_csv", return_value=payload):
             return getPSDPredictionDF(max_fractional_reduction)
 
+    @unittest.skipUnless(_HAS_PSD_DATA, "PSD_DATA_DIR not found")
     def test_single_match_returns_df(self) -> None:
         """A unique match returns a non-empty DataFrame."""
         sel = dictToCodedstr(
@@ -79,6 +82,7 @@ class TestGetPSDPredictionDFSingleFile(unittest.TestCase):
         self.assertIsInstance(df, pd.DataFrame)
         self.assertGreater(len(df), 0)
 
+    @unittest.skipUnless(_HAS_PSD_DATA, "PSD_DATA_DIR not found")
     def test_single_match_csv_file_column(self) -> None:
         """The csv_file column is populated with the matching filename."""
         sel = dictToCodedstr(
@@ -101,6 +105,7 @@ class TestGetPSDPredictionDFSingleFile(unittest.TestCase):
 class TestGetPSDPredictionDFAggregation(unittest.TestCase):
     """Concatenation and filtering across multiple matching files."""
 
+    @unittest.skipUnless(_HAS_PSD_DATA, "PSD_DATA_DIR not found")
     def test_multiple_files_concatenated(self) -> None:
         """When two files match, the result has rows from both."""
         sel = dictToCodedstr(
@@ -116,6 +121,7 @@ class TestGetPSDPredictionDFAggregation(unittest.TestCase):
         self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 12)  # 5 + 7
 
+    @unittest.skipUnless(_HAS_PSD_DATA, "PSD_DATA_DIR not found")
     def test_multiple_files_both_filenames_present(self) -> None:
         """All csv_file values are among the two matching filenames."""
         sel = dictToCodedstr(
@@ -129,6 +135,7 @@ class TestGetPSDPredictionDFAggregation(unittest.TestCase):
             df = getPSDPredictionDF(0.003)
         self.assertEqual(set(df["csv_file"].tolist()), {str(os.path.join(cn.PSD_DATA_DIR, name)) for name in [name1, name2]})
 
+    @unittest.skipUnless(_HAS_PSD_DATA, "PSD_DATA_DIR not found")
     def test_multiple_files_no_species_rows(self) -> None:
         """The result contains no species-level rows even when inputs do."""
         sel = dictToCodedstr(
@@ -146,6 +153,7 @@ class TestGetPSDPredictionDFAggregation(unittest.TestCase):
 class TestGetPSDPredictionDFRepeatFiltering(unittest.TestCase):
     """Behavior of the repeat= parameter in the revised function."""
 
+    @unittest.skipUnless(_HAS_PSD_DATA, "PSD_DATA_DIR not found")
     def test_no_repeat_matches_any_file_with_selection(self) -> None:
         """Without repeat, every file containing max_fractional_reduction is matched."""
         sel = dictToCodedstr(
@@ -159,6 +167,7 @@ class TestGetPSDPredictionDFRepeatFiltering(unittest.TestCase):
             df = getPSDPredictionDF(0.001)
         self.assertEqual(len(df), 2)  # Both files matched (no repeat filter applied)
 
+    @unittest.skipUnless(_HAS_PSD_DATA, "PSD_DATA_DIR not found")
     def test_repeat_filters_to_matching_file_only(self) -> None:
         """With repeat=N, only the file containing 'repeat_N' in its name is kept."""
         sel = dictToCodedstr(
@@ -309,6 +318,7 @@ class TestDictToCodedstrConvertStrs(unittest.TestCase):
 class TestGetCSVPaths(unittest.TestCase):
     """Tests for the makeCSVPaths function."""
 
+    @unittest.skipUnless(_HAS_PSD_DATA, "PSD_DATA_DIR not found")
     def test_makeCSVPaths_returns_list_of_paths(self) -> None:
         """makeCSVPaths returns a list of Path objects."""
         paths = util.makeCSVPaths(max_fractional_reduction=0.001, repeat=1)
