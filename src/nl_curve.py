@@ -56,7 +56,7 @@ class NLCurve(object):
         total = 0
         last_height = 0
         for seg_size, height in zip(self.curve_ser.index, self.curve_ser.values):
-            total += (1 - seg_size) * (height - last_height)
+            total += (1 - seg_size) * (height - last_height)  # All larger segments contribute to the area under the curve
             last_height = height
         return total
 

@@ -81,10 +81,10 @@ def main(is_report: bool = False):
         # Process the updates
         n_rows = 0
         for task in UPDATE_TASKS:
-            if task.column in df.columns:
-                message(f"    SKIP: already has '{task.column}' column ({len(df)} rows).")
-                ok_count += 1
-                continue
+#            if task.column in df.columns:
+#                message(f"    SKIP: already has '{task.column}' column ({len(df)} rows).")
+#                ok_count += 1
+#                continue
             try:
                 n_rows = task.func(df)
                 message(f"  SUCCESS: {task.column} computation succeeded for {item.filepath} ({n_rows} rows).")
