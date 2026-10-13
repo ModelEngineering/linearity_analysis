@@ -15,6 +15,7 @@ import pandas as pd  # type: ignore
 
 import src.constants as cn  # type: ignore
 from psd_prediction_file_iterator import PSDPredictionFileIterator, PSDPredictionItem
+import psd_prediction_file_iterator as psd_iter  # type: ignore
 
 
 def _csv_bytes(maxreduction=0.01, threshold=0.001, removal=0) -> bytes:
@@ -29,7 +30,7 @@ def _make_filename(numpoint=100000, manycp=0, maxreduction=0.01, threshold=0.001
     """Build a structured filename with encoded metadata."""
     return (f"piecewise_predictions__numpoint_{numpoint}" + \
             f"__maxreduction_{maxreduction}__threshold_{threshold}" + \
-            f"__manycp_{manycp}__removal_{removal}__repeat_{repeat}.csv")
+            f"__manycp_{manycp}__removal_{removal}__repeat_{repeat}")
 
 
 
@@ -84,7 +85,7 @@ class TestParseFilename(unittest.TestCase):
 
     def test_parses_full_structured_csv_filename(self) -> None:
         filename = _make_filename(numpoint=100000, manycp=1, maxreduction=0.01,
-                threshold=0.001, removal=0)
+                threshold=0.001, removal=0) + ".csv"
         r = self._iter_csv()._parse_filename(filename)
         r = cast(dict, r)
         self.assertEqual(r["numpoint"], 100000)
@@ -234,7 +235,7 @@ class TestIterOverSyntheticFiles(unittest.TestCase):
 
     def test_iter_csv_yields_items_with_correct_metadata(self) -> None:
         filename = _make_filename(numpoint=100, manycp=0, maxreduction=0.2,
-                threshold=0.1, removal=1)
+                threshold=0.1, removal=1) + ".csv"
         self._write_file(filename,
             _csv_bytes(0.2, 0.1, removal=1))
         with patch.object(cn, "DATA_DIR", self._tmpdir.name):
@@ -247,7 +248,8 @@ class TestIterOverSyntheticFiles(unittest.TestCase):
     def test_iter_csv_skips_empty_csv_files(self) -> None:
         """Files that raise during load are skipped silently."""
         # Valid file + empty file (pd.read_csv raises on empty files).
-        filename = _make_filename(numpoint=100, manycp=0, maxreduction=0.1, threshold=0.2, removal=1)
+        filename = _make_filename(numpoint=100, manycp=0, maxreduction=0.1,
+                threshold=0.2, removal=1) + ".csv"
         self._write_file(filename,
             _csv_bytes(0.1, 0.2))
         self._write_file("empty.csv", b"")
@@ -264,7 +266,8 @@ class TestIterOverSyntheticFiles(unittest.TestCase):
         self.assertEqual(len(items), 0)
 
     def test_iter_csv_yields_dataframe_with_content(self) -> None:
-        filename = _make_filename(numpoint=100, manycp=0, maxreduction=0.5, threshold=0.25, removal=1)
+        filename = _make_filename(numpoint=100, manycp=0, maxreduction=0.5,
+                threshold=0.25, removal=1) + ".csv"
         self._write_file(filename, _csv_bytes(0.5, 0.25))
         with patch.object(cn, "PSD_DATA_DIR", self._tmpdir.name):
             items = list(PSDPredictionFileIterator(is_pkl=False,
@@ -299,7 +302,7 @@ class TestPSDPredictionFilesIteratorQuery(unittest.TestCase):
         self._tmpdir.cleanup()
 
     def _write_pkl(self, name: str, df: pd.DataFrame) -> str:
-        path = os.path.join(self._tmpdir.name, name)
+        path = os.path.join(self._tmpdir.name, name + ".pkl")
         with open(path, "wb") as f:
             pickle.dump(df, f)
         return path
@@ -416,13 +419,13 @@ class TestPSDPredictionFilesIteratorQuery(unittest.TestCase):
     def test_query_adds_filename_column_to_each_row(self) -> None:
         """Each row in the output carries back its source filename."""
         df1 = pd.DataFrame({"species": ["A", "B"], "value": [1.0, 2.0]})
-        self._write_pkl(
-            "piecewise_predictions__numpoint_100__maxreduction_0.5.pkl", df1)
+        filename = _make_filename(numpoint=100, manycp=0, maxreduction=0.5, threshold=0.25, removal=1)
+        _ = self._write_pkl(filename, df1)
         with patch.object(cn, "PSD_DATA_DIR", self._tmpdir.name):
-            result = PSDPredictionFileIterator.query(data_dir=self._tmpdir.name, is_model=False)
-        expected_name = "piecewise_predictions__numpoint_100__maxreduction_0.5"
+            result = PSDPredictionFileIterator.query(data_dir=self._tmpdir.name, is_model=False,
+                    is_pkl=True)
         # item.filename strips the file extension per PSDPredictionsItem.__init__.
-        self.assertTrue((result[cn.COL_FILENAME] == expected_name).all())
+        self.assertTrue((result[cn.COL_FILENAME] == filename).all())
 
     def test_query_with_default_filter_is_identity(self) -> None:
         """Passing default (identity) filters gives the same rows as no filter."""

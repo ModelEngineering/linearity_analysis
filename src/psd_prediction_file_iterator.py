@@ -72,17 +72,21 @@ class PSDPredictionFileIterator:
     """Iterates over piecewise predictions CSV and pickle files in cn.PSD_DATA_DIR."""
 
     def __init__(self, is_pkl: bool = False,
-            data_dir: str = cn.PSD_DATA_DIR) -> None:
+            data_dir: str = cn.PSD_DATA_DIR,
+            is_guard_filenames: bool = False) -> None:
         """
         Initialize the iterator.
 
         Args:
             is_pkl: If True, iterate over pickle files. If False, iterate over CSV files.
-            data_dir: Directory to iterate over.
+            data_dir: Directory to iterate over.:w
+
+            is_guard_filenames: If True, guard against filenames that don't match the expected
+                pattern. If False, skip the guard and allow any filename to be processed.
         """
         self.is_pkl = is_pkl
         self.data_dir = data_dir
-
+        self.is_guard_filenames = is_guard_filenames
     def _parse_filename(self, filename: str) -> Optional[dict]:
         """
         Parse the encoded metadata from a piecewise predictions filename.
@@ -159,13 +163,17 @@ class PSDPredictionFileIterator:
         if not os.path.isdir(self.data_dir):
             return
         
+
         # Find all relevant files
-        files = sorted([f for f in os.listdir(self.data_dir) 
-                if ("piecewise_predictions" in f)  and
-                ("__numpoint_" in f)  and
-                all([k in f for k in REQUIRED_META_DATA]) and
-                (not "dummy" in f) and
-                (f.endswith(".pkl") if self.is_pkl else f.endswith(".csv"))])
+        files = sorted([f for f in os.listdir(self.data_dir)])
+        files = [f for f in files if "piecewise_predictions" in f]
+        files = [f for f in files if "__numpoint_" in f]
+        files = [f for f in files if not "dummy" in f]
+        files = [f for f in files if (self.is_pkl and f.endswith(".pkl"))
+                or ((not self.is_pkl) and f.endswith(".csv"))]
+        
+        if self.is_guard_filenames:
+            files = [f for f in files if all([k in f for k in REQUIRED_META_DATA])]
         
         for filename in files:
             # Get the full path to the file
@@ -209,6 +217,7 @@ class PSDPredictionFileIterator:
             is_pkl: bool = True,
             is_model: bool = True,
             data_dir: str = cn.PSD_DATA_DIR,
+            is_guard_filenames: bool = False,
             ) -> pd.DataFrame:
         """
         Query the piecewise predictions files based on filters for the files and their DataFrames.
@@ -222,6 +231,9 @@ class PSDPredictionFileIterator:
                 signature: args: A DataFrame; returns: A filtered DataFrame.
             is_pkl (bool): If True, query pickle files; if False, query CSV files.
             is_model (bool): If True, only include files with model-level aggregation.
+            data_dir (str): Directory to search for files.
+            is_guard_filenames (bool): If True, guard against filenames that don't match the expected
+                pattern. If False, skip the guard and allow any filename to be processed.
 
         Returns:
             pd.DataFrame: A DataFrame containing the concatenated results of the filtered results
@@ -235,7 +247,7 @@ class PSDPredictionFileIterator:
             data_frame_filter = lambda df, _: df
         # Iterate across files
         dfs = []
-        psd_iterator = PSDPredictionFileIterator(is_pkl=is_pkl, data_dir=data_dir)
+        psd_iterator = PSDPredictionFileIterator(is_pkl=is_pkl, data_dir=data_dir, is_guard_filenames=is_guard_filenames)
         for item in psd_iterator:
             dct = util.codedstrToDict(item.filename)
             if not file_filter(dct):
