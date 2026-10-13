@@ -49,10 +49,16 @@ class NLCurve(object):
         Returns:
             float: Area under the NLCurve.
         """
-        # Differences in x
-        dx = np.diff(self.curve_ser.index.to_numpy()) 
-        total_integral = np.sum(self.curve_ser.iloc[1:].values * dx) + self.curve_ser.iloc[0] * (self.curve_ser.index[0])  # Add the first segment to reach x=0
-        return total_integral
+#        # Differences in x
+#        dx = np.diff(self.curve_ser.index.to_numpy()) 
+#        total_integral = np.sum(self.curve_ser.iloc[:-1].values * dx)
+#        return total_integral
+        total = 0
+        last_height = 0
+        for seg_size, height in zip(self.curve_ser.index, self.curve_ser.values):
+            total += (1 - seg_size) * (height - last_height)
+            last_height = height
+        return total
 
     def copy(self) -> 'NLCurve':
         """Creates a copy of the NLCurve instance.
@@ -210,7 +216,8 @@ class NLCurve(object):
     @classmethod
     def fromPSDPredictions(cls, csv_path: str, model_num: int,
                         species_name: Optional[str] = None,
-                        df: Optional[pd.DataFrame] = None) -> 'NLCurve':
+                        df: Optional[pd.DataFrame] = None,
+                        ) -> 'NLCurve':
         """Creates a NLCurve from data in a PiecewisePredictions CSV file.
 
         Filters the CSV rows to match the given ``model_num`` and aggregation type
@@ -224,6 +231,7 @@ class NLCurve(object):
             species_name: If provided, select the species-specific aggregation row;
                 otherwise select the model-level aggregation row.
             df: Optional pre-loaded DataFrame to use instead of reading from CSV.
+
 
         Returns:
             NLCurve instance constructed from the changepoints of the specified model and species.

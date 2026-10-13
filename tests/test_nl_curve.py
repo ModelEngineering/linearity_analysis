@@ -10,6 +10,7 @@ import unittest
 import matplotlib.pyplot as plt  # noqa: E402  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd # type: ignore
+from unittest.mock import patch
 
 import src.constants as cn  # type: ignore
 from src.util import makeCSVPaths
@@ -38,7 +39,7 @@ class TestNLCurveInit(unittest.TestCase):
         """A two-element input produces one segment of the expected length."""
         if IGNORE_TESTS:
             return
-        nl = NLCurve([0.0, 5.0])
+        nl = NLCurve([0, 5])
         self.assertEqual(list(nl._boundaries), [0.0, 5.0])
         np.testing.assert_array_equal(nl._segment_arr, [5.0])
 
@@ -46,7 +47,7 @@ class TestNLCurveInit(unittest.TestCase):
         """Boundaries are sorted regardless of input order."""
         if IGNORE_TESTS:
             return
-        nl = NLCurve([3.0, 0.0, 1.0])
+        nl = NLCurve([0, 3, 1])
         self.assertEqual(list(nl._boundaries), [0.0, 1.0, 3.0])
 
     def test_curve_ends_at_one(self) -> None:
@@ -226,9 +227,11 @@ class TestMakeNLCurve(unittest.TestCase):
         self.assertAlmostEqual(float(nl._makeNLCurve().iloc[0]), 1.0 / 3.0)
 
 
-
 class TestFromPSDPredictions(unittest.TestCase):
     """Tests for NLCurve.fromPSDPredictions()."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
 
     def _make_csv(self, tmpdir: str, rows: list) -> str:
         filename = f"piecewise_predictions__dummy_{np.random.randint(1, 100000)}__numpoint_50.csv"
@@ -258,25 +261,26 @@ class TestFromPSDPredictions(unittest.TestCase):
         if IGNORE_TESTS:
             return
         with tempfile.TemporaryDirectory() as tmpdir:
-            path = self._make_csv(
-                tmpdir,
-                [
-                    {
-                        cn.COL_CHANGEPOINTS: [2],
-                        cn.COL_AGGREGATION_TYPE: "S1",
-                        cn.COL_SYSTEM_ID: _biomd_name(1),
-                        cn.COL_COUNT: 5,
-                    },
-                    {
-                        cn.COL_CHANGEPOINTS: [3, 4],
-                        cn.COL_AGGREGATION_TYPE: cn.COL_AGGREGATION_TYPE_MODEL,
-                        cn.COL_SYSTEM_ID: _biomd_name(1),
-                        cn.COL_COUNT: 5,
-                    },
-                ],
-            )
-            nl = NLCurve.fromPSDPredictions(path, model_num=1, species_name="S1")
-            self.assertIn(2.0, nl._boundaries)
+            with patch.object(cn, "PSD_DATA_DIR", self._tmpdir.name):
+                path = self._make_csv(
+                    tmpdir,
+                    [
+                        {
+                            cn.COL_CHANGEPOINTS: [2],
+                            cn.COL_AGGREGATION_TYPE: "S1",
+                            cn.COL_SYSTEM_ID: _biomd_name(1),
+                            cn.COL_COUNT: 5,
+                        },
+                        {
+                            cn.COL_CHANGEPOINTS: [3, 4],
+                            cn.COL_AGGREGATION_TYPE: cn.COL_AGGREGATION_TYPE_MODEL,
+                            cn.COL_SYSTEM_ID: _biomd_name(1),
+                            cn.COL_COUNT: 5,
+                        },
+                    ],
+                )
+                nl = NLCurve.fromPSDPredictions(path, model_num=1, species_name="S1")
+                self.assertIn(2.0, nl._boundaries)
 
     def test_no_matching_rows_raises(self) -> None:
         """When no rows match the filter, ValueError is raised."""
