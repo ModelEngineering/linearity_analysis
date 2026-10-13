@@ -1119,7 +1119,7 @@ class TestEndToEndBioModel5ChangepointsFromFile(unittest.TestCase):
             tc.timecourse_df,
             model_name="BIOMD0000000005",
             max_changepoint=5000,
-            max_fractional_reduction=0.01,
+            max_fractional_reduction=0.0001,
             is_changepoints_from_file=True,
         )
         

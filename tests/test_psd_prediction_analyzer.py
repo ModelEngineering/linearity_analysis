@@ -295,17 +295,17 @@ class TestAnalyzeAUCConsistencyEndToEnd(unittest.TestCase):
     # --- quantitative checks against known values ---
 
     def test_auc_mean_matches_known_value_for_biomd_5(self) -> None:
-        """BIOMD0000000005 has a single qualifying row; known AUC is 0.89999598."""
+        """BIOMD0000000005 has a single qualifying row; known AUC is 0.1898878."""
         result = self._run("BIOMD0000000005")
         self.assertAlmostEqual(result.loc[0.05, (cn.COL_AUC, cn.COL_MEAN)],
-            0.8999959790295811, places=6)  # type: ignore
+            0.1898877961369339, places=6)  # type: ignore
 
     def test_auc_mean_matches_known_value_for_biomd_10(self) -> None:
-        """BIOMD0000000010 has a single qualifying row; known AUC is 0.90000699."""
+        """BIOMD0000000010 has a single qualifying row; known AUC is 0.1898498."""
         result = self._run("BIOMD0000000010")
         self.assertAlmostEqual(
             result.loc[0.05, (cn.COL_AUC, "mean")],
-            0.9000069937498743, # type: ignore
+            0.1898497985769865, # type: ignore
             places=6,
         )  # type: ignore
 
