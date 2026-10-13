@@ -258,6 +258,7 @@ class TestFromPSDPredictions(unittest.TestCase):
             nl = NLCurve.fromPSDPredictions(path, model_num=1)
             self.assertIsInstance(nl, NLCurve)
 
+    @unittest.skipIf(not _HAS_PSD_DATA, "No model CSV file found for testing.")
     def test_species_level_filters_by_name(self) -> None:
         """Passing species_name selects the matching aggregation row."""
         if IGNORE_TESTS:
