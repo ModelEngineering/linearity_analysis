@@ -24,6 +24,13 @@ def _csv_bytes(maxreduction=0.01, threshold=0.001, removal=0) -> bytes:
     b = f"BIOMD001,model,{maxreduction},{threshold},{removal}"
     return f"{h}\n{b}".encode("utf-8")
 
+def _make_filename(numpoint=100000, manycp=0, maxreduction=0.01, threshold=0.001, removal=0,
+            repeat=1) -> str:
+    """Build a structured filename with encoded metadata."""
+    return (f"piecewise_predictions__numpoint_{numpoint}" + \
+            f"__maxreduction_{maxreduction}__threshold_{threshold}" + \
+            f"__manycp_{manycp}__removal_{removal}__repeat_{repeat}.csv")
+
 
 
 class TestPSDPredictionFilesIterator(unittest.TestCase):
@@ -76,11 +83,12 @@ class TestParseFilename(unittest.TestCase):
         return PSDPredictionFileIterator(is_pkl=True)
 
     def test_parses_full_structured_csv_filename(self) -> None:
-        r = self._iter_csv()._parse_filename(
-            "piecewise_predictions__numpoint_100000"
-            "__threshold_0.001__removal_0__maxreduction_0.01.csv")
+        filename = _make_filename(numpoint=100000, manycp=1, maxreduction=0.01,
+                threshold=0.001, removal=0)
+        r = self._iter_csv()._parse_filename(filename)
         r = cast(dict, r)
-        self.assertIsNone(r["num_point"])
+        self.assertEqual(r["numpoint"], 100000)
+        self.assertEqual(r["manycp"], 1)
         self.assertAlmostEqual(r["threshold"], 0.001)
         self.assertEqual(r["maxreduction"], 0.01)
 
@@ -225,8 +233,9 @@ class TestIterOverSyntheticFiles(unittest.TestCase):
         return path
 
     def test_iter_csv_yields_items_with_correct_metadata(self) -> None:
-        self._write_file(
-            "piecewise_predictions__numpoint_100__maxreduction_0.2.csv",
+        filename = _make_filename(numpoint=100, manycp=0, maxreduction=0.2,
+                threshold=0.1, removal=1)
+        self._write_file(filename,
             _csv_bytes(0.2, 0.1, removal=1))
         with patch.object(cn, "DATA_DIR", self._tmpdir.name):
             items = list(PSDPredictionFileIterator(is_pkl=False,
@@ -238,8 +247,8 @@ class TestIterOverSyntheticFiles(unittest.TestCase):
     def test_iter_csv_skips_empty_csv_files(self) -> None:
         """Files that raise during load are skipped silently."""
         # Valid file + empty file (pd.read_csv raises on empty files).
-        self._write_file(
-            "piecewise_predictions__numpoint_100__maxreduction_0.1.csv",
+        filename = _make_filename(numpoint=100, manycp=0, maxreduction=0.1, threshold=0.2, removal=1)
+        self._write_file(filename,
             _csv_bytes(0.1, 0.2))
         self._write_file("empty.csv", b"")
         with patch.object(cn, "DATA_DIR", self._tmpdir.name):
@@ -255,8 +264,8 @@ class TestIterOverSyntheticFiles(unittest.TestCase):
         self.assertEqual(len(items), 0)
 
     def test_iter_csv_yields_dataframe_with_content(self) -> None:
-        name = "piecewise_predictions__numpoint_100__maxreduction_0.5.csv"
-        self._write_file(name, _csv_bytes(0.5, 0.25))
+        filename = _make_filename(numpoint=100, manycp=0, maxreduction=0.5, threshold=0.25, removal=1)
+        self._write_file(filename, _csv_bytes(0.5, 0.25))
         with patch.object(cn, "PSD_DATA_DIR", self._tmpdir.name):
             items = list(PSDPredictionFileIterator(is_pkl=False,
                     data_dir=self._tmpdir.name))

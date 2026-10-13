@@ -8,6 +8,8 @@ from src import util  # type: ignore
 from typing import Iterator, Optional, Callable
 
 import pandas as pd  # type: ignore
+    
+REQUIRED_META_DATA = ["manycp", "threshold", "removal", "numpoint"]
 
 
 class PSDPredictionItem:
@@ -161,11 +163,13 @@ class PSDPredictionFileIterator:
         files = sorted([f for f in os.listdir(self.data_dir) 
                 if ("piecewise_predictions" in f)  and
                 ("__numpoint_" in f)  and
+                all([k in f for k in REQUIRED_META_DATA]) and
+                (not "dummy" in f) and
                 (f.endswith(".pkl") if self.is_pkl else f.endswith(".csv"))])
         
         for filename in files:
+            # Get the full path to the file
             filepath = os.path.join(self.data_dir, filename)
-            
             if not os.path.isfile(filepath):
                 continue
             
