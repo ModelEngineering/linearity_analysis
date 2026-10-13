@@ -137,7 +137,7 @@ class TestProcessModel(unittest.TestCase):
         """processModel returns None when the underlying pipeline raises an exception."""
         item = _make_mock_item(is_timecourse_valid=False)
         with patch(
-            "make_piecewise_predictions.PiecewiseSystemDiscovery",
+            "scripts.make_piecewise_predictions.PiecewiseSystemDiscovery",
             side_effect=ValueError("simulated failure"),
         ):
             result = processModel(
@@ -154,7 +154,7 @@ class TestProcessModel(unittest.TestCase):
         mock_psd.fit.return_value = None
         mock_psd.predict.return_value = None
         with patch(
-            "make_piecewise_predictions.PiecewiseSystemDiscovery",
+            "scripts.make_piecewise_predictions.PiecewiseSystemDiscovery",
             return_value=mock_psd,
         ):
             result = processModel(
@@ -188,7 +188,7 @@ class TestMain(unittest.TestCase):
         mock_items = [_make_mock_item(name) for name in model_names]
         mock_iter = _make_mock_timecourse_iterator(mock_items)
 
-        with patch("make_piecewise_predictions.TimecourseIterator",
+        with patch("scripts.make_piecewise_predictions.TimecourseIterator",
                 return_value=mock_iter):
             main(
                 first_model_num=0,

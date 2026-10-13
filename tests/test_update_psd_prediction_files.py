@@ -37,14 +37,14 @@ class TestAddAUCColumn(unittest.TestCase):
         self.assertIn("At least two boundaries", str(cm.exception))
 
     def test_single_segment_boundaries(self) -> None:
-        """Single segment [0, NUM_POINT-1] should give AUC=1.0."""
+        """Single segment [0, NUM_POINT-1] gives AUC=0.0 (no changepoints = no improvement)."""
         df = pd.DataFrame({
             cn.COL_SYSTEM_ID: ["BIOMD001"],
             cn.COL_BOUNDARIES: [[0, 99999]],  # NUM_POINT=100000
         })
         result = update_psd_prediction_files._addAUCColumn(df)
         self.assertEqual(result, 1)
-        self.assertAlmostEqual(df[cn.COL_AUC].iloc[0], 1.0, places=5)
+        self.assertAlmostEqual(df[cn.COL_AUC].iloc[0], 0.0, places=5)
 
     def test_multiple_segments(self) -> None:
         """Multiple segments produce AUC < 1.0 based on segment lengths."""

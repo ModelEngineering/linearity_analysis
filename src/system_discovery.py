@@ -202,6 +202,7 @@ class SystemDiscovery:
             feature_library=library,
             optimizer=optimizer,
             differentiation_method=sfd,
+            feature_names=self.species_names,
         )
         self.is_fitted: bool = False
 
@@ -441,7 +442,7 @@ class SystemDiscovery:
         # Fit the normalized value
         with warnings.catch_warnings(record=True) as _caught:
             warnings.simplefilter("always")
-            self.model.fit(Z, t=self._time_arr, feature_names=self.species_names)  # type: ignore
+            self.model.fit(Z, t=self._time_arr)  # type: ignore
         if _caught:
             print("Warnings from model.fit():")
             for w in _caught:

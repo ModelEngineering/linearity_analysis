@@ -311,7 +311,7 @@ class TestPSDPredictionFilesIteratorQuery(unittest.TestCase):
         self._write_pkl(
             "piecewise_predictions__numpoint_200__maxreduction_0.1.pkl", df2)
         with patch.object(cn, "PSD_DATA_DIR", self._tmpdir.name):
-            result = PSDPredictionFileIterator.query(data_dir=self._tmpdir.name)
+            result = PSDPredictionFileIterator.query(data_dir=self._tmpdir.name, is_model=False)
         self.assertEqual(len(result), 3)
         self.assertIn(cn.COL_FILENAME, result.columns)
         fnames = set(result[cn.COL_FILENAME])
@@ -329,7 +329,7 @@ class TestPSDPredictionFilesIteratorQuery(unittest.TestCase):
         with patch.object(cn, "PSD_DATA_DIR", self._tmpdir.name):
             result = PSDPredictionFileIterator.query(
                 file_filter=lambda dct: dct.get("numpoint") == 200,
-                data_dir=self._tmpdir.name)
+                data_dir=self._tmpdir.name, is_model=False)
         # Only the second file should pass; its df has one row.
         self.assertEqual(len(result), 1)
 
@@ -349,7 +349,7 @@ class TestPSDPredictionFilesIteratorQuery(unittest.TestCase):
         with patch.object(cn, "PSD_DATA_DIR", self._tmpdir.name):
             result = PSDPredictionFileIterator.query(
                 data_frame_filter=data_frame_filter,
-                data_dir=self._tmpdir.name)
+                data_dir=self._tmpdir.name, is_model=False)
         # Only the row with value=2.0 should remain after filtering.
         self.assertEqual(len(result), 2)
         test_result = result.iloc[1]["value"] == 2.0
@@ -367,7 +367,7 @@ class TestPSDPredictionFilesIteratorQuery(unittest.TestCase):
             result = PSDPredictionFileIterator.query(
                 file_filter=lambda dct: dct.get("numpoint") == 100,
                 data_frame_filter=lambda d, _: d[d["value"] > 1],
-                data_dir=self._tmpdir.name)
+                data_dir=self._tmpdir.name, is_model=False)
         # File filter keeps df1 only; data frame filter then drops value=0.5 row.
         self.assertEqual(len(result), 1)
 
@@ -380,7 +380,7 @@ class TestPSDPredictionFilesIteratorQuery(unittest.TestCase):
         self._write_pkl(
             "piecewise_predictions__numpoint_100__maxreduction_0.5.pkl", pkl_df)
         with patch.object(cn, "PSD_DATA_DIR", self._tmpdir.name):
-            result = PSDPredictionFileIterator.query(data_dir=self._tmpdir.name)
+            result = PSDPredictionFileIterator.query(data_dir=self._tmpdir.name, is_model=False)
         # Only the pickle file should contribute rows; CSV is ignored.
         self.assertEqual(len(result), 1)
 
@@ -410,7 +410,7 @@ class TestPSDPredictionFilesIteratorQuery(unittest.TestCase):
         self._write_pkl(
             "piecewise_predictions__numpoint_100__maxreduction_0.5.pkl", df1)
         with patch.object(cn, "PSD_DATA_DIR", self._tmpdir.name):
-            result = PSDPredictionFileIterator.query(data_dir=self._tmpdir.name)
+            result = PSDPredictionFileIterator.query(data_dir=self._tmpdir.name, is_model=False)
         expected_name = "piecewise_predictions__numpoint_100__maxreduction_0.5"
         # item.filename strips the file extension per PSDPredictionsItem.__init__.
         self.assertTrue((result[cn.COL_FILENAME] == expected_name).all())
