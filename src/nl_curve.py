@@ -49,10 +49,6 @@ class NLCurve(object):
         Returns:
             float: Area under the NLCurve.
         """
-#        # Differences in x
-#        dx = np.diff(self.curve_ser.index.to_numpy()) 
-#        total_integral = np.sum(self.curve_ser.iloc[:-1].values * dx)
-#        return total_integral
         total = 0
         last_height = 0
         for seg_size, height in zip(self.curve_ser.index, self.curve_ser.values):
