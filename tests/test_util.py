@@ -188,33 +188,35 @@ class TestCodedStr2Dict(unittest.TestCase):
 
     def test_multiple_key_value_pairs(self) -> None:
         """A string with multiple __-separated key=value pairs is parsed correctly."""
-        result = codedstrToDict("key1_val1__key2_val2")
+        result = codedstrToDict("key1_val1__key2_val2", is_passthru=True)
         self.assertEqual(result, {"key1": "val1", "key2": "val2"})
 
     def test_single_key_value(self) -> None:
         """A single key=value pair produces a one-entry dict."""
-        result = codedstrToDict("foo_bar")
+        result = codedstrToDict("foo_bar", is_passthru=True)
         self.assertEqual(result, {"foo": "bar"})
 
-    def test_empty_string_returns_empty_dict(self) -> None:
-        """An empty string yields an empty dict."""
-        result = codedstrToDict("")
-        self.assertEqual(result, {})
+    def test_empty_string_errors(self) -> None:
+        """An empty string yields an error."""
+        with self.assertRaises(ValueError):
+            _ = codedstrToDict("", is_passthru=True)
 
     def test_value_containing_underscore_preserved(self) -> None:
         """split('_', 1) keeps underscores in the value intact."""
-        result = codedstrToDict("key_sub_val")
+        result = codedstrToDict("key_sub_val", is_passthru=True)
         self.assertEqual(result, {"key": "sub_val"})
 
     def test_part_without_underscore_skipped(self) -> None:
         """Segments without _ are silently ignored."""
-        result = codedstrToDict("key1_val1__nounderscore__key2_val2")
-        self.assertEqual(result, {"key1": "val1", "key2": "val2"})
+        with self.assertRaises(ValueError):
+            _ = codedstrToDict("key1_val1__nounderscore__key2_val2", is_passthru=True)
 
     def test_trailing_separator_ignored(self) -> None:
         """Trailing __ produces an empty segment that is skipped."""
-        result = codedstrToDict("key1_val1__")
-        self.assertEqual(result, {"key1": "val1"})
+        with self.assertRaises(ValueError):
+            _ = codedstrToDict("key1_val1__", is_passthru=True)
+        with self.assertRaises(ValueError):
+            _ = codedstrToDict("key1_val1__key2")
 
 
 class TestDictToCodedstr(unittest.TestCase):
@@ -242,7 +244,7 @@ class TestDictToCodedstr(unittest.TestCase):
 
     def test_roundtrip_with_codedstrToDict(self) -> None:
         """Non-numeric string values survive the round-trip (keys without underscores)."""
-        original = {"threshold": "alpha", "removal": "beta"}
+        original = {cn.COL_COEFFICIENT_THRESHOLD: "alpha", cn.COL_REMOVAL: "beta"}
         coded = dictToCodedstr(original)
         decoded = codedstrToDict(coded)
         self.assertEqual(decoded, original)
@@ -253,21 +255,21 @@ class TestDictToCodedstr(unittest.TestCase):
         coded = dictToCodedstr(original)
         decoded = codedstrToDict(coded)
         self.assertEqual(decoded["repeat"], 3)
-        self.assertAlmostEqual(decoded["threshold"], 0.1, places=5)
+        self.assertAlmostEqual(decoded[cn.COL_COEFFICIENT_THRESHOLD], 0.1, places=5)
 
     def test_roundtrip_succeeds_when_value_has_single_underscore(self) -> None:
         """Values with one _ survive the round-trip via split('_', 1)."""
         original = {"key": "sub_val"}
         coded = dictToCodedstr(original)
-        decoded = codedstrToDict(coded)
+        decoded = codedstrToDict(coded, is_passthru=True)
         self.assertEqual(decoded, original)
 
     def test_roundtrip_fails_when_value_contains_separator(self) -> None:
         """Values containing '__' are ambiguous and break the round-trip."""
         problematic = {"key": "val__extra"}
         coded = dictToCodedstr(problematic)
-        decoded = codedstrToDict(coded)
-        self.assertNotEqual(decoded, problematic)
+        with self.assertRaises(ValueError):
+            _ = codedstrToDict(coded)
 
 
 class TestDictToCodedstrConvertStrs(unittest.TestCase):
@@ -282,7 +284,7 @@ class TestDictToCodedstrConvertStrs(unittest.TestCase):
         result = dictToCodedstr(
             {"max_fractional_reduction": 0.001}, convert_strs=["max_fractional_reduction"]
         )
-        self.assertEqual(result, "max_fractional_reduction_1e-3")
+        self.assertEqual(result, "maxreduction_1e-3")
 
     def test_convert_strs_with_multiple_keys(self) -> None:
         """Multiple keys in convert_strs all get scientific notation applied."""

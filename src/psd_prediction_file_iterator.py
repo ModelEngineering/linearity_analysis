@@ -2,10 +2,14 @@
 
 import os
 import pickle
+import pandas as pd # type: ignore
+from typing import Iterator, Optional, Callable, Union, cast, Dict, Any
+
+from tomlkit import key
 
 import src.constants as cn  # type: ignore
 from src import util  # type: ignore
-from typing import Iterator, Optional, Callable
+from src.model import Model
 
 import pandas as pd  # type: ignore
     
@@ -73,20 +77,20 @@ class PSDPredictionFileIterator:
 
     def __init__(self, is_pkl: bool = False,
             data_dir: str = cn.PSD_DATA_DIR,
-            is_guard_filenames: bool = False) -> None:
+            is_guard_filename: bool = False) -> None:
         """
         Initialize the iterator.
 
         Args:
             is_pkl: If True, iterate over pickle files. If False, iterate over CSV files.
             data_dir: Directory to iterate over.:w
-
-            is_guard_filenames: If True, guard against filenames that don't match the expected
+            is_guard_filename: If True, guard against filenames that don't match the expected
                 pattern. If False, skip the guard and allow any filename to be processed.
         """
         self.is_pkl = is_pkl
         self.data_dir = data_dir
-        self.is_guard_filenames = is_guard_filenames
+        self.is_guard_filenames = is_guard_filename
+
     def _parse_filename(self, filename: str) -> Optional[dict]:
         """
         Parse the encoded metadata from a piecewise predictions filename.
@@ -217,7 +221,7 @@ class PSDPredictionFileIterator:
             is_pkl: bool = True,
             is_model: bool = True,
             data_dir: str = cn.PSD_DATA_DIR,
-            is_guard_filenames: bool = False,
+            is_guard_filename: bool = False,
             ) -> pd.DataFrame:
         """
         Query the piecewise predictions files based on filters for the files and their DataFrames.
@@ -232,7 +236,7 @@ class PSDPredictionFileIterator:
             is_pkl (bool): If True, query pickle files; if False, query CSV files.
             is_model (bool): If True, only include files with model-level aggregation.
             data_dir (str): Directory to search for files.
-            is_guard_filenames (bool): If True, guard against filenames that don't match the expected
+            is_guard_filename (bool): If True, guard against filenames that don't match the expected
                 pattern. If False, skip the guard and allow any filename to be processed.
 
         Returns:
@@ -247,7 +251,8 @@ class PSDPredictionFileIterator:
             data_frame_filter = lambda df, _: df
         # Iterate across files
         dfs = []
-        psd_iterator = PSDPredictionFileIterator(is_pkl=is_pkl, data_dir=data_dir, is_guard_filenames=is_guard_filenames)
+        psd_iterator = PSDPredictionFileIterator(is_pkl=is_pkl, data_dir=data_dir,
+                is_guard_filename=is_guard_filename)
         for item in psd_iterator:
             dct = util.codedstrToDict(item.filename)
             if not file_filter(dct):
@@ -261,3 +266,77 @@ class PSDPredictionFileIterator:
         if not dfs:
             return pd.DataFrame()
         return pd.concat(dfs)
+
+    @classmethod
+    def getBiomodelSer(cls, model_name: Union[int, str],
+            min_accuracy: float = 0.8,  # Minimum accuracy threshold for filtering
+            accuracy_statistic: str = cn.COL_P50,  # Statistic to minimize (e.g., AUC)
+            max_fractional_reduction:  Optional[float] = None,
+            coefficient_threshold: Optional[float] = None,
+            is_changepoint_removal: Optional[bool] = None,
+            max_changepoint: Optional[int] = None,
+            num_point: Optional[int] = None,
+            repeat: Optional[int] = None,
+            manycp: Optional[bool] = None,
+            data_dir: str = cn.PSD_DATA_DIR) -> pd.Series:
+        """
+        Gets the PSD prediction series for a given biomodel name and optional metadata filters.
+
+        Args:
+            model_name (str): The name of the biomodel to filter for.
+            accuracy_statistic (str): constraint for the accuracy statistic
+            min_accuracy (float): The minimum accuracy threshold for filtering.
+            max_fractional_reduction (float, optional): The maximum fractional reduction to filter for.
+            coefficient_threshold (float, optional): The threshold for the coefficient to filter for.
+            is_changepoint_removal (bool, optional): Whether to remove changepoints.
+            max_changepoint (int, optional): The maximum number of changepoints to allow.
+            num_point (int, optional): The number of points to include in the series.
+            repeat (int, optional): The number of times to repeat the series.
+            manycp (bool, optional): Whether to include multiple changepoints.
+            data_dir (str): Directory to search for files.kkkk
+        """
+        if isinstance(model_name, int):
+            model_name = Model.getBiomodelName(cast(int, model_name))
+        ##
+        # FIXME: Use names in filter filter, not dataframe columns
+        def fileFilter(dct: dict) -> bool:
+            ##
+            def get(key: str) -> Any:
+                """Helper function to get a value from the metadata dictionary."""
+                return dct.get(cn.FILE_METADATA_DCT.get(key))
+            ##
+            """Filter files based on the provided metadata."""
+            if max_fractional_reduction is not None and get(cn.COL_MAX_FRACTIONAL_REDUCTION) != max_fractional_reduction:
+                return False
+            if coefficient_threshold is not None and get(cn.COL_COEFFICIENT_THRESHOLD) != coefficient_threshold:
+                return False
+            if is_changepoint_removal is not None and get(cn.COL_IS_CHANGEPOINT_REMOVAL) != int(is_changepoint_removal):
+                return False
+            if max_changepoint is not None and get(cn.COL_MAX_CHANGEPOINT) != max_changepoint:
+                return False
+            if num_point is not None and get(cn.COL_NUM_POINT) != num_point:
+                return False
+            if repeat is not None and get(cn.COL_REPEAT) != repeat:
+                return False
+            if manycp is not None and get(cn.COL_MANYCP) != int(manycp):
+                return False
+            return True
+        ##
+        def dataFrameFilter(df: pd.DataFrame, _) -> pd.DataFrame:
+            """Filter DataFrame rows based on the model name."""
+            return df[df[cn.COL_MODEL_NAME] == model_name]
+        ##
+        # Query the files and DataFrames
+        df = PSDPredictionFileIterator.query(file_filter=fileFilter, data_frame_filter=dataFrameFilter,
+                is_guard_filename=True)
+        if len(df) == 0:
+            raise ValueError(f"No data found for model_name={model_name} with the specified filters.")
+        if len(df) == 1:
+            return df.iloc[0]
+        # Find the row with the minimum AUC subject to the accuracy constraint
+        df = df[df[accuracy_statistic] >= min_accuracy]
+        if len(df) == 0:
+            raise ValueError(f"No rows found for model_name={model_name} with accuracy >= {min_accuracy}.")
+        # Find the row with the minimum AUC
+        best_ser = df.loc[df[cn.COL_AUC].idxmin()]
+        return best_ser

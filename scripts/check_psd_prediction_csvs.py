@@ -29,7 +29,7 @@ from util import codedstrToDict, getPSDPredictionDF  # noqa: E402
 _FILENAME_KEY_TO_COLUMN: dict[str, str] = {
     "maxreduction": cn.COL_MAX_FRACTIONAL_REDUCTION,  # "max_fractional_reduction"
     "threshold": cn.COL_COEFFICIENT_THRESHOLD,        # "coefficient_threshold"
-    "removal": cn.COL_IS_CHANGEPONT_REMOVAL,          # "is_changepoint_removal"
+    "removal": cn.COL_IS_CHANGEPOINT_REMOVAL,          # "is_changepoint_removal"
 }
 
 

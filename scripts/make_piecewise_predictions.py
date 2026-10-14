@@ -106,7 +106,7 @@ def processModel(
     accuracy_df[cn.COL_MAX_FRACTIONAL_REDUCTION] = max_fractional_reduction
     accuracy_df[cn.COL_COEFFICIENT_THRESHOLD] = coefficient_threshold
     accuracy_df[cn.COL_NUM_CHANGEPOINT] = psd.num_changepoint  # Number of change points detected in the piecewise model. 
-    accuracy_df[cn.COL_IS_CHANGEPONT_REMOVAL] = is_changepoint_removal
+    accuracy_df[cn.COL_IS_CHANGEPOINT_REMOVAL] = is_changepoint_removal
     accuracy_df[cn.COL_NUM_SPECIES] = len(psd.species_names)
     #
     return accuracy_df

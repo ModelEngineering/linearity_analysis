@@ -1,5 +1,7 @@
 '''Utilities'''
 
+from traitlets import Any
+
 import src.constants as cn
 
 import ast  # type: ignore
@@ -113,7 +115,7 @@ def getPSDPredictionDF(
                     _parseChangepoints(row[cn.COL_CHANGEPOINTS]), axis=1)
             try:
                 df[cn.COL_BOUNDARIES] = df.apply(lambda row: [0]
-                    + row[cn.COL_CHANGEPOINTS] + [dct["numpoint"]-1], axis=1)
+                    + row[cn.COL_CHANGEPOINTS] + [dct[cn.COL_NUM_POINT]-1], axis=1)
             except Exception as e:
                 import pdb; pdb.set_trace()
             with open(pkl_path, "wb") as f:
@@ -133,14 +135,53 @@ def getPSDPredictionDF(
     #
     return merged_df
 
-def codedstrToDict(codedstr: str) -> dict:
+def codedstrToDict(codedstr: str, is_passthru: bool = False) -> dict:
+    """Convert a coded string to a dictionary.
+
+    Args:
+        codedstr (str): Coded string in the format "key1_value1__key2_value2"
+        is_passthru (bool): If True, the function will not raise an error if a key is not found in the metadata dictionary.
+
+    Returns:
+        dict: Dictionary with keys and values extracted from the coded string. Keys are the
+        internal names of columns as specified in cn.FILE_METADATA_DCT.
+    """
+    ##
+    metadata_dct = {v: k for k, v in cn.FILE_METADATA_DCT.items()}
+    def get(key: str) -> str:
+        """Helper function to get a value from the metadata dictionary. Does passthru if is_passthru is True."""
+        result = metadata_dct.get(key, None)
+        if result is None:
+            if is_passthru:
+                return key
+            else:
+                raise ValueError(f"Key '{key}' not found in FILE_METADATA_DCT.")
+        return result
+    ##
+    result = {}
+    new_codedstr = codedstr.replace("piecewise_predictions__", "")
+    for part in new_codedstr.split("__"):
+        if "_" in part:
+            key, value = part.split("_", 1)
+            if not is_passthru:
+                key = get(key)
+            try:
+                result[key] = eval(value)
+            except:
+                result[key] = value
+        else:
+            raise ValueError(f"Segment '{part}' does not contain an underscore and cannot be parsed.")
+    return result
+
+def deprecatedCodedstrToDict(codedstr: str) -> dict:
     """Convert a coded string to a dictionary.
 
     Args:
         codedstr (str): Coded string in the format "key1_value1__key2_value2"
 
     Returns:
-        dict: Dictionary with keys and values extracted from the coded string.
+        dict: Dictionary with keys and values extracted from the coded string. Keys are the
+        internal names of columns.
     """
     result = {}
     new_codedstr = codedstr.replace("piecewise_predictions__", "")
@@ -154,6 +195,33 @@ def codedstrToDict(codedstr: str) -> dict:
     return result
 
 def dictToCodedstr(dct: dict, convert_strs : Optional[List[str]] = None) -> str:
+    """Convert a dictionary to a coded string. Optionally converts specified keys to scientific notation.
+    Handles the differences in keys between the metadata dictionary and the internal column names.
+
+    Args:
+        dct (dict): Dictionary to convert.
+        convert_strs (Optional[List[str]]): List of keys to convert to scientific notation.
+
+    Returns:
+        str: Coded string in the format "key1_value1__key2_value2"
+    """
+    dct = dict(dct) # Do not mutate the input dictionary
+    ##
+    def get(key: str) -> str:
+        """Helper function to get a value from the metadata dictionary."""
+        return cn.FILE_METADATA_DCT.get(key, key)  # Use the original key if not found in the metadata dictionary
+    ##
+    if convert_strs is not None:
+        for key in convert_strs:
+            if key in dct:
+                value = dct[key]
+                new_value = f"{value:.1e}".replace(".0e-0", "e-")  # Convert to scientific notation and remove unnecessary .0
+                dct[key] = new_value
+    dct = {get(k): v for k, v in dct.items()}  # Convert keys to metadata dictionary keys
+    stg = "__".join(f"{get(k)}_{v}" for k, v in dct.items())
+    return stg
+
+def deprecatedDictToCodedstr(dct: dict, convert_strs : Optional[List[str]] = None) -> str:
     """Convert a dictionary to a coded string. Optionally converts specified keys to scientific notation.
 
     Args:

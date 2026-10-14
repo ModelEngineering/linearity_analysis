@@ -36,7 +36,7 @@ def _model_row(max_frac_red: float = 0.001, threshold=None, is_removal=None) -> 
     if threshold is not None:
         row[cn.COL_COEFFICIENT_THRESHOLD] = threshold
     if is_removal is not None:
-        row[cn.COL_IS_CHANGEPONT_REMOVAL] = is_removal
+        row[cn.COL_IS_CHANGEPOINT_REMOVAL] = is_removal
     return row
 
 
