@@ -244,7 +244,7 @@ class TestDictToCodedstr(unittest.TestCase):
 
     def test_roundtrip_with_codedstrToDict(self) -> None:
         """Non-numeric string values survive the round-trip (keys without underscores)."""
-        original = {cn.COL_COEFFICIENT_THRESHOLD: "alpha", cn.COL_REMOVAL: "beta"}
+        original = {cn.COL_COEFFICIENT_THRESHOLD: "alpha", cn.COL_IS_CHANGEPOINT_REMOVAL: "beta"}
         coded = dictToCodedstr(original)
         decoded = codedstrToDict(coded)
         self.assertEqual(decoded, original)
@@ -364,32 +364,32 @@ class TestParseFilename(unittest.TestCase):
         """A basic filename is parsed correctly."""
         filename = "piecewise_predictions__numpoint_100.csv"
         result = parseFilename(filename)
-        self.assertEqual(result, {"numpoint": "100.csv"})
+        self.assertEqual(result, {cn.COL_NUM_POINT: "100.csv"})
 
     def test_parseFilename_with_maxreduction(self) -> None:
         """A filename with maxreduction is parsed correctly."""
         filename = "piecewise_predictions__numpoint_100__maxreduction_1e-3.csv"
         result = parseFilename(filename)
-        self.assertEqual(result, {"numpoint": 100, "maxreduction": "1e-3.csv"})
+        self.assertEqual(result, {cn.COL_NUM_POINT: 100, cn.COL_MAX_FRACTIONAL_REDUCTION: "1e-3.csv"})
 
     def test_parseFilename_with_multiple_params(self) -> None:
         """A filename with multiple parameters is parsed correctly."""
-        sel = dictToCodedstr({"maxreduction": 0.001, "removal": 1}, convert_strs=["maxreduction"])
+        sel = dictToCodedstr({cn.COL_MAX_FRACTIONAL_REDUCTION: 0.001, cn.COL_IS_CHANGEPOINT_REMOVAL: 1}, convert_strs=["maxreduction"])
         filename = f"piecewise_predictions__numpoint_100__{sel}.csv"
         result = parseFilename(filename)
-        self.assertIn("numpoint", result)
-        self.assertEqual(result["maxreduction"], 0.001)
+        self.assertIn(cn.COL_NUM_POINT, result)
+        self.assertEqual(result[cn.COL_MAX_FRACTIONAL_REDUCTION], 0.001)
         # Note: parseFilename keeps ".csv" in the value string
-        self.assertEqual(result["removal"], "1.csv")
+        self.assertEqual(result[cn.COL_IS_CHANGEPOINT_REMOVAL], "1.csv")
 
     def test_parseFilename_with_repeat(self) -> None:
         """A filename with repeat parameter is parsed correctly."""
-        sel = dictToCodedstr({"maxreduction": 0.001}, convert_strs=["maxreduction"])
-        rep_sel = dictToCodedstr({"repeat": 3})
+        sel = dictToCodedstr({cn.COL_MAX_FRACTIONAL_REDUCTION: 0.001}, convert_strs=["maxreduction"])
+        rep_sel = dictToCodedstr({cn.COL_REPEAT: 3})
         filename = f"piecewise_predictions__numpoint_100__{sel}__{rep_sel}.csv"
         result = parseFilename(filename)
         # Note: parseFilename keeps ".csv" in the value string
-        self.assertEqual(result["repeat"], "3.csv")
+        self.assertEqual(result[cn.COL_REPEAT], "3.csv")
 
     def test_parseFilename_invalid_prefix_raises(self) -> None:
         """A filename without the expected prefix raises ValueError."""

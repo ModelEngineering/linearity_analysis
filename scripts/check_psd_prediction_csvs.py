@@ -82,14 +82,13 @@ def _check_file(filepath: Path) -> list[str]:
         errors.append(f"Failed to read CSV at {filepath}: {exc}")
         return errors
 
-    for fname_key, expected in metadata.items():
-        col_name = _FILENAME_KEY_TO_COLUMN.get(fname_key)
+    for col_name, expected in metadata.items():
         if col_name is None:
             continue
 
         if col_name not in df.columns:  # pragma: no cover - defensive only
             errors.append(
-                f"{filepath.name}: column '{col_name}' (from filename key '{fname_key}') "
+                f"{filepath.name}: column '{col_name}'"
                 f"is missing from the CSV."
             )
             continue
@@ -102,7 +101,7 @@ def _check_file(filepath: Path) -> list[str]:
             if actual_set != expected_set:
                 errors.append(
                     f"{filepath.name}: column '{col_name}' is inconsistent with filename "
-                    f"key '{fname_key}'. Expected {expected_set}, got {actual_set}."
+                    f"key '{cn.COLUMN_METADATA_KEY_2_FILE_METADATA_KEY_DCT[col_name]}'. Expected {expected_set}, got {actual_set}."
                 )
         else:
             try:
@@ -111,14 +110,14 @@ def _check_file(filepath: Path) -> list[str]:
                 if set(unique.tolist()) != {expected}:
                     errors.append(
                         f"{filepath.name}: column '{col_name}' is inconsistent with filename "
-                        f"key '{fname_key}'. Expected {expected!r}, got {unique.tolist()}."
+                        f"key '{col_name}'. Expected {expected!r}, got {unique.tolist()}."
                     )
                 continue
             # Numeric: allow a small floating-point tolerance for scientific-notation round-trips.
             if not all(abs(float(v) - expected_float) < _NUMERIC_TOLERANCE for v in unique):
                 errors.append(
                     f"{filepath.name}: column '{col_name}' is inconsistent with filename "
-                    f"key '{fname_key}'. Expected {expected}, got {unique.tolist()}."
+                    f"key '{col_name}'. Expected {expected}, got {unique.tolist()}."
                 )
 
     return errors

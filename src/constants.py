@@ -88,7 +88,6 @@ COL_P99 = "p99"  # 99th percentile of the valid values used
 COL_PERCENTILES = [COL_P05,COL_P10, COL_P20, COL_P25, COL_P30, COL_P50, COL_P80, COL_P90, COL_P95, COL_P99]
 COL_REASON = "reason"  # Reason for exclusion of a model from analysis.
 COL_REPEAT = "repeat"  # Which repetition of the model was used in the analysis.
-COL_REMOVAL = "removal"  # Whether change points that do not significantly improve the model were removed.
 COL_SPECIES_NAME = "species_name"
 COL_START_TIME = "start_time"
 COL_SYSTEM_ID = "system_id"  # Unique identifier for the system, e.g. model name or species name.
@@ -97,14 +96,16 @@ COL_COEFFICIENT_THRESHOLD = "coefficient_threshold"  # Threshold used in SystemD
 COLUMN_STATISTICS = [COL_MEAN, COL_MIN, COL_MAX, COL_COUNT, COL_INVALID_COUNT] + COL_PERCENTILES
 COLUMN_ACCURACY_FRACTIONS = [COL_A80, COL_A90, COL_A95]
 COLUMN_NAMES = [COL_MODEL_NAME, COL_MAXCV, COL_ENDTIME, COL_ENDTIME_SOURCE]
-FILE_METADATA_DCT = {
+FILE_METADATA_KEY_2_COLUMN_METADATA_KEY_DCT = {
     COL_NUM_POINT: "numpoint",
     COL_COEFFICIENT_THRESHOLD: "threshold",
-    COL_REMOVAL: "removal",
+    COL_IS_CHANGEPOINT_REMOVAL: "removal",
     COL_MAX_FRACTIONAL_REDUCTION: "maxreduction",
     COL_MANYCP: "manycp",
     COL_REPEAT: "repeat",
 }
+COLUMN_METADATA_KEY_2_FILE_METADATA_KEY_DCT = {v: k for k, v
+        in FILE_METADATA_KEY_2_COLUMN_METADATA_KEY_DCT.items()}
 
 # Symbolic values
 ENDTIME_SOURCE_RECIROCAL_MIN_EIGENVALUE = "reciprocal_min_eigenvalue"

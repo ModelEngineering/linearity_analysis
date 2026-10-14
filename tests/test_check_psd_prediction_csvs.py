@@ -32,7 +32,8 @@ import src.constants as cn  # noqa: E402
 
 def _model_row(max_frac_red: float = 0.001, threshold=None, is_removal=None) -> dict:
     """Build a single model-level row dict for test DataFrames."""
-    row = {"aggregation_type": "model", cn.COL_MAX_FRACTIONAL_REDUCTION: max_frac_red}
+    row = {cn.COL_NUM_POINT: 50,
+        cn.COL_AGGREGATION_TYPE: "model", cn.COL_MAX_FRACTIONAL_REDUCTION: max_frac_red}
     if threshold is not None:
         row[cn.COL_COEFFICIENT_THRESHOLD] = threshold
     if is_removal is not None:
@@ -58,14 +59,14 @@ class TestParseEncodedMetadata(unittest.TestCase):
         result = m._parse_encoded_metadata(
             "piecewise_predictions__numpoint_100__maxreduction_1e-3"
         )
-        self.assertEqual(cast(dict, result)["maxreduction"], 0.001)
+        self.assertEqual(cast(dict, result)[cn.COL_MAX_FRACTIONAL_REDUCTION], 0.001)
 
     def test_decimal_maxreduction(self) -> None:
         """A filename with decimal ``maxreduction`` parses to the corresponding float."""
         result = m._parse_encoded_metadata(
             "piecewise_predictions__numpoint_50__maxreduction_0.01"
         )
-        self.assertEqual(cast(dict, result)["maxreduction"], 0.01)
+        self.assertEqual(cast(dict, result)[cn.COL_MAX_FRACTIONAL_REDUCTION], 0.01)
 
     def test_multiple_keys_parsed(self) -> None:
         """A filename with maxreduction followed by threshold and removal parses all three."""
@@ -73,10 +74,9 @@ class TestParseEncodedMetadata(unittest.TestCase):
             "piecewise_predictions__numpoint_50"
             "__maxreduction_0.01__threshold_0.001__removal_0"
         )
-        self.assertEqual(
-            result,
-            {"numpoint": 50, "maxreduction": 0.01, "threshold": 0.001, "removal": 0},
-        )
+        expected_dct = {cn.COL_NUM_POINT: 50, cn.COL_MAX_FRACTIONAL_REDUCTION: 0.01,
+                cn.COL_COEFFICIENT_THRESHOLD: 0.001, cn.COL_IS_CHANGEPOINT_REMOVAL: 0}
+        self.assertEqual(result, expected_dct, f"Expected {expected_dct}, got {result}")
 
     def test_no_known_key_returns_none(self) -> None:
         """A filename without ``__maxreduction_`` returns None so main() can skip it."""
@@ -115,7 +115,6 @@ class TestCheckFile(unittest.TestCase):
         """When every row's max_fractional_reduction matches the filename, no error is reported."""
         df = _model_df(_model_row(max_frac_red=0.01))
         stem = "piecewise_predictions__numpoint_50__maxreduction_0.01"
-
         errors = self._run_with_df(df, stem)
         self.assertEqual(errors, [])
 
@@ -155,7 +154,7 @@ class TestCheckFile(unittest.TestCase):
 
     def test_missing_column_reported(self) -> None:
         """A CSV missing the column expected by a filename key is reported as an error."""
-        df = pd.DataFrame([{"aggregation_type": "model"}])  # no max_fractional_reduction
+        df = pd.DataFrame([{cn.COL_NUM_POINT: 50, cn.COL_AGGREGATION_TYPE: "model"}])  # no max_fractional_reduction
         stem = "piecewise_predictions__numpoint_50__maxreduction_0.01"
 
         errors = self._run_with_df(df, stem)
@@ -220,7 +219,7 @@ class TestMain(unittest.TestCase):
                 )
 
             with patch.object(m, "getPSDPredictionDF", side_effect=fake_get_psd), \
-                 patch("src.constants.DATA_DIR", tmp):
+                patch("src.constants.DATA_DIR", tmp):
                 exit_code = m.main()
 
         self.assertEqual(exit_code, 1)

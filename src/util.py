@@ -147,15 +147,14 @@ def codedstrToDict(codedstr: str, is_passthru: bool = False) -> dict:
         internal names of columns as specified in cn.FILE_METADATA_DCT.
     """
     ##
-    metadata_dct = {v: k for k, v in cn.FILE_METADATA_DCT.items()}
     def get(key: str) -> str:
         """Helper function to get a value from the metadata dictionary. Does passthru if is_passthru is True."""
-        result = metadata_dct.get(key, None)
+        result = cn.COLUMN_METADATA_KEY_2_FILE_METADATA_KEY_DCT.get(key, None)
         if result is None:
             if is_passthru:
                 return key
             else:
-                raise ValueError(f"Key '{key}' not found in FILE_METADATA_DCT.")
+                raise ValueError(f"Key '{key}' not found in cn.COLUMN_METADATA_KEY_2_FILE_METADATA_KEY_DCT.")
         return result
     ##
     result = {}
@@ -209,7 +208,7 @@ def dictToCodedstr(dct: dict, convert_strs : Optional[List[str]] = None) -> str:
     ##
     def get(key: str) -> str:
         """Helper function to get a value from the metadata dictionary."""
-        return cn.FILE_METADATA_DCT.get(key, key)  # Use the original key if not found in the metadata dictionary
+        return cn.FILE_METADATA_KEY_2_COLUMN_METADATA_KEY_DCT.get(key, key)  # Use the original key if not found in the metadata dictionary
     ##
     if convert_strs is not None:
         for key in convert_strs:

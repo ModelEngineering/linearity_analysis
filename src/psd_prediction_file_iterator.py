@@ -10,6 +10,7 @@ from tomlkit import key
 import src.constants as cn  # type: ignore
 from src import util  # type: ignore
 from src.model import Model
+import src.util as util
 
 import pandas as pd  # type: ignore
     
@@ -90,56 +91,56 @@ class PSDPredictionFileIterator:
         self.is_pkl = is_pkl
         self.data_dir = data_dir
         self.is_guard_filenames = is_guard_filename
-
-    def _parse_filename(self, filename: str) -> Optional[dict]:
-        """
-        Parse the encoded metadata from a piecewise predictions filename.
-
-        Filenames follow patterns like:
-            piecewise_predictions__numpoint_100000__threshold_0.001__removal_0__maxreduction_0.01.csv
-            piecewise_predictions__numpoint_100000__threshold_0.001__removal_1__maxreduction_1e-2.csv
-
-        Or for simple numbered files:
-            piecewise_predictions_0.csv
-            piecewise_predictions_1.pkl
-
-        Returns a dictionary with parsed metadata, or None if the filename doesn't match
-        the expected pattern.
-        """
-        # Process the filename to extract the base name without extension
-        name_without_ext = filename
-        if self.is_pkl:
-            ext = ".pkl"
-        else:
-            ext = ".csv"
-        if not filename.endswith(ext):
-            raise ValueError(f"Filename {filename} does not have expected extension {ext}.")
-        name_without_ext = filename[:-len(ext)]
-        # Check if it starts with "piecewise_predictions"
-        if not name_without_ext.startswith("piecewise_predictions"):
-            raise ValueError(f"Filename {filename} does not start with expected prefix 'piecewise_predictions'.")
-        # Initialize metadata with defaults
-        metadata: dict = {
-            "num_point": None,
-            "threshold": None,
-            "removal": None,
-            "maxreduction": None,
-            "manycp": None,
-            "repeat": None,
-        }
-        # Parse the filename for metadata
-        if not "__" in name_without_ext:
-            raise ValueError(f"Filename {filename} does not contain expected metadata separators '__'.")
-        # Extract parts after "piecewise_predictions"
-        rest = name_without_ext[len("piecewise_predictions"):]
-        # Remove leading __ if present
-        if rest.startswith("__"):
-            rest = rest[2:]
-        # Use codedstrToDict to parse the metadata
-        parsed_metadata = util.codedstrToDict(rest)
-        metadata.update(parsed_metadata)
-        #
-        return metadata
+#
+#    def _parse_filename(self, filename: str) -> Optional[dict]:
+#        """
+#        Parse the encoded metadata from a piecewise predictions filename.
+#
+#        Filenames follow patterns like:
+#            piecewise_predictions__numpoint_100000__threshold_0.001__removal_0__maxreduction_0.01.csv
+#            piecewise_predictions__numpoint_100000__threshold_0.001__removal_1__maxreduction_1e-2.csv
+#
+#        Or for simple numbered files:
+#            piecewise_predictions_0.csv
+#            piecewise_predictions_1.pkl
+#
+#        Returns a dictionary with parsed metadata, or None if the filename doesn't match
+#        the expected pattern.
+#        """
+#        # Process the filename to extract the base name without extension
+#        name_without_ext = filename
+#        if self.is_pkl:
+#            ext = ".pkl"
+#        else:
+#            ext = ".csv"
+#        if not filename.endswith(ext):
+#            raise ValueError(f"Filename {filename} does not have expected extension {ext}.")
+#        name_without_ext = filename[:-len(ext)]
+#        # Check if it starts with "piecewise_predictions"
+#        if not name_without_ext.startswith("piecewise_predictions"):
+#            raise ValueError(f"Filename {filename} does not start with expected prefix 'piecewise_predictions'.")
+#        # Initialize metadata with defaults
+#        metadata: dict = {
+#            "num_point": None,
+#            "threshold": None,
+#            "removal": None,
+#            "maxreduction": None,
+#            "manycp": None,
+#            "repeat": None,
+#        }
+#        # Parse the filename for metadata
+#        if not "__" in name_without_ext:
+#            raise ValueError(f"Filename {filename} does not contain expected metadata separators '__'.")
+#        # Extract parts after "piecewise_predictions"
+#        rest = name_without_ext[len("piecewise_predictions"):]
+#        # Remove leading __ if present
+#        if rest.startswith("__"):
+#            rest = rest[2:]
+#        # Use codedstrToDict to parse the metadata
+#        parsed_metadata = util.codedstrToDict(rest)
+#        metadata.update(parsed_metadata)
+#        #
+#        return metadata
 
     def _load_dataframe(self, filepath: str) -> pd.DataFrame:
         """
@@ -186,7 +187,7 @@ class PSDPredictionFileIterator:
                 continue
             
             # Parse metadata from filename
-            metadata = self._parse_filename(filename)
+            metadata = util.parseFilename(filename)
             if metadata is None:
                 continue
             
@@ -204,13 +205,13 @@ class PSDPredictionFileIterator:
             yield PSDPredictionItem(
                 filename=filename,
                 filepath=filepath,
-                max_fractional_reduction=metadata.get("maxreduction", None),  # type: ignore
-                coefficient_threshold=metadata.get("threshold", None),  # type: ignore
-                is_changepoint_removal=bool(metadata.get("removal", None)),  # type: ignore
-                max_changepoint=metadata.get("max_changepoint", None),  # type: ignore
-                num_point=metadata.get("num_point", None),  # type: ignore
-                repeat=metadata.get("repeat", None),  # type: ignore
-                manycp=bool(metadata.get("manycp", None)),  # type: ignore
+                max_fractional_reduction=metadata.get(cn.COL_MAX_FRACTIONAL_REDUCTION, None),  # type: ignore
+                coefficient_threshold=metadata.get(cn.COL_COEFFICIENT_THRESHOLD, None),  # type: ignore
+                is_changepoint_removal=bool(metadata.get(cn.COL_IS_CHANGEPOINT_REMOVAL, None)),  # type: ignore
+                max_changepoint=metadata.get(cn.COL_MAX_CHANGEPOINT, None),  # type: ignore
+                num_point=metadata.get(cn.COL_NUM_POINT, None),  # type: ignore
+                repeat=metadata.get(cn.COL_REPEAT, None),  # type: ignore
+                manycp=bool(metadata.get(cn.COL_MANYCP, None)),  # type: ignore
                 df=df,
             )
 
@@ -303,7 +304,7 @@ class PSDPredictionFileIterator:
             ##
             def get(key: str) -> Any:
                 """Helper function to get a value from the metadata dictionary."""
-                return dct.get(cn.FILE_METADATA_DCT.get(key))
+                return dct.get(cn.FILE_METADATA_KEY_2_COLUMN_METADATA_KEY_DCT.get(key))
             ##
             """Filter files based on the provided metadata."""
             if max_fractional_reduction is not None and get(cn.COL_MAX_FRACTIONAL_REDUCTION) != max_fractional_reduction:
