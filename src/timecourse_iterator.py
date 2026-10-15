@@ -11,7 +11,7 @@ import numpy as np  # type: ignore
 import pandas as pd # type: ignore
 import pickle
 import zipfile
-from typing import Iterator, Optional, Union
+from typing import Iterator, Optional, Union, List
 
 
 class TimecourseIteratorItem:
@@ -25,31 +25,31 @@ class TimecourseIteratorItem:
 class TimecourseIterator:
     """Iterates over serialized Timecourses in the timecourse zip archive."""
 
-    def __init__(self, zip_path: Optional[str] = None,
-            num_model:int = -1, first_model_num:int = 0, last_model_num:int = -1,
+    def __init__(self,
+            zip_path: Optional[str] = None,
+            first_model_num:int = 0,
+            num_model_collection: Optional[List[int]] = None,
+            last_model_num:int = -1,
             num_point:int = cn.NUM_POINT, is_sedml_endtime: bool = True,
-            is_curated: bool = False,
             is_report:bool = False) -> None:
         """
         Args:
             zip_path (str, optional): _description_. Defaults to cn.TIMECOURSE_ZIP_PATH.
-            num_model (int, optional): number of models to process. Defaults to -1 (all)
             first_model_num (int, optional): number of the first model to process. Defaults to 0.
+            num_model_collection (List[int], optional): list of model numbers to process. Defaults to None.
             last_model_num (int, optional): number of the last model to process. Defaults to -1 (all).
-            is_sedml_endtime (bool, optional): only includes models with endtime from SED-ML. Defaults to True.
             num_point (int, optional): number of points in each timecourse. Defaults to cn.NUM_POINT.
-            is_curated (bool): Uses cn.CURATION_PATH to eliminate models
+            is_sedml_endtime (bool, optional): only includes models with endtime from SED-ML. Defaults to True.
         """
         if zip_path is None:
             zip_path = self.getZipPath(num_point=num_point)
         self.zip_path = zip_path
-        self.num_model = num_model
         self.first_model_num = first_model_num
         self.last_model_num = last_model_num
         self.num_point = num_point
         self.is_report = is_report
+        self.num_model_collection = num_model_collection
         endtime_dct = getBiomodelsEndtimes(is_include_endtime_source=True)
-        self._is_curated = is_curated
         if is_sedml_endtime:
             self._valid_model_nums = [Model.getBiomodelNum(m)
                     for m, s in endtime_dct.items() if s[1] == "sedml"]
@@ -116,10 +116,8 @@ class TimecourseIterator:
 
     def __iter__(self) -> Iterator[TimecourseIteratorItem]:
         if not os.path.isfile(self.zip_path):
-            print(f"Zip file not found: {self.zip_path}. "
-                    f"Generating timecourses from SBML on the fly.")
-            yield from self._generate_from_sbml()
-            return
+            raise FileNotFoundError(
+                f"Zip file not found: {self.zip_path}. ")
         checker = CurationChecker()
         # Process the files in the zip path
         with zipfile.ZipFile(self.zip_path, 'r') as zf:
@@ -135,12 +133,9 @@ class TimecourseIterator:
                         continue
                     if self.last_model_num >= 0 and model_num > self.last_model_num:
                         break
-                model_name = name[: -len('_timecourse.pkl')]
-                # Check curation
-                if self._is_curated:
-                    if not checker.isCurated():
-                        print(f"Skipping curation excluded model {model_name}")
+                    if self.num_model_collection is not None and model_num not in self.num_model_collection:
                         continue
+                model_name = name[: -len('_timecourse.pkl')]
                 # Process the model
                 try:
                     with zf.open(name) as entry_f:
@@ -158,31 +153,6 @@ class TimecourseIterator:
                         continue
                 yield TimecourseIteratorItem(
                     model_name=model_name, timecourse=timecourse)
-
-    def _generate_from_sbml(self) -> Iterator[TimecourseIteratorItem]:
-        """Generate a Timecourse from SBML for every BioModel in ``cn.BIOMODELS_DIR``,
-        respecting the ``first_model_num`` / ``last_model_num`` filters.
-        """
-        model_dir = cn.BIOMODELS_DIR
-        if not os.path.isdir(model_dir):
-            print(f"BioModels directory not found: {model_dir}. Nothing to generate.")
-            return
-
-        for entry_name in sorted(os.listdir(model_dir)):
-            if not entry_name.startswith("BIOMD"):
-                continue
-            try:
-                model_num = Model.getBiomodelNumberFromName(entry_name)
-            except ValueError:
-                continue
-            if model_num < self.first_model_num:
-                continue
-            if self.last_model_num >= 0 and model_num > self.last_model_num:
-                break
-            yield TimecourseIteratorItem(
-                model_name=entry_name,
-                timecourse=Timecourse.makeBiomodelDF(entry_name, num_point=self.num_point),
-            )
 
     @staticmethod
     def _timecourseFromDict(dct: dict) -> Timecourse:
