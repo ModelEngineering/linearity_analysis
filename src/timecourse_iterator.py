@@ -27,19 +27,30 @@ class TimecourseIterator:
 
     def __init__(self,
             zip_path: Optional[str] = None,
-            first_model_num:int = 0,
-            num_model_collection: Optional[List[int]] = None,
-            last_model_num:int = -1,
-            num_point:int = cn.NUM_POINT, is_sedml_endtime: bool = True,
-            is_report:bool = False) -> None:
+            first_model_num: int = 0,
+            model_num_collection: Optional[List[int]] = None,
+            last_model_num: int = -1,
+            num_point: int = cn.NUM_POINT, is_sedml_endtime: bool = True,
+            is_report: bool = False) -> None:
         """
         Args:
-            zip_path (str, optional): _description_. Defaults to cn.TIMECOURSE_ZIP_PATH.
-            first_model_num (int, optional): number of the first model to process. Defaults to 0.
-            num_model_collection (List[int], optional): list of model numbers to process. Defaults to None.
-            last_model_num (int, optional): number of the last model to process. Defaults to -1 (all).
-            num_point (int, optional): number of points in each timecourse. Defaults to cn.NUM_POINT.
-            is_sedml_endtime (bool, optional): only includes models with endtime from SED-ML. Defaults to True.
+            zip_path (str, optional): Path to the zip archive of serialized Timecourses.
+                Defaults to ``cn.TIMECOURSE_ZIP_PATH``.
+            first_model_num (int, optional): First model number to include (inclusive).
+                Ignored when ``num_model_collection`` is provided. Defaults to 0.
+            model_num_collection (List[int], optional): Explicit list of model numbers to
+                process. When provided, this replaces the ``first_model_num`` /
+                ``last_model_num`` range and ``_valid_model_nums`` filters -- only the
+                models in this list are yielded. Defaults to None.
+            last_model_num (int, optional): Last model number to include (inclusive). -1
+                means all. Ignored when ``num_model_collection`` is provided. Defaults to -1.
+            num_point (int, optional): Number of points in each timecourse. Defaults to
+                ``cn.NUM_POINT``.
+            is_sedml_endtime (bool, optional): When True, restrict iteration to models with
+                SED-ML endtimes. Ignored when ``num_model_collection`` is provided.
+                Defaults to True.
+            is_report (bool, optional): Print progress messages while iterating.
+                Defaults to False.
         """
         if zip_path is None:
             zip_path = self.getZipPath(num_point=num_point)
@@ -48,7 +59,7 @@ class TimecourseIterator:
         self.last_model_num = last_model_num
         self.num_point = num_point
         self.is_report = is_report
-        self.num_model_collection = num_model_collection
+        self.model_num_collection = model_num_collection
         endtime_dct = getBiomodelsEndtimes(is_include_endtime_source=True)
         if is_sedml_endtime:
             self._valid_model_nums = [Model.getBiomodelNum(m)
@@ -118,25 +129,35 @@ class TimecourseIterator:
         if not os.path.isfile(self.zip_path):
             raise FileNotFoundError(
                 f"Zip file not found: {self.zip_path}. ")
-        checker = CurationChecker()
-        # Process the files in the zip path
+
         with zipfile.ZipFile(self.zip_path, 'r') as zf:
             names = sorted(zf.namelist())
             for name in names:
-                if name.startswith("BIOMD"):
-                    model_num = int(name[: -len('_timecourse.pkl')].replace('BIOMD', ''))
-                    if model_num not in self._valid_model_nums:
-                        continue
-                    if self.is_report:
-                        print(f"Processing {model_num}")
-                    if model_num < self.first_model_num:
-                        continue
-                    if self.last_model_num >= 0 and model_num > self.last_model_num:
-                        break
-                    if self.num_model_collection is not None and model_num not in self.num_model_collection:
-                        continue
-                model_name = name[: -len('_timecourse.pkl')]
-                # Process the model
+                if not name.endswith('_timecourse.pkl'):
+                    continue
+                model_name = name[:-len('_timecourse.pkl')]
+
+                try:
+                    model_num = Model.getBiomodelNumberFromName(model_name)
+                except ValueError:
+                    # Non-BioModel entry -- skip BIOMD-specific filters; still yield.
+                    pass
+                else:
+                    if self.model_num_collection is not None:
+                        if model_num not in self.model_num_collection:
+                            continue
+                    else:
+                        if model_num < self.first_model_num:
+                            continue
+                        if self.last_model_num >= 0 and model_num > self.last_model_num:
+                            break
+                        if model_num not in self._valid_model_nums:
+                            continue
+
+                if self.is_report:
+                    print(f"Processing {model_name}")
+
+                # Process the model.
                 try:
                     with zf.open(name) as entry_f:
                         dct = pickle.load(entry_f)
@@ -151,6 +172,7 @@ class TimecourseIterator:
                         print(f"  Failed to generate timecourse for {model_name}: "
                                 f"{gen_e}. Skipping.")
                         continue
+
                 yield TimecourseIteratorItem(
                     model_name=model_name, timecourse=timecourse)
 

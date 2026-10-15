@@ -31,6 +31,7 @@ _HAS_PSD_DATA = os.path.isdir(cn.PSD_DATA_DIR)
 IGNORE_TESTS = False
 HAS_REAL_ZIP = os.path.isfile(TimecourseIterator.getZipPath(num_point=cn.NUM_POINT))
 BIOMODEL_548 = "BIOMD0000000548"
+BIOMODEL_10 = "BIOMD0000000010"
 NUM_POINT_LARGE = 500  # used for slow fit/predict tests; small fixtures use 100.
 
 
@@ -299,17 +300,19 @@ class TestPlotPiecewise(unittest.TestCase):
 @unittest.skipUnless(HAS_REAL_ZIP, "Real timecourse zip not found")
 class TestEndToEndBioModels548(unittest.TestCase):
     """End-to-end test using real BioModel 548 serialized timecourse."""
+    model_name = BIOMODEL_548
+    model_name = BIOMODEL_10
 
     def setUp(self) -> None:
         from src.timecourse_iterator import TimecourseIterator  # type: ignore
-        self.tc = TimecourseIterator.getTimecourse(BIOMODEL_548, num_point=1000)
+        self.tc = TimecourseIterator.getTimecourse(self.model_name, num_point=1000)
 
     def _make_psd(self, **overrides):
         defaults = dict(
-            max_changepoint=2,
+            max_changepoint=20,
             poly_degree=1,
             coefficient_threshold=0.01,
-            model_name=BIOMODEL_548,
+            model_name=self.model_name,
         )
         defaults.update(overrides)
         return PiecewiseSystemDiscovery(self.tc.timecourse_df, **defaults)  # type: ignore
@@ -394,6 +397,16 @@ class TestEndToEndBioModels548(unittest.TestCase):
         for sp in self.tc.timecourse_df.columns:
             self.assertIn(sp, s)
 
+    def test_with_plot(self) -> None:
+        """``plotPiecewise()`` should produce a figure with two subplots."""
+        if IGNORE_TESTS or not HAS_REAL_ZIP:
+            return
+        psd = self._make_psd(max_changepoint=5)
+        psd.fit()
+        po = psd.plotPiecewise()
+        #plt.show()
+        self.assertIsNotNone(po.fig)
+
     def test_fit_with_explicit_changepoint_indices(self) -> None:
         """Providing explicit changepoints should split the timecourse at those indices."""
         if IGNORE_TESTS or not HAS_REAL_ZIP:
@@ -410,17 +423,17 @@ class TestEndToEndBioModels548(unittest.TestCase):
 @unittest.skipUnless(HAS_REAL_ZIP, "Real timecourse zip not found")
 class TestChangepointSpecification(unittest.TestCase):
     """End-to-end test using real BioModel 548 serialized timecourse."""
+    model_num = 5
 
     def test_specify_changepoints(self) -> None:
         """Specifying changepoints should retain them after fit."""
-        model_num = 548
-        model = Model.makeBiomodel(model_num=model_num)
+        model = Model.makeBiomodel(model_num=self.model_num)
         timecourse = Timecourse(model, num_point =1000)
         df = timecourse.timecourse_df
         new_changepoints = list(range(10, 990, 10))
         psd = PiecewiseSystemDiscovery(df,
                 changepoints=new_changepoints,
-                max_fractional_reduction=0.01, model_name=str(model_num))
+                max_fractional_reduction=0.01, model_name=str(self.model_num))
         psd.fit()
         self.assertEqual(psd.changepoints, new_changepoints)
 

@@ -12,6 +12,7 @@ from src.model import Model  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
 from src.system_discovery import SystemDiscovery, NULL_DF  # type: ignore
 import src.util as util     # type: ignore
+from src.nl_curve import NLCurve  # type: ignore
 
 import ast
 import collections
@@ -100,6 +101,12 @@ class PiecewiseSystemDiscovery(object):
         if not self._is_fitted:
             raise RuntimeError("PiecewiseSystemDiscovery must be fit() before accessing boundaries.")
         return [0] + cast(List[int], self.changepoints) + [self.num_point - 1]
+
+    @property
+    def nl_curve(self) -> NLCurve:
+        """Return an ``NLCurve`` object for the piecewise system discovery."""
+        self._requireFitted()
+        return NLCurve(self.boundaries)
 
     def _getBaselineSystemDiscovery(self) -> SystemDiscovery:
         """Lazily build and cache the whole-timecourse baseline ``SystemDiscovery`` model."""
@@ -825,7 +832,7 @@ class PiecewiseSystemDiscovery(object):
             raise ValueError("At least one of is_nochangepoint_plot or is_changepoint_plot must be True.")
         change_point_times = [start for start, _ in self._subsequence_boundaries[1:]]
         ##
-        def _draw(pred_df: pd.DataFrame, score: float, 
+        def _draw(pred_df: pd.DataFrame, score: float, auc : Optional[float] = None, 
                 vlines: Optional[List[float]] = None, **plt_options) -> None:
             po = PlotOptions(**plt_options)
             ax = po.ax
@@ -853,7 +860,12 @@ class PiecewiseSystemDiscovery(object):
                 model_num_str = str(int(self.model_name[6:]))
             else:
                 model_num_str = self.model_name
-            po.title = model_num_str + ": " + plt_options.get("title", "") + f" (Median species p10 accuracy={score:.3f})"
+            if auc is not None:
+                auc_title = f", AUC={auc:.3f}"
+            else:
+                auc_title = ""
+            po.title = model_num_str + ": " + plt_options.get("title", "")   \
+                + f" ({statistic} species p10 accuracy={score:.3f}{auc_title})"
             if ymax > 0.0:
                 po.ylim = (0.0, ymax)
             po.apply()
@@ -864,6 +876,7 @@ class PiecewiseSystemDiscovery(object):
                     title="0 change points", **plt_kwargs)
         if is_changepoint_plot:
             _draw(fig=fig, ax=ax_bot, pred_df=psd_pred_df, score=psd_score,  # type: ignore
+                    auc=self.nl_curve.auc,
                     title=f"{self.num_changepoint} change points",
                     vlines=change_point_times, **plt_kwargs)
         fig.suptitle(suptitle, fontsize=13, fontweight="bold")
