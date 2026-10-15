@@ -513,33 +513,33 @@ class TestCodedstrToDictEdgeCases(unittest.TestCase):
     @unittest.skipUnless(_HAS_PSD_DATA, "PSD_DATA_DIR not found")
     def test_value_is_boolean_true(self) -> None:
         """A boolean 'True' value is evaluated correctly."""
-        result = codedstrToDict("key_True")
+        result = codedstrToDict("key_True", is_passthru=True)
         self.assertEqual(result, {"key": True})
 
     def test_value_is_boolean_false(self) -> None:
         """A boolean 'False' value is evaluated correctly."""
-        result = codedstrToDict("key_False")
+        result = codedstrToDict("key_False", is_passthru=True)
         self.assertEqual(result, {"key": False})
 
     def test_value_is_none(self) -> None:
         """A 'None' value is evaluated correctly."""
-        result = codedstrToDict("key_None")
+        result = codedstrToDict("key_None", is_passthru=True)
         self.assertEqual(result, {"key": None})
 
     def test_value_is_float(self) -> None:
         """A float value is evaluated correctly."""
-        result = codedstrToDict("key_3.14")
+        result = codedstrToDict("key_3.14", is_passthru=True)
         self.assertAlmostEqual(result["key"], 3.14)
 
     def test_empty_value_after_underscore(self) -> None:
         """An empty value after underscore is handled."""
-        result = codedstrToDict("key_")
+        result = codedstrToDict("key_", is_passthru=True)
         self.assertEqual(result, {"key": ""})
 
     def test_multiple_empty_parts(self) -> None:
         """Multiple trailing separators are handled."""
-        result = codedstrToDict("key1_val1______")
-        self.assertEqual(result, {"key1": "val1"})
+        with self.assertRaises(ValueError):
+            _ = codedstrToDict("key1_val1______", is_passthru=True)
 
 
 class TestDictToCodedstrEdgeCases(unittest.TestCase):

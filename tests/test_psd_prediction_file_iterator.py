@@ -7,7 +7,6 @@ in temporary directories (patched over cn.DATA_DIR).
 import os
 import pickle
 import tempfile
-from typing import cast  # type: ignore
 import unittest
 from unittest.mock import patch
 
@@ -75,124 +74,6 @@ class TestPSDPredictionFilesIteratorInit(unittest.TestCase):
     def test_pickle_mode(self) -> None:
         it = PSDPredictionFileIterator(is_pkl=True)
         self.assertTrue(it.is_pkl)
-#
-#
-#class TestParseFilename(unittest.TestCase):
-#    """Tests for _parse_filename covering structured metadata and error cases."""
-#
-#    def setUp(self) -> None:
-#        self._tmpdir = tempfile.TemporaryDirectory()
-#
-#    def tearDown(self) -> None:
-#        self._tmpdir.cleanup()
-#
-#    def _iter_csv(self):
-#        return PSDPredictionFileIterator(is_pkl=False)
-#
-#    def _iter_pkl(self):
-#        return PSDPredictionFileIterator(is_pkl=True)
-#
-#    def test_parses_full_structured_csv_filename(self) -> None:
-#        filename = _make_filename(numpoint=100000, manycp=1, maxreduction=0.01,
-#                threshold=0.001, removal=0) + ".csv"
-#        r = self._iter_csv()._parse_filename(filename)
-#        r = cast(dict, r)
-#        self.assertEqual(r["numpoint"], 100000)
-#        self.assertEqual(r["manycp"], 1)
-#        self.assertAlmostEqual(r["threshold"], 0.001)
-#        self.assertEqual(r["maxreduction"], 0.01)
-#
-#    def test_parses_scientific_notation_maxreduction(self) -> None:
-#        r = self._iter_csv()._parse_filename(
-#            "piecewise_predictions__maxreduction_1e-3.csv")
-#        r = cast(dict, r)
-#        self.assertIsNone(r[cn.COL_NUM_POINT])
-#        self.assertIsNone(r[cn.COL_COEFFICIENT_THRESHOLD])
-#        self.assertIsNone(r[cn.COL_IS_CHANGEPOINT_REMOVAL])
-#        self.assertAlmostEqual(r[cn.COL_MAX_FRACTIONAL_REDUCTION], 0.001, places=6)
-#
-#    def test_parses_repeat_metadata(self) -> None:
-#        r = self._iter_csv()._parse_filename(
-#            "piecewise_predictions__repeat_5.csv")
-#        r = cast(dict, r)
-#        self.assertEqual(r["repeat"], 5)
-#
-#    def test_parses_manycp_metadata(self) -> None:
-#        r = self._iter_csv()._parse_filename(
-#            "piecewise_predictions__manycp_1.csv")
-#        # codedstrToDict evaluates "1" as int(1), not bool(True).
-#        r = cast(dict, r)
-#        self.assertEqual(r.get("manycp"), 1)
-#
-#    def test_returns_defaults_for_minimal_metadata(self) -> None:
-#        r = self._iter_csv()._parse_filename(
-#            "piecewise_predictions__maxreduction_0.5.csv")
-#        r = cast(dict, r)
-#        self.assertIsNone(r[cn.COL_NUM_POINT])
-#        self.assertIsNone(r[cn.COL_COEFFICIENT_THRESHOLD])
-#        self.assertIsNone(r[cn.COL_IS_CHANGEPOINT_REMOVAL])
-#        self.assertAlmostEqual(r[cn.COL_MAX_FRACTIONAL_REDUCTION], 0.5, places=6)
-#
-#    def test_parses_structured_pkl_filename(self) -> None:
-#        """Note: parsed keys (e.g., 'numpoint') don't override defaults ('num_point'),
-#        so only metadata keys whose names match the default dict are actually applied.
-#        See https://github.com/... for the key-mapping bug this produces."""
-#        r = self._iter_pkl()._parse_filename(
-#            "piecewise_predictions__maxreduction_1e-2.pkl")
-#        # Default num_point (100000) is kept because 'numpoint' != 'num_point'.
-#        r = cast(dict, r)
-#        self.assertIsNone(r[cn.COL_NUM_POINT])
-#        self.assertIsNone(r[cn.COL_COEFFICIENT_THRESHOLD])
-#        self.assertAlmostEqual(r[cn.COL_MAX_FRACTIONAL_REDUCTION], 0.01, places=6)
-#
-#    def test_raises_for_wrong_extension_csv(self) -> None:
-#        with self.assertRaises(ValueError):
-#            self._iter_csv()._parse_filename(
-#                "piecewise_predictions__m_0.1.pkl")
-#
-#    def test_raises_for_wrong_extension_pkl(self) -> None:
-#        with self.assertRaises(ValueError):
-#            self._iter_pkl()._parse_filename(
-#                "piecewise_predictions__m_0.1.csv")
-#
-#    def test_raises_for_non_matching_prefix(self) -> None:
-#        with self.assertRaises(ValueError):
-#            self._iter_csv()._parse_filename("other_file.csv")
-#
-#    def test_raises_when_no_separators_in_name(self) -> None:
-#        """A filename without __ separators is rejected."""
-#        with self.assertRaises(ValueError):
-#            self._iter_csv()._parse_filename("piecewise_predictions.csv")
-#
-#    def test_key_mismatch_numpoint_ignored(self) -> None:
-#        """'numpoint' in filename does not override 'num_point' default key.
-#
-#        This is a known bug: codedstrToDict returns raw keys from the filename
-#        (e.g., 'numpoint') which never match the snake_case defaults ('num_point').
-#        See https://github.com/... for the fix."""
-#        r = self._iter_csv()._parse_filename(
-#            "piecewise_predictions__numpoint_50.csv")
-#        # Default num_point (100000) is kept because 'numpoint' != 'num_point'.
-#        r = cast(dict, r)
-#        self.assertIsNotNone(r[cn.COL_NUM_POINT])
-#        # The parsed value is stored under its raw key.
-#        self.assertIn(cn.COL_NUM_POINT, r)
-#
-#    def test_key_mismatch_threshold_correctly_applied(self) -> None:
-#        """'threshold' in filename correctly overrides default (both use key 'threshold')."""
-#        r = self._iter_csv()._parse_filename(
-#            "piecewise_predictions__threshold_0.5.csv")
-#        # Both defaults and parsed code use the exact same key, so override works.
-#        r = cast(dict, r)
-#        self.assertAlmostEqual(r["threshold"], 0.5, places=6)
-#
-#    def test_key_mismatch_manycp_correctly_applied(self) -> None:
-#        """'manycp' in filename correctly overrides default (both use key 'manycp')."""
-#        r = self._iter_csv()._parse_filename(
-#            "piecewise_predictions__manycp_1.csv")
-#        # This key matches the default, so it is correctly applied.
-#        r = cast(dict, r)
-#        self.assertEqual(r["manycp"], 1)
 
 
 class TestLoadDataframe(unittest.TestCase):
@@ -249,7 +130,7 @@ class TestIterOverSyntheticFiles(unittest.TestCase):
                 coefficient_threshold=0.1, is_changepoint_removal=True) + ".csv"
         self._write_file(filename,
             _csv_bytes(0.2, 0.1, removal=1))
-        with patch.object(cn, "DATA_DIR", self._tmpdir.name):
+        with patch.object(cn, "PSD_DATA_DIR", self._tmpdir.name):
             items = list(PSDPredictionFileIterator(is_pkl=False,
                     data_dir=self._tmpdir.name))
         self.assertEqual(len(items), 1)
@@ -264,14 +145,14 @@ class TestIterOverSyntheticFiles(unittest.TestCase):
         self._write_file(filename,
             _csv_bytes(0.1, 0.2))
         self._write_file("empty.csv", b"")
-        with patch.object(cn, "DATA_DIR", self._tmpdir.name):
+        with patch.object(cn, "PSD_DATA_DIR", self._tmpdir.name):
             items = list(PSDPredictionFileIterator(is_pkl=False,
                     data_dir=self._tmpdir.name))
         # Only the valid file should be yielded.
         self.assertEqual(len(items), 1)
 
     def test_iter_csv_empty_dir(self) -> None:
-        with patch.object(cn, "DATA_DIR", self._tmpdir.name):
+        with patch.object(cn, "PSD_DATA_DIR", self._tmpdir.name):
             items = list(PSDPredictionFileIterator(is_pkl=False,
                     data_dir=self._tmpdir.name))
         self.assertEqual(len(items), 0)
@@ -351,7 +232,7 @@ class TestPSDPredictionFilesIteratorQuery(unittest.TestCase):
             "piecewise_predictions__numpoint_200__maxreduction_0.1.pkl", df2)
         with patch.object(cn, "PSD_DATA_DIR", self._tmpdir.name):
             result = PSDPredictionFileIterator.query(
-                file_filter=lambda dct: dct.get("numpoint") == 200,
+                file_filter=lambda dct: dct.get(cn.COL_NUM_POINT) == 200,
                 data_dir=self._tmpdir.name, is_model=False)
         # Only the second file should pass; its df has one row.
         self.assertEqual(len(result), 1)
@@ -388,7 +269,7 @@ class TestPSDPredictionFilesIteratorQuery(unittest.TestCase):
             "piecewise_predictions__numpoint_200__maxreduction_0.1.pkl", df2)
         with patch.object(cn, "PSD_DATA_DIR", self._tmpdir.name):
             result = PSDPredictionFileIterator.query(
-                file_filter=lambda dct: dct.get("numpoint") == 100,
+                file_filter=lambda dct: dct.get(cn.COL_NUM_POINT) == 100,
                 data_frame_filter=lambda d, _: d[d["value"] > 1],
                 data_dir=self._tmpdir.name, is_model=False)
         # File filter keeps df1 only; data frame filter then drops value=0.5 row.
