@@ -1,66 +1,102 @@
-'''Analyzes predictions from a Piecewise System Discovery object.'''
+'''Analyzes predictions from a Piecewise System Discovery object for a BioModel.'''
 
 import src.constants as cn  # type: ignore
-from psd_prediction_file_iterator import PSDPredictionFileIterator  # type: ignore
+from src.psd_prediction_file_iterator import PSDPredictionFileIterator  # type: ignore
+from src.model import Model  # type: ignore
 
+import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
+from typing import Union
 
 DEFAULT_MAX_CHANGEPOINT = 5000
 
 
 class PSDPredictionAnalyzer:
 
-    def __init__(self, is_pkl: bool = True, data_dir: str = cn.PSD_DATA_DIR) -> None:
+    def __init__(self, model_id: Union[str, int],
+            min_accuracy : float = 0.8,
+            accuracy_statistic: str = cn.COL_MEAN,
+            data_dir: str = cn.PSD_DATA_DIR) -> None:
         """Construct a PSDPredictionAnalyzer object.
 
         Sets up an iterator over piecewise prediction pickle files for use by analysis methods.
 
         Args:
-            is_pkl (bool): If True, the iterator will look for pickle files; if
-                is_pkl (bool): If True, the iterator will look for pickle files; if False, it will look for CSV files.
+            model_id (Union[str, int]): The identifier of the model to analyze, either the number or its name.
+            min_accuracy (float): The minimum accuracy threshold for predictions to be considered valid.
+            accuracy_statistic (str): The statistic to use for accuracy calculations.
             data_dir (str): The directory containing the data files.
         """
+        self.model_num, self.model_name = Model.getBiomodelNumberAndName(model_id)
         self.data_dir = data_dir
-        self.psd_iterator = PSDPredictionFileIterator(is_pkl=is_pkl, data_dir=data_dir)
+        self.min_accuracy = min_accuracy
+        self.accuracy_statistic = accuracy_statistic
+        self.model_df = self.getModelDF() # DataFrame with PSD predictions for the model
+        self.best_model_ser = self._getModelBestSer()  # Best PSD prediction
 
-    def getAUCConsistencyDF(self) -> pd.DataFrame:
-        """Gets data for analyzing the consistency of the AUC (Area Under the Curve) for a given system.
-
-        Returns:
-            pd.DataFrame: A DataFrame containing the analysis results, including the AUC values and
-            their consistency metrics. Only provides "model" aggregation type and max_changepoint=5000.
-        """
-        def _filter_dataframe(df: pd.DataFrame, dct: dict) -> pd.DataFrame:
-            filtered_columns = [cn.COL_SYSTEM_ID, cn.COL_AUC, cn.COL_P50, cn.COL_NUM_CHANGEPOINT,
-                    cn.COL_MAX_CHANGEPOINT, cn.COL_MAX_FRACTIONAL_REDUCTION,
-                    cn.COL_AGGREGATION_TYPE,
-                ]
-            try:
-                mask = df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL
-                mask &= df[cn.COL_MAX_CHANGEPOINT] == DEFAULT_MAX_CHANGEPOINT
-                result_df = df[mask][filtered_columns]
-                return result_df
-            except Exception as e:
-                raise ValueError(f"Error filtering DataFrame for {dct}: {e}")
-
-        filtered_df = self.psd_iterator.query(data_frame_filter=_filter_dataframe,
-                data_dir=self.data_dir)
-        return filtered_df
-
-    def analyzeAUCConsistency(self, system_id: str) -> pd.DataFrame:
-        """Analyze the consistency of the AUC (Area Under the Curve) for a given system.
+    def _filterDataframe(self, df: pd.DataFrame, dct: dict) -> pd.DataFrame:
+        """Filters a DataFrame based on the provided dictionary of conditions.
 
         Args:
-            system_id (str): The identifier of the system being analyzed.
+            df (pd.DataFrame): The DataFrame to filter.
+            dct (dict): A dictionary of column-value pairs to filter by.
+
+        Returns:
+            pd.DataFrame: A filtered DataFrame.
+        """
+        filtered_columns = [cn.COL_SYSTEM_ID, cn.COL_AUC, cn.COL_P50, cn.COL_NUM_CHANGEPOINT,
+                cn.COL_MAX_CHANGEPOINT, cn.COL_MAX_FRACTIONAL_REDUCTION,
+                cn.COL_AGGREGATION_TYPE,
+            ]
+        try:
+            mask = df[cn.COL_AGGREGATION_TYPE] == cn.COL_AGGREGATION_TYPE_MODEL
+            mask &= df[cn.COL_MAX_CHANGEPOINT] == DEFAULT_MAX_CHANGEPOINT
+            mask &= df[cn.COL_SYSTEM_ID] == self.model_name
+            result_df = df[mask][filtered_columns]
+            return result_df
+        except Exception as e:
+            raise ValueError(f"Error filtering DataFrame for {dct}: {e}")
+
+    def getModelDF(self) -> pd.DataFrame:
+        """Gets a DataFrame with PSD predictions for the model.
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the model data.
+        """
+        filtered_df = PSDPredictionFileIterator.query(
+                data_frame_filter=self._filterDataframe, data_dir=self.data_dir)
+        #
+        return filtered_df
+
+    def _getModelBestSer(self) -> pd.Series:
+        """Gets the best series for the model based on the optimization criteria:
+            Min AUC sucject to the constraints of min_accuracy and accuracy_statistic.
+
+        Args:
+            system_id (Optional[str]): The identifier of the system to filter by.
+
+        Returns:
+            pd.Series: A Series containing the best model data.
+        """
+        # Select the "best" row for the system_id
+        mask = self.model_df[self.accuracy_statistic] >= self.min_accuracy
+        df = self.model_df.loc[mask]
+        mask = df[cn.COL_AUC].idxmin()
+        ser = self.model_df[mask]
+        # Return the best row as a Series
+        return ser
+
+    def analyzeAUCConsistency(self) -> pd.DataFrame:
+        """Analyze the consistency of the AUC (Area Under the Curve) for a given system.
+
         Returns:
             pd.DataFrame: A DataFrame containing the analysis results, including the AUC values and
             their consistency metrics.
         """
-        filtered_df = self.getAUCConsistencyDF()
-        filtered_df = filtered_df[filtered_df[cn.COL_SYSTEM_ID] == system_id]
-        grouped_df = filtered_df.groupby(cn.COL_MAX_FRACTIONAL_REDUCTION).agg({
+        grouped_df = self.model_df.groupby(cn.COL_MAX_FRACTIONAL_REDUCTION).agg({
             cn.COL_AUC: [cn.COL_MEAN, cn.COL_STD, cn.COL_COUNT],
         })
-        grouped_df = grouped_df.fillna(0)
+        grouped_df = grouped_df.replace({0: np.nan})
+        grouped_df[cn.COL_CV] = grouped_df[(cn.COL_AUC, cn.COL_STD)] / grouped_df[(cn.COL_AUC, cn.COL_MEAN)]
 
-        return grouped_df
+        return pd.DataFrame(grouped_df)

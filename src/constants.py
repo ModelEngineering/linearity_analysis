@@ -50,6 +50,7 @@ COL_AGGREGATION_TYPE_MODEL = "model"
 COL_BOUNDARIES = "boundaries"  # List of segment boundaries calculated from the changepoints.
 COL_CHANGEPOINTS = "changepoints"  # List of detected change points.
 COL_COUNT = "count"  # Number of valid values used in calculating the statistics.
+COL_CV = "cv"  # Coefficient of variation of the valid values used in calculating the statistics.
 COL_CSV_FILE = "csv_file"  # Name of the CSV file containing the row of statistics.
 COL_ENDTIME = "endtime"
 COL_FILENAME = "filename"  # Name of the CSV file containing the row of statistics.

@@ -5,7 +5,7 @@ import src.constants as cn  # type: ignore
 import os
 import re
 import tellurium as te  # type: ignore
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Union, Tuple
 
 
 _ASSIGNMENT_RULE_RE = re.compile(
@@ -83,6 +83,26 @@ class Model(object):
             return int(model_name[5:])
         else:
             raise ValueError(f"Model name '{model_name}' is not a BioModels identifier.")
+
+    @classmethod
+    def getBiomodelNumberAndName(cls, model_id: Union[str, int]) -> Tuple[int, str]:
+        """Return the BioModels number and name.
+        Args:
+            model_id (Union[str, int]): The identifier of the model, either the number or its name.
+        Returns:
+            Tuple[int, str]: A tuple containing the BioModels number and name.
+        Raises:
+            ValueError: If the model_id is not a valid BioModels identifier.
+        """
+        if isinstance(model_id, int):
+            biomodel_num = model_id
+            biomodel_name = cls.getBiomodelName(model_id)
+        elif isinstance(model_id, str):
+            biomodel_name = model_id
+            biomodel_num = cls.getBiomodelNumberFromName(model_id)
+        else:
+            raise ValueError(f"Model id '{model_id}' is not a valid BioModels identifier.")
+        return biomodel_num, biomodel_name
 
     def getBiomodelNumber(self) -> int:
         """Return the BioModels number if the model name is a BioModels identifier."""
